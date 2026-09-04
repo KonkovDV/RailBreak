@@ -1,0 +1,13 @@
+# Third-party notices
+
+Код репозитория — MIT (`LICENSE`). Сдача трека хакатона Московского транспорта
+передаёт исключительные права на решение трека Фонду «ТИМ» (Положение 14.2.2).
+
+Ядро не вендорит Eigen, `mherb/kalman`, `robot_localization`.
+ROS 2 Humble — Apache 2.0 (upstream); ноды этого пакета его вызывают, не копируют.
+
+`tram_dr_localization/config/route_10.yaml` — полилиния остановок OSM
+(Щукинская → ул. Кулакова), снимок 2026-09-03, © OpenStreetMap contributors,
+[ODbL](https://opendatacommons.org/licenses/odbl/). Share-alike на производную
+базу. Это заглушка под карту заказчика, не ось пути и не предмет отчуждения
+исключительных прав по 14.2.2.

@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: plant / checker
+        run: python tools/eval/test_eval.py
+      - name: generator
+        run: python tools/synth/test_generate.py
+      - name: no GNSS in filter
+        run: python tools/eval/no_gnss_scan.py
+
+  cpp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: cmake standalone core
+        run: |
+          cmake -S standalone -B standalone/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+          cmake --build standalone/build --parallel
+          ctest --test-dir standalone/build --output-on-failure
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: synth e2e (generate -> replay_ukf -> envelope -> score)
+        run: |
+          python tools/synth/generate.py --out synth/runs
+          python tools/eval/run_e2e.py --ukf standalone/build/replay_ukf
+          python tools/synth/score.py --runs synth/runs
+
+  asan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: sanitizers on test_core only
+        run: |
+          cmake -S standalone -B standalone/build-asan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build standalone/build-asan --target test_core --parallel
+          ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+            ./standalone/build-asan/test_core
