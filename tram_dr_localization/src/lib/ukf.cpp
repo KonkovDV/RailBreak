@@ -149,6 +149,9 @@ void Ukf::reset() {
   have_v_chan_a_ = false;
   path_disagree_m_ = 0.0;
   path_disagree_latched_ = false;
+  mass_prior_acc_ = 0.0;
+  wheel_outage_s_ = 0.0;
+  encoder_outage_ = false;
   hist_i_ = 0;
   hist_fill_ = 0;
   std::memset(omega_hist_, 0, sizeof(omega_hist_));
@@ -399,8 +402,20 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   }
   n_omega_used_ = n_ok;
   if (n_ok == 0) {
+    // All channels NaN/out of range: do not keep a stale SCA consensus.
+    // sca_analyze marks every axle inflated → classify() can LOST (n≥4).
+    double phys[kStateDim];
+    std::memcpy(phys, x_, sizeof(phys));
+    xi_to_phys_p(phys, plant_);
+    last_sca_ = sca_analyze(omega, static_cast<std::size_t>(m), &phys[kD0], sca_p_);
+    encoder_outage_ = true;
+    nis_valid_ = false;
+    last_nis_ = 0.0;
+    s_unobserved_s_ += std::max(last_dt_s_, 0.0);
     return;
   }
+  encoder_outage_ = false;
+  wheel_outage_s_ = 0.0;
   double phys[kStateDim];
   std::memcpy(phys, x_, sizeof(phys));
   xi_to_phys_p(phys, plant_);
@@ -696,6 +711,13 @@ void Ukf::maybe_zupt(const double* omega, std::size_t n, const Input& u) {
     return;
   }
   x_[kV] = 0.0;
+  for (int i = 0; i < kStateDim; ++i) {
+    if (i == kV) {
+      continue;
+    }
+    la::at(P_, kStateDim, kV, i) = 0.0;
+    la::at(P_, kStateDim, i, kV) = 0.0;
+  }
   la::at(P_, kStateDim, kV, kV) = std::min(la::at(P_, kStateDim, kV, kV), 0.01);
   standstill_hold_ = true;
   mode_ = Mode::kStandstill;
@@ -761,6 +783,13 @@ void Ukf::apply_mass_prior() {
   if (cfg_.mass_prior_log_sigma <= 1e-9) {
     return;
   }
+  // σ=0.3 is a once-per-second prior, not a 50 Hz measurement. Applying it
+  // every tick pins log m to ~1 % of m0 (see F9).
+  mass_prior_acc_ += std::max(last_dt_s_, 0.0);
+  if (mass_prior_acc_ < 1.0) {
+    return;
+  }
+  mass_prior_acc_ = 0.0;
   const double z = std::log(std::max(plant_.m0_kg, 1.0));
   const double R = cfg_.mass_prior_log_sigma * cfg_.mass_prior_log_sigma;
   const double Pmm = la::at(P_, kStateDim, kMass, kMass);
@@ -808,6 +837,13 @@ void Ukf::classify(const Input& u, std::size_t n) {
   const double pss_lim = cfg_.k_lost * al_s;
   const int m = static_cast<int>(std::min(n, static_cast<std::size_t>(kNWheels)));
   const bool all_inflated = m >= 4 && last_sca_.n_inflated >= m;
+  if (encoder_outage_ || (n > 0 && n_omega_used_ == 0)) {
+    wheel_outage_s_ += std::max(last_dt_s_, 0.0);
+  } else if (n > 0) {
+    wheel_outage_s_ = 0.0;
+  }
+  const bool wheel_age_lost = wheel_outage_s_ > cfg_.age_lost_s;
+  const bool wheel_age_deg = wheel_outage_s_ > cfg_.age_degraded_s;
   const bool both_down = slip_latched_ && all_inflated;
   const double along = a_kin_ * ((x_[kV] >= 0.0) ? 1.0 : -1.0);
   if (u.brake > 0.15 && slip_latched_ && along > cfg_.a_kin_downhill) {
@@ -818,7 +854,7 @@ void Ukf::classify(const Input& u, std::size_t n) {
   const bool slide_on_grade =
       slide_grade_acc_ > std::max(cfg_.slide_grade_lost_s, 0.0);
   const bool lost = (sig_s > pss_lim) || (notch_missing_s_ > cfg_.notch_lost_s) ||
-                    all_inflated || both_down || slide_on_grade;
+                    all_inflated || both_down || slide_on_grade || wheel_age_lost;
   const bool few = n > 0 && n <= 2;
   int n_frozen_trailer = 0;
   for (int i = 0; i < m; ++i) {
@@ -835,7 +871,8 @@ void Ukf::classify(const Input& u, std::size_t n) {
       : ((few && (last_sca_.n_inflated >= 1 || n_frozen_ >= 1)) ||
          (last_sca_.n_inflated >= 2) || (n_frozen_ >= 2));
   const bool degraded = slip_latched_ || last_sca_.common_mode || wheels_split ||
-                        path_disagree_latched_ || (pvv > 4.0) || (pl_s >= al_s);
+                        path_disagree_latched_ || (pvv > 4.0) || (pl_s >= al_s) ||
+                        cfg_.r0_uncalibrated || wheel_age_deg;
   if (lost) {
     confidence_ = Confidence::kLost;
     confidence_v_ = Confidence::kLost;
@@ -843,7 +880,8 @@ void Ukf::classify(const Input& u, std::size_t n) {
   } else if (degraded) {
     confidence_ = Confidence::kDegraded;
     confidence_v_ = wheels_split || (pvv > 4.0) ? Confidence::kDegraded : Confidence::kOk;
-    confidence_s_ = (slip_latched_ || last_sca_.common_mode || path_disagree_latched_)
+    confidence_s_ = (slip_latched_ || last_sca_.common_mode || path_disagree_latched_ ||
+                     cfg_.r0_uncalibrated || wheel_age_deg)
                         ? Confidence::kDegraded
                         : Confidence::kOk;
   } else {
@@ -926,7 +964,17 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
   last_u_ = u;
   last_dt_s_ = dt_s;
   if (!initialized_) {
-    if (n == 0) {
+    if (n == 0 || omega == nullptr) {
+      return snapshot();
+    }
+    int n_ok = 0;
+    const int m0 = static_cast<int>(std::min(n, static_cast<std::size_t>(kNWheels)));
+    for (int i = 0; i < m0; ++i) {
+      if (std::isfinite(omega[i]) && std::fabs(omega[i]) <= kOmegaAbsMax) {
+        ++n_ok;
+      }
+    }
+    if (n_ok == 0) {
       return snapshot();
     }
     init_from_wheels(omega, n);
@@ -956,8 +1004,12 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
   }
   have_v_prev_ = true;
   v_prev_ = x_[kV];
-  // Plant a is Coulomb-capped. Flag if the estimate jumped harder than ~3 m/s².
-  a_unphysical_ = std::fabs(a_kin_) > 3.0;
+  // Coulomb cap ~ μ g; a constant 3 m/s² false-flags dry emergency braking.
+  double phys_a[kStateDim];
+  std::memcpy(phys_a, x_, sizeof(phys_a));
+  xi_to_phys_p(phys_a, plant_);
+  const double a_lim = 1.2 * std::clamp(phys_a[kMu], kMuMin, kMuMax) * plant_.g;
+  a_unphysical_ = std::fabs(a_kin_) > a_lim;
   classify(u, n);
   if (slip_latched_) {
     s_unobserved_s_ += std::max(dt_s, 0.0);

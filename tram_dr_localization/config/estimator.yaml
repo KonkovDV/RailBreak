@@ -33,10 +33,12 @@
     q_v: 0.0025              # white-accel intensity m²/s³ (Van Loan Q_d)
     zupt_hold_s: 0.3         # standstill only after this window. Range [0, 1]
     encoder_pulses_per_rev: 0  # 0 = unused; else R(ω) from pulse-count quantization
-    mass_prior_log_sigma: 0.3  # weak prior on log m; 0 = off. Caps (m,k) kernel.
+    mass_prior_log_sigma: 0.3  # weak prior on log m, applied once per second
     q_fb_wheels_n: 3000.0      # F_bias RW rate N/√s when wheels agree
     sca_z_thresh: 2.5
     sca_sigma_v_rel: 0.0     # extra σ as fraction of |v|; set from inspect_bag if ω is coarse
+    sca_sigma_v_mps: 0.15    # 1-sigma on r*omega before inflation
+    r0_uncalibrated: false   # Львёнок overlay sets true until identify_coast
     # IRW: average L/R pairs. false if one encoder per wheelset (axle-level ω).
     sca_pair_lr: true
     # Share of brake force that skips the μ cap (track magnet). 0 until payload
@@ -51,8 +53,9 @@
     axle_role: [0, 0, 0, 0] # 0 motor, 1 trailer. Львёнок: все motor (Bo-Bo).
     slide_grade_lost_s: 0.4
     a_kin_downhill: 0.05
-    # UKF keeps log d_i (no SI clip on sigma points). plant_step clip [0.85, 1.05]
-    # only when clip_params=true. Set wheel_radius_m from the data sheet
+    # xi_to_phys clips k_trac to [0.5, 1.5] and d_i to [0.85, 1.05].
+    # plant_step extra SI clip only when clip_params=true (not on UT points).
+    # Set wheel_radius_m from the data sheet
     # or identify_coast.py when GT velocity is present.
     # |notch|≤1 pass-through, else notch/8.
     notch_max_abs: 8.0

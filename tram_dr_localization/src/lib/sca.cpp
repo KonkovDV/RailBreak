@@ -25,7 +25,7 @@ double median_copy(std::array<double, kNWheels> v, int n) {
   return 0.5 * (v[n / 2 - 1] + v[n / 2]);
 }
 
-double radius_m(double d, double r0) { return std::max(d, kDMin) * r0; }
+double radius_m(double d, double r0) { return std::clamp(d, kDMin, kDMax) * r0; }
 
 bool agree_lr(double a, double b) {
   const double mean = 0.5 * (a + b);
@@ -65,6 +65,16 @@ ScaResult sca_analyze(const double* omega, std::size_t n, const double* d_scale,
     }
   }
   if (n_ok == 0) {
+    for (int i = 0; i < m; ++i) {
+      out.inflate[static_cast<std::size_t>(i)] = p.inflate_max;
+      out.r_omega[static_cast<std::size_t>(i)] = 1e6;
+      ++out.n_inflated;
+      if (is_trailer(p, i)) {
+        ++out.n_inflated_trailer;
+      } else {
+        ++out.n_inflated_motor;
+      }
+    }
     return out;
   }
 

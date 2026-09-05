@@ -52,7 +52,12 @@ TEST(Ukf, ZuptWithHoldBrake) {
     e = ukf.predict_and_update(u, z, 4, 0.02);
   }
   EXPECT_EQ(e.mode, tram_dr::Mode::kStandstill);
+  EXPECT_NEAR(e.x.v_mps, 0.0, 1e-12);
   EXPECT_LT(std::fabs(e.x.f_bias_n), 250.0);
+  for (int k = 0; k < 20; ++k) {
+    e = ukf.predict_and_update(u, z, 4, 0.02);
+  }
+  EXPECT_NEAR(e.x.v_mps, 0.0, 1e-9);
 }
 
 TEST(Ukf, NoZuptOnSlidingLock) {
@@ -324,6 +329,61 @@ TEST(Ukf, NanWheelDoesNotPoisonState) {
   EXPECT_TRUE(std::isfinite(e.x.v_mps));
   EXPECT_TRUE(std::isfinite(e.x.s_m));
   EXPECT_EQ(e.n_omega_used, 3);
+}
+
+TEST(Ukf, AllNanWheelsLost) {
+  tram_dr::Ukf ukf;
+  tram_dr::Input u;
+  u.notch_valid = true;
+  const double r = 0.35;
+  double omega[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+  tram_dr::UkfEstimate e{};
+  for (int k = 0; k < 20; ++k) {
+    e = ukf.predict_and_update(u, omega, 4, 0.02);
+  }
+  EXPECT_EQ(e.confidence, tram_dr::Confidence::kOk);
+  double dead[4] = {std::nan(""), std::nan(""), std::nan(""), std::nan("")};
+  e = ukf.predict_and_update(u, dead, 4, 0.02);
+  EXPECT_EQ(e.confidence, tram_dr::Confidence::kLost);
+  EXPECT_EQ(e.n_omega_used, 0);
+  EXPECT_GE(e.sca.n_inflated, 4);
+  for (int k = 0; k < 100; ++k) {
+    e = ukf.predict_and_update(u, dead, 4, 0.02);
+  }
+  EXPECT_EQ(e.confidence, tram_dr::Confidence::kLost);
+}
+
+TEST(Ukf, R0UncalibratedDegradesPath) {
+  tram_dr::UkfParams cfg;
+  cfg.r0_uncalibrated = true;
+  tram_dr::Ukf ukf(cfg);
+  tram_dr::Input u;
+  u.notch_valid = true;
+  const double r = 0.35;
+  double omega[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+  tram_dr::UkfEstimate e{};
+  for (int k = 0; k < 40; ++k) {
+    e = ukf.predict_and_update(u, omega, 4, 0.02);
+  }
+  EXPECT_EQ(e.confidence, tram_dr::Confidence::kDegraded);
+  EXPECT_EQ(e.confidence_s, tram_dr::Confidence::kDegraded);
+}
+
+TEST(Ukf, NotchInvalidEscalatesLost) {
+  tram_dr::Ukf ukf;
+  tram_dr::Input u;
+  u.notch_valid = true;
+  const double r = 0.35;
+  double omega[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+  tram_dr::UkfEstimate e{};
+  for (int k = 0; k < 10; ++k) {
+    e = ukf.predict_and_update(u, omega, 4, 0.02);
+  }
+  u.notch_valid = false;
+  for (int k = 0; k < 120; ++k) {
+    e = ukf.predict_and_update(u, omega, 4, 0.02);
+  }
+  EXPECT_EQ(e.confidence, tram_dr::Confidence::kLost);
 }
 
 TEST(LinAlg, ProjectPdMakesCholWork) {

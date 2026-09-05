@@ -34,6 +34,16 @@ WSP_TORQUE_SCALE = 0.45
 # EN 15595 / UIC 541-05: lock duration bound used in the generator, not a WSP.
 WSP_LOCK_MAX_S = 0.4
 OMEGA_MAX = 80.0
+# Wheel radius scale clip. Must match C++ kDMin (was 0.9 in the generator
+# contact ODE, which silently turned mismatch_r0 0.88 into 0.90).
+D_MIN = 0.85
+D_MAX = 1.05
+
+
+def clip_d_scale(d: float) -> float:
+    return min(D_MAX, max(float(d), D_MIN))
+
+
 # Wear 2005 Table 2 typical locomotive A,B. Eq. (9) only.
 # A is μ∞/μ0, not Davis A_d. B is s/m, not Davis B_d.
 POLACH9_A = 0.40
@@ -98,8 +108,13 @@ class VehicleState:
 
 
 def davis_resistance_n(v_mps: float, p: PlantParams | None = None) -> float:
+    """Signed Davis force subtracted in f_net. Odd in v; 0 for |v| < v_eps."""
     p = p or PlantParams()
-    return p.A_d + p.B_d * abs(v_mps) + p.C_d * v_mps * v_mps
+    if not math.isfinite(v_mps) or abs(v_mps) < p.v_eps:
+        return 0.0
+    av = abs(v_mps)
+    mag = p.A_d + p.B_d * av + p.C_d * av * av
+    return math.copysign(mag, v_mps)
 
 
 def traction_star_n(notch: float, v_mps: float, p: PlantParams | None = None) -> float:
@@ -247,15 +262,13 @@ def plant_step_from_contact(
     """Newton + Davis with a prescribed contact force. Generator only.
 
     No extra Coulomb clip: per-axle (11) saturates at Q_i μ as ε→∞.
-    Davis A is a moving-vehicle term; at |v| < v_eps it is not applied, so
-    standstill does not roll backward while wheels spin up. The filter twin
-    `plant_step` keeps A at rest (C++ parity).
+    Davis is odd in v and zero for |v| < v_eps (same as the filter twin).
     """
     p = p or PlantParams()
     if dt_s <= 0.0:
         return x
     m = max(x.m_eff_kg, 1000.0)
-    f_run = 0.0 if abs(x.v_mps) < p.v_eps else davis_resistance_n(x.v_mps, p)
+    f_run = davis_resistance_n(x.v_mps, p)
     a = (f_contact_n - f_run - x.f_bias_n) / m
     x.a_mps2 = a
     x.s_m += x.v_mps * dt_s + 0.5 * a * dt_s * dt_s
@@ -371,7 +384,7 @@ def wheel_contact_step(
     sgn = 1.0 if v >= 0.0 else -1.0
     f_brake_i = 0.0 if abs(v) < p.v_eps else br * m * p.a_svc * sgn / n_force
     for i in range(n):
-        r = max(d[i] if i < len(d) else 1.0, 0.9) * p.r0_m
+        r = clip_d_scale(d[i] if i < len(d) else 1.0) * p.r0_m
         slip = r * out[i] - v
         q_i = (m / n_force) * G
         if i < len(frozen) and frozen[i]:
@@ -481,7 +494,6 @@ def generator_step(
 
 PAIR_AGREE_REL = 0.12
 CURVE_SIGMA_REL = 0.08
-D_MIN = 0.85
 
 
 def sca_analyze(omega: Sequence[float], d_scale: Sequence[float] | None = None,
@@ -513,12 +525,25 @@ def sca_analyze(omega: Sequence[float], d_scale: Sequence[float] | None = None,
         w = float(omega[i])
         finite = math.isfinite(w) and abs(w) <= OMEGA_MAX
         ok.append(finite)
-        r = max(d[i] if i < len(d) else 1.0, D_MIN) * r0_m
+        r = clip_d_scale(d[i] if i < len(d) else 1.0) * r0_m
         v_raw.append(w * r if finite else 0.0)
         if finite and i < len(role) and role[i] == 1:
             n_trailer_ok += 1
     if not any(ok):
-        return empty
+        inf = [inflate_max] * m
+        n_inf_m = sum(1 for i in range(m) if not (i < len(role) and role[i] == 1))
+        n_inf_t = m - n_inf_m
+        return {
+            "n_inflated": m,
+            "n_inflated_motor": n_inf_m,
+            "n_inflated_trailer": n_inf_t,
+            "n_trailer_ok": 0,
+            "used_trailer_consensus": False,
+            "inflate": inf,
+            "r_omega": [1e6] * m,
+            "v_consensus_mps": 0.0,
+            "common_mode": False,
+        }
     v_work = list(v_raw)
     if pair_lr and m >= 4:
         pairs = [(0, 1), (2, 3)]
@@ -558,7 +583,7 @@ def sca_analyze(omega: Sequence[float], d_scale: Sequence[float] | None = None,
     n_inf_m = 0
     n_inf_t = 0
     for i in range(m):
-        r = max(d[i] if i < len(d) else 1.0, D_MIN) * r0_m
+        r = clip_d_scale(d[i] if i < len(d) else 1.0) * r0_m
         trailer = i < len(role) and role[i] == 1
         if not ok[i]:
             inflate.append(inflate_max)

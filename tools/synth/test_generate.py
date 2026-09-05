@@ -96,6 +96,13 @@ class GenerateTests(unittest.TestCase):
         v_wh = 0.35 * (r["w0"] + r["w1"] + r["w2"] + r["w3"]) / 4.0
         self.assertAlmostEqual(v_wh * 0.88, r["gt_v"], delta=0.4)
 
+    def test_all_encoders_dead_writes_nan(self) -> None:
+        rows = simulate("all_encoders_dead", duration_s=12.0)
+        early = [r for r in rows if r["t_s"] < 7.0]
+        late = [r for r in rows if r["t_s"] > 8.5]
+        self.assertTrue(all(math.isfinite(r["w0"]) for r in early))
+        self.assertTrue(all(math.isnan(r["w0"]) for r in late))
+
     def test_mismatch_jerk_ramps(self) -> None:
         rows = simulate("mismatch_jerk", duration_s=1.0)
         at = [r for r in rows if 0.38 < r["t_s"] < 0.42]

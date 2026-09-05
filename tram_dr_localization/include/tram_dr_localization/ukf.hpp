@@ -78,6 +78,11 @@ struct UkfParams {
   double path_disagree_floor_mps{0.45};
   double path_disagree_rel{0.04};
   double path_disagree_tau_s{60.0};
+  // True when wheel_radius_m is a twin placeholder, not a sheet/identify value.
+  // Forces DEGRADED on s until identify_coast writes r0 (Львёнок default).
+  bool r0_uncalibrated{false};
+  double age_degraded_s{0.25};  // core ω-outage (all-NaN / n_ok==0), ROS also uses
+  double age_lost_s{1.0};
 };
 
 // Scaled UKF (Julier 2002; Wan & van der Merwe).
@@ -159,6 +164,9 @@ class Ukf {
   bool have_v_chan_a_{false};
   double path_disagree_m_{0.0};
   bool path_disagree_latched_{false};
+  double mass_prior_acc_{0.0};
+  double wheel_outage_s_{0.0};
+  bool encoder_outage_{false};
 };
 
 }  // namespace tram_dr

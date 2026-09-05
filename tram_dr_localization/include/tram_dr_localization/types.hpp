@@ -15,6 +15,8 @@ constexpr int kStateDim = 6 + kNWheels;  // 12
 constexpr int kSigma = 2 * kStateDim + 1;
 constexpr double kDMin = 0.85;
 constexpr double kDMax = 1.05;
+constexpr double kKtracMin = 0.5;
+constexpr double kKtracMax = 1.5;
 constexpr double kMuMin = 0.05;
 constexpr double kMuMax = 0.5;
 // Default clip: Combino twin / Витязь. Львёнок YAML сужает до [15, 40] т.
@@ -121,9 +123,9 @@ inline void xi_to_phys(double* x, double mass_min_kg = kMassMinKg,
   const double lo = std::log(std::max(mass_min_kg, 1.0));
   const double hi = std::log(std::max(mass_max_kg, mass_min_kg + 1.0));
   x[kMass] = std::exp(std::clamp(x[kMass], lo, hi));
-  x[kKtrac] = std::exp(std::clamp(x[kKtrac], std::log(0.3), std::log(3.0)));
+  x[kKtrac] = std::exp(std::clamp(x[kKtrac], std::log(kKtracMin), std::log(kKtracMax)));
   for (int i = 0; i < kNWheels; ++i) {
-    x[kD0 + i] = std::exp(x[kD0 + i]);
+    x[kD0 + i] = std::clamp(std::exp(x[kD0 + i]), kDMin, kDMax);
   }
   x[kMu] = kMuMin + (kMuMax - kMuMin) * sigmoid(x[kMu]);
 }

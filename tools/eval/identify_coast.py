@@ -129,6 +129,7 @@ def format_yaml(est: dict) -> str:
     ]
     if "wheel_radius_m" in est:
         lines.append(f"    wheel_radius_m: {est['wheel_radius_m']:.4f}")
+        lines.append("    r0_uncalibrated: false")
     lines.append("    # tau_drv_s: 0.0")
     lines.append("    # gamma_rot: 0.0")
     return "\n".join(lines) + "\n"

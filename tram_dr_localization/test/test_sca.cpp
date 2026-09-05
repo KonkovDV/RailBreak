@@ -48,6 +48,13 @@ TEST(Sca, NanChannelInflatesOnlyThatAxle) {
   EXPECT_GT(r.inflate[1], r.inflate[0]);
 }
 
+TEST(Sca, AllNanInflatesEveryAxle) {
+  const double w[] = {std::nan(""), std::nan(""), std::nan(""), std::nan("")};
+  const double d[] = {1.0, 1.0, 1.0, 1.0};
+  const auto r = tram_dr::sca_analyze(w, 4, d, tram_dr::ScaParams{});
+  EXPECT_EQ(r.n_inflated, 4);
+}
+
 TEST(Sca, VectorApiFillsR) {
   std::vector<double> omega{8.0, 8.1, 8.0, 8.05};
   std::vector<double> rdiag;

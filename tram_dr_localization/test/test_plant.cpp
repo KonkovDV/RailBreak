@@ -13,8 +13,18 @@ TEST(Plant, DavisGrowsWithSpeed) {
   const auto p = tram_dr::default_plant_params();
   const double r0 = tram_dr::davis_resistance_n(0.0, p);
   const double r10 = tram_dr::davis_resistance_n(10.0, p);
-  EXPECT_NEAR(r0, p.A_d, 1e-9);
-  EXPECT_GT(r10, r0);
+  const double rneg = tram_dr::davis_resistance_n(-10.0, p);
+  EXPECT_NEAR(r0, 0.0, 1e-9);
+  EXPECT_GT(r10, 0.0);
+  EXPECT_NEAR(rneg, -r10, 1e-9);
+}
+
+TEST(Plant, DavisOpposesReverseMotion) {
+  tram_dr::State x;
+  x.v_mps = -0.5;
+  tram_dr::Input u;
+  tram_dr::plant_step(x, u, 0.02);
+  EXPECT_GT(x.v_mps, -0.5);
 }
 
 TEST(Plant, NotchAcceleratesForward) {
@@ -50,7 +60,7 @@ TEST(Plant, FirstStepMatchesPythonTwin) {
   tram_dr::Input u;
   u.notch = 1.0;
   tram_dr::plant_step(x, u, 0.02);
-  const double a = (28000.0 * 1.3 - 800.0) / 28000.0;
+  const double a = 28000.0 * 1.3 / 28000.0;
   EXPECT_NEAR(x.v_mps, a * 0.02, 1e-9);
   EXPECT_NEAR(x.s_m, 0.5 * a * 0.02 * 0.02, 1e-12);
 }
@@ -63,7 +73,7 @@ TEST(Plant, TauDrvSlowsFirstStep) {
   u.notch = 1.0;
   double f_lag = 0.0;
   tram_dr::plant_step(x, u, 0.02, p, &f_lag);
-  const double a = (28000.0 * 1.3 - 800.0) / 28000.0;
+  const double a = 1.3;
   EXPECT_LT(x.v_mps, a * 0.02 - 1e-6);
   EXPECT_GT(f_lag, 0.0);
   EXPECT_LT(f_lag, 28000.0 * 1.3);
@@ -76,7 +86,7 @@ TEST(Plant, GammaRotLowersAccel) {
   tram_dr::Input u;
   u.notch = 1.0;
   tram_dr::plant_step(x, u, 0.02, p);
-  const double a = (28000.0 * 1.3 - 800.0) / 28000.0;
+  const double a = 1.3;
   EXPECT_LT(x.v_mps, a * 0.02 - 1e-6);
 }
 
@@ -97,7 +107,7 @@ TEST(Plant, NotchAsAccelUsesLiveMass) {
   tram_dr::Input u;
   u.notch = 1.0;
   tram_dr::plant_step(x, u, 0.02, p);
-  const double a = 1.3 - 800.0 / 40000.0;
+  const double a = 1.3;
   EXPECT_NEAR(x.v_mps, a * 0.02, 1e-9);
 }
 
@@ -107,7 +117,7 @@ TEST(Plant, GradeForceOnCoast) {
   tram_dr::State x;
   tram_dr::Input u;
   tram_dr::plant_step(x, u, 0.02, p);
-  const double a = -(800.0 + 28000.0 * 9.81 * 0.02) / 28000.0;
+  const double a = -(28000.0 * 9.81 * 0.02) / 28000.0;
   EXPECT_NEAR(x.v_mps, a * 0.02, 1e-9);
 }
 
@@ -141,7 +151,7 @@ TEST(Plant, JerkLimiterCapsFirstStep) {
   u.notch = 1.0;
   double f_lag = 0.0;
   tram_dr::plant_step(x, u, 0.02, p, &f_lag);
-  const double a_alg = (28000.0 * 1.3 - 800.0) / 28000.0;
+  const double a_alg = 1.3;
   EXPECT_LT(x.v_mps, a_alg * 0.02 - 1e-6);
   EXPECT_NEAR(f_lag, 28000.0 * 0.7 * 0.02, 1.0);
 }

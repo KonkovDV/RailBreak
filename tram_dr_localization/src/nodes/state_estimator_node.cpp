@@ -57,6 +57,9 @@ class StateEstimatorNode : public rclcpp::Node {
     cfg.mass_prior_log_sigma = declare_parameter("mass_prior_log_sigma", 0.3);
     cfg.q_fb_wheels_n = declare_parameter("q_fb_wheels_n", 3000.0);
     cfg.stop_gate_m = declare_parameter("stop_gate_m", 40.0);
+    cfg.r0_uncalibrated = declare_parameter("r0_uncalibrated", false);
+    cfg.age_degraded_s = declare_parameter("age_degraded_s", 0.25);
+    cfg.age_lost_s = declare_parameter("age_lost_s", 1.0);
     const auto stops = declare_parameter("route_s_m", std::vector<double>{});
     cfg.n_stops = 0;
     for (double s : stops) {
@@ -95,6 +98,7 @@ class StateEstimatorNode : public rclcpp::Node {
     sca.z_thresh = declare_parameter("sca_z_thresh", 2.5);
     sca.pair_lr = declare_parameter("sca_pair_lr", true);
     sca.sigma_v_rel = declare_parameter("sca_sigma_v_rel", 0.0);
+    sca.sigma_v_mps = declare_parameter("sca_sigma_v_mps", 0.15);
     const auto roles = declare_parameter("axle_role", std::vector<int64_t>{});
     for (int i = 0; i < tram_dr::kNWheels; ++i) {
       sca.axle_role[static_cast<std::size_t>(i)] = 0;
@@ -108,8 +112,8 @@ class StateEstimatorNode : public rclcpp::Node {
         std::max(1, declare_parameter("n_wheels", 4)));
     n_wheels_param_ = std::min(n_wheels_param_, static_cast<std::size_t>(tram_dr::kNWheels));
     notch_max_abs_ = declare_parameter("notch_max_abs", 8.0);
-    age_degraded_s_ = declare_parameter("age_degraded_s", 0.25);
-    age_lost_s_ = declare_parameter("age_lost_s", 1.0);
+    age_degraded_s_ = cfg.age_degraded_s;
+    age_lost_s_ = cfg.age_lost_s;
     twist_is_omega_ = declare_parameter("twist_is_omega", false);
     const std::string notch_type = declare_parameter("notch_type", std::string("float32"));
     const std::string wheels_type = declare_parameter("wheels_type", std::string("float64_array"));
@@ -143,6 +147,7 @@ class StateEstimatorNode : public rclcpp::Node {
                 vehicle_profile_.c_str(), n_wheels_param_, cfg.n_stops);
     const int period_ms =
         std::max(1, static_cast<int>(std::lround(1000.0 / std::max(rate_hz, 1.0))));
+    period_s_ = 1.0 / std::max(rate_hz, 1.0);
     timer_ = create_wall_timer(std::chrono::milliseconds(period_ms), [this]() { tick(); });
   }
 
@@ -151,22 +156,22 @@ class StateEstimatorNode : public rclcpp::Node {
     last_u_.notch = tram_dr::map_notch(raw, notch_max_abs_);
     last_u_.notch_valid = true;
     have_notch_ = true;
+    last_notch_stamp_ = now();
   }
 
   void apply_wheels(const double* data, std::size_t n, const rclcpp::Time* stamp = nullptr) {
     n_omega_ = std::min(n, n_wheels_param_);
-    bool any_ok = false;
     for (std::size_t i = 0; i < n_omega_; ++i) {
       omega_[i] = data[i];
-      if (std::isfinite(data[i]) && std::fabs(data[i]) <= tram_dr::kOmegaAbsMax) {
-        any_ok = true;
-      }
     }
-    have_wheels_ = any_ok;
-    if (any_ok) {
-      last_wheel_stamp_ = (stamp != nullptr && stamp->nanoseconds() > 0) ? *stamp : now();
-      step_filter(true, stamp);
+    // Ingest all-NaN frames too: SCA inflates every axle and the UKF goes LOST.
+    // Skipping them left last_sca_ stale and status OK until the topic died.
+    have_wheels_ = n_omega_ > 0;
+    if (n_omega_ == 0) {
+      return;
     }
+    last_wheel_stamp_ = (stamp != nullptr && stamp->nanoseconds() > 0) ? *stamp : now();
+    step_filter(true, stamp);
   }
 
   void apply_twist_vx(double vx, const rclcpp::Time* stamp = nullptr) {
@@ -263,6 +268,15 @@ class StateEstimatorNode : public rclcpp::Node {
     tram_dr::Input u = last_u_;
     if (!have_notch_) {
       u.notch_valid = false;
+    } else if (last_notch_stamp_.has_value()) {
+      const double notch_age = (t - *last_notch_stamp_).seconds();
+      // Invalidate after a short silence so UKF's notch_lost_s (2 s) is the
+      // documented LOST delay. Waiting notch_lost_s here plus another
+      // notch_lost_s in classify doubled the watchdog.
+      if (notch_age > 0.25) {
+        u.notch_valid = false;
+        last_u_.notch_valid = false;
+      }
     }
     const std::size_t n = (fresh_wheels && have_wheels_) ? n_omega_ : 0;
     last_e_ = ukf_.predict_and_update(u, n > 0 ? omega_.data() : nullptr, n, dt);
@@ -374,7 +388,7 @@ class StateEstimatorNode : public rclcpp::Node {
     const rclcpp::Time t = now();
     if ((have_wheels_ || have_notch_) && last_step_.has_value()) {
       const double idle = (t - *last_step_).seconds();
-      if (idle > 0.015) {
+      if (idle > 1.5 * period_s_) {
         step_filter(false);
       }
     }
@@ -393,6 +407,7 @@ class StateEstimatorNode : public rclcpp::Node {
   double notch_max_abs_{8.0};
   double age_degraded_s_{0.25};
   double age_lost_s_{1.0};
+  double period_s_{0.02};
   double r0_m_{0.35};
   double wheel_latency_s_{0.0};
   bool twist_is_omega_{false};
@@ -400,6 +415,7 @@ class StateEstimatorNode : public rclcpp::Node {
   bool last_step_used_wheels_{false};
   std::optional<rclcpp::Time> last_step_;
   std::optional<rclcpp::Time> last_wheel_stamp_;
+  std::optional<rclcpp::Time> last_notch_stamp_;
   rclcpp::QoS in_qos_{1};
 
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_;

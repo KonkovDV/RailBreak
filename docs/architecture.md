@@ -18,7 +18,8 @@ GT                     /gt/* только оффлайн
 Launch: `vehicle:=` накладывается на `estimator.yaml`. Оверлей Львёнка **не**
 заменяет `mass_kg` / `wheel_radius_m`: их нет в YAML вагона. До `identify_*`
 по bag в фильтре остаются числа twin (28 т, 0.35 м) плюс клип [15, 40] т,
-`sca_pair_lr=false`, `mass_door_kg=12000`.
+`sca_pair_lr=false`, `mass_door_kg=12000`, `r0_uncalibrated=true` (статус
+пути DEGRADED, пока `identify_coast` не запишет `wheel_radius_m`).
 
 | YAML | Зачем |
 | --- | --- |
@@ -108,7 +109,9 @@ WSP держит |κ|<κ_cut, D ≥ AL_s     → DEGRADED по s (интегра
 юз + уклон, кузов ещё тормозит     → DEGRADED (синтетика 1:56)
 юз + уклон, a_kin > 0.05           → LOST
 n≤2 любое рассогласование          → DEGRADED
-все оси inflated (n≥4) / нет notch → LOST
+все оси inflated (n≥4) / все NaN   → LOST
+нет notch >2 с (после stale 0.25 с) → LOST
+r0_uncalibrated (Львёнок)          → DEGRADED по s до identify_coast
 нет колёс >1 с                     → DEGRADED→LOST; публикация идёт
 нет колёс на старте                → UNINITIALIZED; топик публикуется
 ```

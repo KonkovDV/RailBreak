@@ -8,8 +8,14 @@ namespace tram_dr {
 PlantParams default_plant_params() { return {}; }
 
 double davis_resistance_n(double v_mps, const PlantParams& p) {
+  // Odd in v: resistance opposes motion. Zero in the standstill dead zone
+  // so A_d does not roll a parked car backward (ZUPT is not a substitute).
+  if (!std::isfinite(v_mps) || std::fabs(v_mps) < p.v_eps) {
+    return 0.0;
+  }
   const double av = std::fabs(v_mps);
-  return p.A_d + p.B_d * av + p.C_d * v_mps * v_mps;
+  const double mag = p.A_d + p.B_d * av + p.C_d * av * av;
+  return std::copysign(mag, v_mps);
 }
 
 double traction_star_n(double notch, double v_mps, const PlantParams& p) {
@@ -96,7 +102,7 @@ void plant_step(State& x, const Input& u, double dt_s, const PlantParams& p,
   x.v_mps += d.a_mps2 * dt_s;
   if (clip_params) {
     x.m_eff_kg = std::clamp(x.m_eff_kg, p.mass_min_kg, p.mass_max_kg);
-    x.k_trac = std::clamp(x.k_trac, 0.5, 1.5);
+    x.k_trac = std::clamp(x.k_trac, kKtracMin, kKtracMax);
     x.mu_hat = std::clamp(x.mu_hat, kMuMin, kMuMax);
     for (double& di : x.d) {
       di = std::clamp(di, kDMin, kDMax);

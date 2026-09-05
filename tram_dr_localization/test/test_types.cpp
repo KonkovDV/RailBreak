@@ -32,3 +32,28 @@ TEST(Types, ReparamRoundtrip) {
   EXPECT_NEAR(x[tram_dr::kMu], 0.35, 1e-9);
   EXPECT_NEAR(x[tram_dr::kD0], 1.0, 1e-12);
 }
+
+TEST(Types, XiToPhysClipsKtracAndD) {
+  double x[tram_dr::kStateDim]{};
+  x[tram_dr::kMass] = 28000.0;
+  x[tram_dr::kKtrac] = 10.0;
+  x[tram_dr::kMu] = 0.35;
+  for (int i = 0; i < tram_dr::kNWheels; ++i) {
+    x[tram_dr::kD0 + i] = 2.0;
+  }
+  tram_dr::phys_to_xi(x);
+  tram_dr::xi_to_phys(x);
+  EXPECT_NEAR(x[tram_dr::kKtrac], tram_dr::kKtracMax, 1e-12);
+  EXPECT_NEAR(x[tram_dr::kD0], tram_dr::kDMax, 1e-12);
+
+  x[tram_dr::kMass] = 28000.0;
+  x[tram_dr::kKtrac] = 0.1;
+  x[tram_dr::kMu] = 0.35;
+  for (int i = 0; i < tram_dr::kNWheels; ++i) {
+    x[tram_dr::kD0 + i] = 0.5;
+  }
+  tram_dr::phys_to_xi(x);
+  tram_dr::xi_to_phys(x);
+  EXPECT_NEAR(x[tram_dr::kKtrac], tram_dr::kKtracMin, 1e-12);
+  EXPECT_NEAR(x[tram_dr::kD0], tram_dr::kDMin, 1e-12);
+}

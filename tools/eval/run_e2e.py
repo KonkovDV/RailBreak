@@ -54,6 +54,10 @@ def main(argv: list[str] | None = None) -> int:
         veh = VEHICLE_YAML.get(d.name)
         if veh is not None:
             cmd.extend(["--vehicle", str(veh)])
+        if "route10" in d.name:
+            cmd.extend(
+                ["--route", str(ROOT / "tram_dr_localization" / "config" / "route_10.yaml")]
+            )
         r = subprocess.run(cmd)
         if r.returncode != 0:
             sys.stderr.write(f"{d.name}: replay_ukf rc={r.returncode}\n")

@@ -32,3 +32,6 @@
     # Switch wait on the bridge is not a passenger exchange.
     mass_door_kg: 12000.0
     brake_nonadhesive_frac: 0.0
+    # Twin r0=0.35 remains in estimator.yaml until identify_coast writes Ø.
+    # Do not claim OK on s with an uncalibrated scale (mismatch_r0 theorem).
+    r0_uncalibrated: true

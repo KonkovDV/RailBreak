@@ -158,6 +158,11 @@ int main(int argc, char** argv) {
       cfg.mass_door_kg = ov.mass_door_kg;
       ukf.set_params(cfg);
     }
+    if (ov.has_r0_uncalibrated) {
+      tram_dr::UkfParams cfg = ukf.params();
+      cfg.r0_uncalibrated = ov.r0_uncalibrated;
+      ukf.set_params(cfg);
+    }
   } else {
     std::cerr << "replay_ukf: Combino NF100 twin plant (pass --vehicle for "
                  "lvenok_moscow / vityaz_m)\n";

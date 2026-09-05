@@ -15,14 +15,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from baselines import naive_wheel, plant_only, sca_wheel
 from check_envelope import check_rows, main as check_main
-from plant_ref import G, PlantParams, VehicleState, davis_resistance_n, plant_step
+from plant_ref import D_MIN, G, PlantParams, VehicleState, davis_resistance_n, plant_step
 from plant_ref import generator_step, polach11_force_n, polach9_mu, sca_analyze
 from plant_ref import wheel_speeds_step
 
 
 class PlantRefTests(unittest.TestCase):
     def test_davis_at_rest(self) -> None:
-        self.assertAlmostEqual(davis_resistance_n(0.0), 800.0)
+        self.assertAlmostEqual(davis_resistance_n(0.0), 0.0)
+
+    def test_davis_opposes_reverse(self) -> None:
+        x = VehicleState(v_mps=-0.5)
+        plant_step(x, notch=0.0, brake=0.0, dt_s=0.02)
+        self.assertGreater(x.v_mps, -0.5)
+
+    def test_d_min_allows_mismatch_r0(self) -> None:
+        self.assertLessEqual(D_MIN, 0.88)
 
     def test_notch_accelerates(self) -> None:
         x = VehicleState(v_mps=1.0)
@@ -32,7 +40,7 @@ class PlantRefTests(unittest.TestCase):
     def test_first_step_matches_cpp_plant(self) -> None:
         x = VehicleState()
         plant_step(x, notch=1.0, brake=0.0, dt_s=0.02)
-        a = (28000.0 * 1.3 - 800.0) / 28000.0
+        a = 1.3
         self.assertAlmostEqual(x.v_mps, a * 0.02, places=12)
         self.assertAlmostEqual(x.s_m, 0.5 * a * 0.02 * 0.02, places=12)
 
@@ -41,7 +49,7 @@ class PlantRefTests(unittest.TestCase):
         x = VehicleState()
         filt = [0.0]
         plant_step(x, notch=1.0, brake=0.0, dt_s=0.02, p=p, f_trac_filt=filt)
-        a = (28000.0 * 1.3 - 800.0) / 28000.0
+        a = 1.3
         self.assertLess(x.v_mps, a * 0.02 - 1e-6)
         self.assertGreater(filt[0], 0.0)
         self.assertLess(filt[0], 28000.0 * 1.3)
@@ -51,7 +59,7 @@ class PlantRefTests(unittest.TestCase):
         x = VehicleState()
         filt = [0.0]
         plant_step(x, notch=1.0, brake=0.0, dt_s=0.02, p=p, f_trac_filt=filt)
-        a = (28000.0 * 1.3 - 800.0) / 28000.0
+        a = 1.3
         self.assertLess(x.v_mps, a * 0.02 - 1e-6)
         self.assertAlmostEqual(filt[0], 28000.0 * 0.7 * 0.02, delta=1.0)
 
@@ -59,21 +67,21 @@ class PlantRefTests(unittest.TestCase):
         p = PlantParams(gamma_rot=0.10)
         x = VehicleState()
         plant_step(x, notch=1.0, brake=0.0, dt_s=0.02, p=p)
-        a = (28000.0 * 1.3 - 800.0) / 28000.0
+        a = 1.3
         self.assertLess(x.v_mps, a * 0.02 - 1e-6)
 
     def test_notch_as_accel_uses_live_mass(self) -> None:
         p = PlantParams(notch_as_accel=True)
         x = VehicleState(m_eff_kg=40000.0)
         plant_step(x, notch=1.0, brake=0.0, dt_s=0.02, p=p)
-        a = 1.3 - 800.0 / 40000.0
+        a = 1.3
         self.assertAlmostEqual(x.v_mps, a * 0.02, places=12)
 
     def test_i_grade_on_coast(self) -> None:
         p = PlantParams(i_grade=0.02)
         x = VehicleState()
         plant_step(x, notch=0.0, brake=0.0, dt_s=0.02, p=p)
-        a = -(800.0 + 28000.0 * G * 0.02) / 28000.0
+        a = -(28000.0 * G * 0.02) / 28000.0
         self.assertAlmostEqual(x.v_mps, a * 0.02, places=12)
 
     def test_plant_clamps_mass(self) -> None:
@@ -120,6 +128,10 @@ class PlantRefTests(unittest.TestCase):
     def test_sca_nan_channel(self) -> None:
         r = sca_analyze([10.0, float("nan"), 10.0, 10.0])
         self.assertEqual(r["n_inflated"], 1)
+
+    def test_sca_all_nan_inflates_every_axle(self) -> None:
+        r = sca_analyze([float("nan")] * 4)
+        self.assertEqual(r["n_inflated"], 4)
 
     def test_wheel_spin_on_wet(self) -> None:
         p = PlantParams()
@@ -960,6 +972,7 @@ class PitchToolsTests(unittest.TestCase):
         self.assertAlmostEqual(est["wheel_radius_m"], r_true, delta=1e-6)
         yaml = format_yaml(est)
         self.assertIn("wheel_radius_m:", yaml)
+        self.assertIn("r0_uncalibrated: false", yaml)
 
     def test_identify_notch_yaml_key(self) -> None:
         from identify_notch import format_yaml, identify

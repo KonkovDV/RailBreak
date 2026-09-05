@@ -61,6 +61,8 @@ struct VehicleOverlay {
   std::array<int, kNWheels> axle_role{};
   bool has_sigma_v_rel{false};
   double sigma_v_rel{0.0};
+  bool has_r0_uncalibrated{false};
+  bool r0_uncalibrated{false};
 };
 
 inline std::string yaml_trim(std::string s) {
@@ -167,6 +169,12 @@ inline bool parse_vehicle_yaml_text(const std::string& text, VehicleOverlay* o) 
     } else if (key == "sca_sigma_v_rel") {
       o->has_sigma_v_rel = true;
       o->sigma_v_rel = std::strtod(val.c_str(), nullptr);
+    } else if (key == "r0_uncalibrated") {
+      bool b = false;
+      if (yaml_bool(val, &b)) {
+        o->has_r0_uncalibrated = true;
+        o->r0_uncalibrated = b;
+      }
     } else if (key == "notch_as_accel") {
       bool b = false;
       if (yaml_bool(val, &b)) {

@@ -35,13 +35,26 @@ int main() {
     expect(tram_dr::kMu == 11, "mu after six d_i");
     expect(tram_dr::kDMin == 0.85, "d clip lo");
     expect(tram_dr::kDMax == 1.05, "d clip hi");
+    expect(tram_dr::kKtracMin == 0.5, "k_trac clip lo");
+    expect(tram_dr::kKtracMax == 1.5, "k_trac clip hi");
     expect(std::fabs(tram_dr::map_notch(8.0) - 1.0) < 1e-12, "notch 8 -> 1");
     expect(std::fabs(tram_dr::map_notch(4.0) - 0.5) < 1e-12, "notch 4 -> 0.5");
     expect(std::fabs(tram_dr::map_notch(0.4) - 0.4) < 1e-12, "notch already unit");
   }
   {
     const auto p = tram_dr::default_plant_params();
-    expect(std::fabs(tram_dr::davis_resistance_n(0.0, p) - 800.0) < 1e-9, "davis rest");
+    expect(std::fabs(tram_dr::davis_resistance_n(0.0, p)) < 1e-9, "davis rest");
+    expect(std::fabs(tram_dr::davis_resistance_n(-5.0, p) +
+                     tram_dr::davis_resistance_n(5.0, p)) < 1e-9,
+           "davis odd");
+    tram_dr::State rest;
+    tram_dr::Input coast;
+    const auto d0 = tram_dr::plant_forces(rest, coast, p);
+    expect(std::fabs(d0.a_mps2) < 1e-12, "davis rest does not roll");
+    tram_dr::State rev;
+    rev.v_mps = -0.5;
+    tram_dr::plant_step(rev, coast, 0.02, p);
+    expect(rev.v_mps > -0.5, "davis opposes reverse");
     tram_dr::State x;
     x.v_mps = 1.0;
     tram_dr::Input u;
@@ -52,7 +65,7 @@ int main() {
     tram_dr::Input full;
     full.notch = 1.0;
     tram_dr::plant_step(y, full, 0.02);
-    const double a = (28000.0 * 1.3 - 800.0) / 28000.0;
+    const double a = 1.3;
     expect(std::fabs(y.v_mps - a * 0.02) < 1e-9, "first-step v twin");
   }
   {
@@ -63,7 +76,7 @@ int main() {
     u.notch = 1.0;
     double f_lag = 0.0;
     tram_dr::plant_step(x, u, 0.02, p, &f_lag);
-    const double a_alg = (28000.0 * 1.3 - 800.0) / 28000.0;
+    const double a_alg = 1.3;
     expect(x.v_mps < a_alg * 0.02 - 1e-6, "tau slows first step");
     expect(f_lag > 0.0 && f_lag < 28000.0 * 1.3, "lag between 0 and F*");
   }
@@ -75,7 +88,7 @@ int main() {
     u.notch = 1.0;
     double f_lag = 0.0;
     tram_dr::plant_step(x, u, 0.02, p, &f_lag);
-    const double a_alg = (28000.0 * 1.3 - 800.0) / 28000.0;
+    const double a_alg = 1.3;
     expect(x.v_mps < a_alg * 0.02 - 1e-6, "jerk slows first step");
     expect(std::fabs(f_lag - 28000.0 * 0.7 * 0.02) < 1.0, "jerk df = m j dt");
   }
@@ -86,7 +99,7 @@ int main() {
     tram_dr::Input u;
     u.notch = 1.0;
     tram_dr::plant_step(x, u, 0.02, p);
-    const double a_alg = (28000.0 * 1.3 - 800.0) / 28000.0;
+    const double a_alg = 1.3;
     expect(x.v_mps < a_alg * 0.02 - 1e-6, "gamma lowers a");
   }
   {
@@ -189,7 +202,12 @@ int main() {
       e = ukf.predict_and_update(u, z, 4, 0.02);
     }
     expect(e.mode == tram_dr::Mode::kStandstill, "zupt with hold brake");
+    expect(std::fabs(e.x.v_mps) < 1e-12, "zupt zeros v");
     expect(std::fabs(e.x.f_bias_n) < 250.0, "zupt does not dump Davis into F_bias");
+    for (int k = 0; k < 20; ++k) {
+      e = ukf.predict_and_update(u, z, 4, 0.02);
+    }
+    expect(std::fabs(e.x.v_mps) < 1e-9, "zupt holds v after extra ticks");
   }
   {
     tram_dr::Ukf ukf;
@@ -246,6 +264,43 @@ int main() {
     expect(!e.a_unphysical, "healthy a not unphysical");
     e = ukf.predict_and_update(u, nullptr, 0, 0.02);
     expect(!e.nis_valid, "nis invalid on predict-only");
+  }
+  {
+    tram_dr::Ukf ukf;
+    tram_dr::Input u;
+    u.notch_valid = true;
+    const double r = 0.35;
+    double omega[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+    tram_dr::UkfEstimate e{};
+    for (int k = 0; k < 20; ++k) {
+      e = ukf.predict_and_update(u, omega, 4, 0.02);
+    }
+    expect(e.confidence == tram_dr::Confidence::kOk, "pre-outage OK");
+    double dead[4] = {std::nan(""), std::nan(""), std::nan(""), std::nan("")};
+    e = ukf.predict_and_update(u, dead, 4, 0.02);
+    expect(e.confidence == tram_dr::Confidence::kLost, "all-NaN is LOST");
+    expect(e.n_omega_used == 0, "n_omega_used 0");
+    expect(e.sca.n_inflated >= 4, "all axles inflated");
+    for (int k = 0; k < 100; ++k) {
+      e = ukf.predict_and_update(u, dead, 4, 0.02);
+    }
+    expect(e.confidence == tram_dr::Confidence::kLost, "all-NaN stays LOST for 2s");
+    expect(e.confidence != tram_dr::Confidence::kOk, "all-NaN never returns OK");
+  }
+  {
+    tram_dr::UkfParams cfg;
+    cfg.r0_uncalibrated = true;
+    tram_dr::Ukf ukf(cfg);
+    tram_dr::Input u;
+    u.notch_valid = true;
+    const double r = 0.35;
+    double omega[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+    tram_dr::UkfEstimate e{};
+    for (int k = 0; k < 40; ++k) {
+      e = ukf.predict_and_update(u, omega, 4, 0.02);
+    }
+    expect(e.confidence == tram_dr::Confidence::kDegraded, "uncalibrated r0 DEGRADED");
+    expect(e.confidence_s == tram_dr::Confidence::kDegraded, "uncalibrated r0 DEGRADED s");
   }
   {
     tram_dr::Ukf ukf;
@@ -392,7 +447,7 @@ int main() {
     tram_dr::Input u;
     u.notch = 1.0;
     tram_dr::plant_step(heavy, u, 0.02, p);
-    const double a_closed = 1.3 - 800.0 / 40000.0;
+    const double a_closed = 1.3;
     expect(std::fabs(heavy.v_mps - a_closed * 0.02) < 1e-9, "accel-notch uses live m");
   }
   {
@@ -401,7 +456,7 @@ int main() {
     tram_dr::State x;
     tram_dr::Input u;
     tram_dr::plant_step(x, u, 0.02, p);
-    const double a = -(800.0 + 28000.0 * 9.81 * 0.02) / 28000.0;
+    const double a = -(28000.0 * 9.81 * 0.02) / 28000.0;
     expect(std::fabs(x.v_mps - a * 0.02) < 1e-9, "grade force on coast");
   }
   {
@@ -637,13 +692,15 @@ int main() {
         "    axle_role: [0, 0, 0, 0]\n"
         "    mass_min_kg: 15000.0\n"
         "    mass_max_kg: 40000.0\n"
-        "    mass_door_kg: 12000.0\n";
+        "    mass_door_kg: 12000.0\n"
+        "    r0_uncalibrated: true\n";
     tram_dr::VehicleOverlay ov;
     expect(tram_dr::parse_vehicle_yaml_text(y, &ov), "parse lvenok clip yaml");
     expect(!ov.has_mass, "lvenok m0 TBD");
     expect(ov.has_mass_min && ov.mass_min_kg == 15000.0, "lvenok mass_min 15 t");
     expect(ov.has_mass_max && ov.mass_max_kg == 40000.0, "lvenok mass_max 40 t");
     expect(ov.has_mass_door && ov.mass_door_kg == 12000.0, "lvenok mass_door");
+    expect(ov.has_r0_uncalibrated && ov.r0_uncalibrated, "lvenok r0 uncalibrated");
     tram_dr::PlantParams p = tram_dr::default_plant_params();
     tram_dr::ScaParams s{};
     tram_dr::apply_vehicle_overlay(ov, &p, &s);

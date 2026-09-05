@@ -196,6 +196,9 @@ def scenario_cmd(name: str, t: float, _v: float, s_m: float = 0.0) -> Cmd:
         polach_B = POLACH9_B_WET_S_PER_M
         polach_kA = POLACH11_KA_WET
         polach_kS = POLACH11_KS_WET
+    elif name == "all_encoders_dead":
+        # After t=8 s simulate() writes NaN on every ω. Filter must leave OK.
+        notch = 0.6
     elif name == "coast_grade_route10":
         # Sign test: coast on estimated Strogino descent. Filter has no i(s).
         # F_bias must absorb; large κ on coast is model error, not slide.
@@ -270,6 +273,7 @@ SCENARIOS = [
     "slide_on_grade",
     "six_axle",
     "wet_clean",
+    "all_encoders_dead",
     "coast_grade_route10",
     "slide_on_grade_route10",
     "slide_on_grade_route10_steep",
@@ -345,6 +349,8 @@ def simulate(name: str, duration_s: float = 30.0, noise_sigma: float = 0.0,
             if hold_w3 is None:
                 hold_w3 = measured[3]
             measured[3] = hold_w3
+        if name == "all_encoders_dead" and t > 8.0:
+            measured = [float("nan")] * len(measured)
         if name == "tight_curve":
             # Independently rotating wheels, 1524 mm gauge, R ≈ 25 m.
             # Bogie L/R pair_lr should cancel this before SCA.
