@@ -12,7 +12,7 @@ HMI-таблица ниже — ядро `tramDR-0.0.6`, seed 42 (e2e после
 
 Прогон: `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py`.
 Главная метрика — **HMI-rate**: доля записей со статусом OK, у которых
-$\lvert\hat s-s_{\mathrm{gt}}\rvert>5+0.05 s_{\mathrm{gt}}$. RMSE на юзе
+$\lvert\hat s-s_{\mathrm{gt}}\rvert>5+0.05\lvert s_{\mathrm{gt}}\rvert$. RMSE на юзе
 плохой и это ожидаемо.
 
 Конверт пути: 5 м + 5% пройденного GT. Скорость: порог 2 км/ч ниже 30 км/ч.

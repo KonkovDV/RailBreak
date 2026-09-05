@@ -85,6 +85,7 @@ python tools/eval/inspect_bag.py data/bags/run01 \
 `path_disagree_m`, `path_disagree_latched`, `b_s_m`, `pl_s_m`, `al_s_m`, `age_s`, `wheels_fresh`, `n_frozen`, `n_slip_axles`,
 `nis`, `chol_fail`, `slip_latched`, `zupt_at_stop`.
 $over_m = PL_s = k_{\mathrm{over}}\sqrt{P_{ss}}+b_s$.
+Фильтр: $AL_s=5+0.05\max(\hat s,0)$. Чекер HMI: $5+0.05\lvert s_{\mathrm{gt}}\rvert$.
 
 `route_10.yaml` — вершины остановок OSM (9 точек; ginfo: 9 туда / 8 обратно
 без Бурназяна; списки «8» не удаляют стоп без GTFS), не ось пути и не $i(s)$.

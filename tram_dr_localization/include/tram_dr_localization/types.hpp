@@ -38,7 +38,7 @@ enum StateIndex {
 struct State {
   double s_m{0.0};
   double v_mps{0.0};
-  double a_mps2{0.0};  // diagnostic F_net / m, not a UKF column
+  double a_mps2{0.0};  // diagnostic F_net / (m (1+γ)), not a UKF column
   double f_bias_n{0.0};
   double m_eff_kg{28000.0};
   double k_trac{1.0};

@@ -17,7 +17,7 @@
     ukf_alpha: 0.58         # W_c^(0)≥0 ⇒ α≥0.518; Luo–Moroz PSD ⇒ α≥0.577. Range [0.58, 1]
     ukf_beta: 2.0            # [0, 2]
     ukf_kappa: 0.0
-    kappa_cut: 0.25          # |rω−v|/max(|v|,1). Range (0, 1]
+    kappa_cut: 0.25          # |v_wh−v|/max(|v|,1). Range (0, 1]
     r_common_mode: 80.0      # extra R when |κ| large. Range [1, 1e4]
     p_ss_init: 0.25          # (0.5 m)^2; s=0 is DR origin
     k_sigma: 2.0
@@ -25,7 +25,7 @@
     freeze_s: 0.5            # stuck-axle window (s). Range [0.1, 2]
     ukf_cubature: false      # Arasaratnam–Haykin CKF; default scaled UT
     kappa_hold_s: 0.2        # |κ| must persist this long before slip latch
-    k_lost: 2.5              # LOST if √P_ss > k_lost (5 + 0.05 s)
+    k_lost: 2.5              # LOST if √P_ss > k_lost * (5 + 0.05 max(s,0))
     notch_lost_s: 2.0
     allow_reverse: false
     mass_door_kg: 3000.0     # P on log m after ZUPT at a stop. Львёнок: 12000.

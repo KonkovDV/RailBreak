@@ -455,7 +455,7 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   }
   const double v_wh = last_sca_.v_consensus_mps;
   const double v_body = x_[kV];
-  // Denominator floor 1 m/s: relative wheel slide κ=(rω−v)/v is degenerate near
+  // Denominator floor 1 m/s: relative wheel slide κ=(v_wh−v)/v is degenerate near
   // standstill (a 0.14 m/s stop transient reads as 100% slide). Below the
   // floor, standstill logic (ZUPT) owns the estimate, not the slip detector.
   const double r_par = v_wh - v_body;
@@ -576,8 +576,9 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   for (int i = 0; i < m; ++i) {
     innov[i] = w[i] - zhat[i];
   }
-  // Huber/DCS: Reff = R max(1, ν²/(c² S)). Caps the information of a locked
-  // wheel at full slide so it cannot drag v̂ after finite SCA inflate.
+  // Huber/DCS: scale S_ii (already Pzz+R) by max(1, ν²/(c² S_ii)). Caps
+  // the information of a locked wheel at full slide so it cannot drag v̂
+  // after finite SCA inflate.
   if (cfg_.huber_c > 0.0) {
     const double c2 = cfg_.huber_c * cfg_.huber_c;
     for (int i = 0; i < m; ++i) {

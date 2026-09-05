@@ -2,7 +2,7 @@
 
 `tools/eval/check_envelope.py` не импортирует UKF. Точка не принимается,
 если нет интервала, нет статуса доверия или GT пробивает конверт
-$\lvert \hat s - s_{\mathrm{gt}}\rvert > 5 + 0.05\Delta s$ при статусе OK.
+$\lvert \hat s - s_{\mathrm{gt}}\rvert > 5 + 0.05\lvert s_{\mathrm{gt}}\rvert$ при статусе OK.
 
 Класс `ENVELOPE_GT` — детектор hazardously-misleading (HMI): система сказала
 OK, пока ошибка уже выше alert limit. Главная метрика — **HMI-rate**

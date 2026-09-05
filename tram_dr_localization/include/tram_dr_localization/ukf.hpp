@@ -35,8 +35,8 @@ struct UkfEstimate {
   double s_unobserved_s{0.0};
   int n_omega_used{0};
   int n_slip_axles{0};  // ω̇-pattern motors under traction, not encoder freeze
-  double relative_wheel_slide{0.0};  // κ = (rω−v)/max(|v|,1); EN 15595 name
-  double path_disagree_m{0.0};       // ∫|rω_med − v_A| dt (signed phases)
+  double relative_wheel_slide{0.0};  // κ = (v_wh−v)/max(|v|,1); EN 15595 name
+  double path_disagree_m{0.0};       // ∫|v_wh − v_A| dt above floor (signed phases)
   bool path_disagree_latched{false};
   double v_chan_a_mps{0.0};          // channel-A shadow speed (no wheel update)
   bool zupt_at_stop{true};           // mass_door allowed (no map, or |s−stop|≤gate)
@@ -49,7 +49,7 @@ struct UkfParams {
   double alpha{0.58};
   double beta{2.0};
   double kappa_ut{0.0};        // Julier kappa, not creepage
-  double kappa_cut{0.25};      // relative wheel slide |rω-v|/v; EN 15595 κ
+  double kappa_cut{0.25};      // relative wheel slide |v_wh−v|/max(|v|,1)
   double r_common_mode{80.0};  // extra R scale when κ is large
   double p_ss_init{0.25};      // (0.5 m)^2; s=0 is the DR origin, not a map fix
   double k_sigma{2.0};
@@ -57,7 +57,7 @@ struct UkfParams {
   double freeze_s{0.5};        // stuck-axle window; not a tick count
   bool cubature{false};        // Arasaratnam–Haykin CKF; default scaled UT
   double kappa_hold_s{0.2};    // common-mode must persist before latch
-  double k_lost{2.5};          // LOST if √P_ss > k_lost (5 + 0.05 s)
+  double k_lost{2.5};          // LOST if √P_ss > k_lost * (5 + 0.05 max(s,0))
   double notch_lost_s{2.0};    // no notch for this long → LOST
   bool allow_reverse{false};   // otherwise clip s≥0, v≥−1
   double mass_door_kg{3000.0}; // P_mm impulse on leaving ZUPT at a stop
