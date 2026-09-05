@@ -57,7 +57,7 @@ Release `replay_ukf`. $i(s)$ в ноду не класть. Не перепис�
 
 | Сценарий | OK | DEGRADED | HMI-rate | missed path до DEGRADED |
 | --- | ---: | ---: | ---: | --- |
-| coast_grade_route10 | 2500 | 0 | **0** | n/a (выбег, F_bias съел рампу) |
+| coast_grade_route10 | 2500 | 0 | **0** | n/a (выбег, $F_{\mathrm{bias}}$ съел рампу) |
 | slide_on_grade_route10 | 434 | 2066 | **0** | 1.67 м |
 | slide_on_grade_route10_steep | 434 | 2066 | **0** | 1.67 м |
 | grade_traction_route10 | 11 | 2489 | **0** | 0.11 м |
@@ -77,8 +77,8 @@ DEGRADED, не LOST. В этом сценарии WSP выключен, инач
 
 На `slip_accel` нет LOST: оси в юзе согласны друг с другом, путь ненаблюдаем,
 латч — DEGRADED по $s$. Знак остатка не латчит рампу тяги (`mismatch_jerk`).
-До DEGRADED при 54 км/ч $b_s=\kappa_{\mathrm{cut}}\lvert v\rvert\,\texttt{kappa_hold_s}\approx 0.75\,\mathrm{m}$
-при $v=15\,\mathrm{m/s}$ — задержка $\kappa$, если он срабатывает (близнец).
+До DEGRADED при 54 км/ч $b_s=\kappa_{\mathrm{cut}}\lvert v\rvert T_d\approx 0.75\,\mathrm{m}$
+($T_d$ = `kappa_hold_s`, $v=15\,\mathrm{m/s}$) — задержка $\kappa$, если он срабатывает (близнец).
 На маршруте 10 $v_{\max}=60$ км/ч (mos.ru) → $b_s\approx 0.83\,\mathrm{m}$.
 На `slide_brake` с WSP-циклами первый DEGRADED ~1.7 м (ядро 0.0.6).
 На этом CPU `replay_ukf` Release p50 ≈ 13 µs (не стенд заказчика).

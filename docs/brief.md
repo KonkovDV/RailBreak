@@ -91,7 +91,7 @@ $n=4$ или $6$; лишние $d_i$ не обновляются. Вход $u=(n
 **Т3.** При качении уравнение кузова линейно по $(m,k,F_b)$ при известном
 Дэвисе. Практически видно направление $k/m$ и $F_b$; раздельно масса и
 тяга обусловлены слабо. Среднее $\bar d$ отделимо только через нелинейность
-$P_{\max}/|v|$ и $C_d v^2$. Сценарии `diameter_wear` (UKF ≈ naive) и
+$P_{\max}/\lvert v\rvert$ и $C_d v^2$. Сценарии `diameter_wear` (UKF ≈ naive) и
 `mismatch_r0` (HMI > 0 при статусе `OK`) — следствия, не сбои фильтра.
 
 Локально ненаблюдаемые ядра при фиксированном режиме:
@@ -113,12 +113,10 @@ $P_{\max}/|v|$ и $C_d v^2$. Сценарии `diameter_wear` (UKF ≈ naive) и
 
 ### Кузов
 
-
 $$
 m_{\mathrm{eff}}(1+\gamma)\dot v
 = F_{\mathrm{trac}}(n,v)-F_{\mathrm{brake}}(b,v)-R_{\mathrm{run}}(v)-F_{\mathrm{bias}}.
 $$
-
 
 $F_{\mathrm{bias}}$ — скаляр неучтённой силы. Членов $mg\sin i(s)$ и
 сопротивления кривой в горячем пути нет. Опция `i_grade` по умолчанию 0.
@@ -142,12 +140,10 @@ $n\in[-1,1]$ после `map_notch` (знак сохраняется).
 
 Дэвис нечётен по скорости и равен нулю в мёртвой зоне стоянки:
 
-
 $$
-R_{\mathrm{run}}(v)=\operatorname{sgn}(v)\,(A_d+B_d|v|+C_d v^2),\qquad
-R=0\text{ при }|v|<v_\varepsilon=0.1\,\mathrm{m/s}.
+R_{\mathrm{run}}(v)=\operatorname{sgn}(v)\,(A_d+B_d\lvert v\rvert+C_d v^2),\qquad
+R=0\text{ при }\lvert v\rvert<v_\varepsilon=0.1\,\mathrm{m/s}.
 $$
-
 
 Старт: $A_d=800$ Н, $B_d=40$ Н·с/м, $C_d=6$ Н·с²/м². Без знака сила
 на $v<0$ разгоняла бы назад; без мёртвой зоны фильтр «пятился» бы на
@@ -174,28 +170,26 @@ $J\dot\omega=T-r F_{\mathrm{adh}}$, $J=60$ кг·м² (оценка). Три к�
 
 ### Скольжение в фильтре
 
-
 $$
-\kappa=\frac{v_{\mathrm{wh}}-v}{\max(|v|,1\,\mathrm{m/s})},\qquad
+\kappa=\frac{v_{\mathrm{wh}}-v}{\max(\lvert v\rvert,1\,\mathrm{m/s})},\qquad
 v_{\mathrm{wh}}=\mathrm{median}_i(d_i r_0\omega_i).
 $$
 
-
 Термин: relative wheel slide (EN 15595), не крип пятна контакта. Пол 1 м/с
 обязателен: иначе стояночный хвост читается как 100 %. Latch, если
-$|\kappa|>0.25$ держится `kappa_hold_s` (0.2 с) **и** знак паритета
+$\lvert\kappa\rvert>0.25$ держится `kappa_hold_s` (0.2 с) **и** знак паритета
 совпадает с физикой (тяга: колёса быстрее кузова; тормоз: наоборот).
 Модель, опережающая колёса на рампе тяги, даёт остаток противоположного
 знака — это не latch (`mismatch_jerk`).
 
-Скрытый юз под WSP ($|\kappa|<\kappa_{\mathrm{cut}}$):
+Скрытый юз под WSP ($\lvert\kappa\rvert<\kappa_{\mathrm{cut}}$):
 
 
 $$
-D=\int |v_{\mathrm{wh}}-v_A|\,\mathrm{d}t
+D=\int \lvert v_{\mathrm{wh}}-v_A\rvert\,\mathrm{d}t
 $$
 
-(на тяге только $v_{\mathrm{wh}}>v_A$; пол $\max(0.45,\,0.04\max(|v_A|,1))$ м/с;
+(на тяге только $v_{\mathrm{wh}}>v_A$; пол $\max(0.45,\,0.04\max(\lvert v_A\rvert,1))$ м/с;
 иначе спад $\tau=60$ с).
 $v_A$ — теневая скорость канала A. На тормозе $F_{\mathrm{bias}}$ в тени
 обнуляется, иначе фильтр объясняет низкое $\mu$ силой и $D$ не растёт.
@@ -249,21 +243,24 @@ $$
 Слабое псевдоизмерение на $\log m$: $\sigma\approx 0.3$ **раз в секунду**,
 не каждый такт 50 Гц.
 
-Huber/DCS на диагонали инновационной ковариации (уже с $R$):
-$S_{ii}\leftarrow S_{ii}\max\bigl(1,\nu_i^2/(c^2 S_{ii})\bigr)$, $c=3$.
+Huber/DCS на диагонали инновационной ковариации (уже с $R$), $c=3$:
+
+$$
+S_{ii}\leftarrow S_{ii}\max\bigl(1,\nu_i^2/(c^2 S_{ii})\bigr).
+$$
+
+Масштабируется только диагональ, не полная $S$.
 
 После обновления $P\leftarrow P-KSK^\top$, затем проекция на ближайшую
 положительную матрицу (`project_pd`). Это не форма Джозефа и не square-root UKF.
-При сбое Холецкого среднее шагает, $P\leftarrow P+Q+$ bump, счётчик `chol_fail`.
+При сбое Холецкого среднее шагает, $P\leftarrow P+Q+\mathrm{bump}$, счётчик `chol_fail`.
 
 Protection level:
 
-
 $$
 PL_s=k_{\mathrm{over}}\sqrt{P_{ss}}+b_s,\qquad
-b_s=\kappa_{\mathrm{cut}}\,|v|\,T_d
+b_s=\kappa_{\mathrm{cut}}\,\lvert v\rvert\,T_d
 $$
-
 
 до срабатывания latch; после latch член $b_s$ не ограничен.
 При $v=15$ м/с, $T_d=0.2$ с, $\kappa_{\mathrm{cut}}=0.25$: $b_s=0.75$ м.

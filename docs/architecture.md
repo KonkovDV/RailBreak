@@ -84,7 +84,7 @@ python tools/eval/inspect_bag.py data/bags/run01 \
 `mode`, `model_version`, `vehicle_profile`, `n_wheels`, `relative_wheel_slide`,
 `path_disagree_m`, `path_disagree_latched`, `b_s_m`, `pl_s_m`, `al_s_m`, `age_s`, `wheels_fresh`, `n_frozen`, `n_slip_axles`,
 `nis`, `chol_fail`, `slip_latched`, `zupt_at_stop`.
-$over_m = PL_s = k_{\mathrm{over}}\sqrt{P_{ss}}+b_s$.
+`over_m` $=PL_s=k_{\mathrm{over}}\sqrt{P_{ss}}+b_s$.
 Фильтр: $AL_s=5+0.05\max(\hat s,0)$. Чекер HMI: $5+0.05\lvert s_{\mathrm{gt}}\rvert$.
 
 `route_10.yaml` — вершины остановок OSM (9 точек; ginfo: 9 туда / 8 обратно
@@ -101,21 +101,21 @@ $h(s)$ — `profile_from_bag.py` оффлайн. Длину 5.5 км не цит
 
 ## Деградация
 
-```
-все оси живы, малый κ              → OK
-одна ось freeze                    → inflate этой оси, v OK
-мотор буксует, trailer живы        → медиана по trailer, если axle_role задан
-все оси юзят при тормозе           → DEGRADED, latch по s
-WSP держит |κ|<κ_cut, D ≥ AL_s     → DEGRADED по s (интеграл двух принципов)
-юз + уклон, кузов ещё тормозит     → DEGRADED (синтетика 1:56)
-юз + уклон, a_kin > 0.05           → LOST
-n≤2 любое рассогласование          → DEGRADED
-все оси inflated (n≥4) / все NaN   → LOST
-нет notch >2 с (после stale 0.25 с) → LOST
-r0_uncalibrated (Львёнок)          → DEGRADED по s до identify_coast
-нет колёс >1 с                     → DEGRADED→LOST; публикация идёт
-нет колёс на старте                → UNINITIALIZED; топик публикуется
-```
+| Условие | Статус |
+| --- | --- |
+| все оси живы, малый $\lvert\kappa\rvert$ | `OK` |
+| одна ось freeze | inflate этой оси, $v$ `OK` |
+| мотор буксует, trailer живы | медиана по trailer, если `axle_role` задан |
+| все оси юзят при тормозе | `DEGRADED`, latch по $s$ |
+| WSP держит $\lvert\kappa\rvert<\kappa_{\mathrm{cut}}$, $D\ge AL_s$ | `DEGRADED` по $s$ (интеграл двух принципов) |
+| юз + уклон, кузов ещё тормозит | `DEGRADED` (синтетика 1:56) |
+| юз + уклон, $a_{\mathrm{kin}}>0.05$ | `LOST` |
+| $n\le 2$, любое рассогласование | `DEGRADED` |
+| все оси inflated ($n\ge 4$) / все NaN | `LOST` |
+| нет notch дольше $2$ с (после stale $0.25$ с) | `LOST` |
+| `r0_uncalibrated` (Львёнок) | `DEGRADED` по $s$ до `identify_coast` |
+| нет колёс дольше $1$ с | `DEGRADED`→`LOST`; публикация идёт |
+| нет колёс на старте | `UNINITIALIZED`; топик публикуется |
 
 По умолчанию `axle_role` все motor. У Львёнка это факт Bo-Bo, не гипотеза:
 ветки trailer нет. При потере связи с берегом борт считает дальше; на берегу
