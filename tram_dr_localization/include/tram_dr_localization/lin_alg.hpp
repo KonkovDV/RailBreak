@@ -68,8 +68,11 @@ inline void mat_mul(const double* A, const double* B, double* C, int n) {
   }
 }
 
-// Lower Cholesky A = L L^T. Returns false if not SPD; then adds jitter.
+// Lower Cholesky of A + jitter*I. False for invalid dimensions/data or non-SPD.
 inline bool chol(const double* A, double* L, int n, double jitter = 1e-9) {
+  if (!A || !L || n <= 0 || n > kCap || !std::isfinite(jitter) || jitter < 0)
+    return false;
+  for (int i = 0; i < n * n; ++i) if (!std::isfinite(A[i])) return false;
   double work[kCap * kCap];
   for (int i = 0; i < n * n; ++i) {
     work[i] = A[i];
@@ -87,12 +90,13 @@ inline bool chol(const double* A, double* L, int n, double jitter = 1e-9) {
         s -= at(L, n, i, k) * at(L, n, j, k);
       }
       if (i == j) {
-        if (s <= 0.0) {
+        if (!(s > 0.0) || !std::isfinite(s)) {
           return false;
         }
         at(L, n, i, j) = std::sqrt(s);
       } else {
         at(L, n, i, j) = s / at(L, n, j, j);
+        if (!std::isfinite(at(L, n, i, j))) return false;
       }
     }
   }
@@ -101,6 +105,8 @@ inline bool chol(const double* A, double* L, int n, double jitter = 1e-9) {
 
 // Solve A x = b for SPD A via Cholesky. x may alias b.
 inline bool solve_spd(const double* A, const double* b, double* x, int n) {
+  if (!b || !x || n <= 0 || n > kCap) return false;
+  for (int i = 0; i < n; ++i) if (!std::isfinite(b[i])) return false;
   double L[kCap * kCap];
   if (!chol(A, L, n, 1e-12)) {
     return false;
@@ -119,12 +125,14 @@ inline bool solve_spd(const double* A, const double* b, double* x, int n) {
       s -= at(L, n, j, i) * x[j];
     }
     x[i] = s / at(L, n, i, i);
+    if (!std::isfinite(x[i])) return false;
   }
   return true;
 }
 
 // Invert small SPD S (m x m) into Sinv.
 inline bool inv_spd(const double* S, double* Sinv, int m) {
+  if (!S || !Sinv || m <= 0 || m > kCap) return false;
   double eye_col[kCap];
   double col[kCap];
   for (int j = 0; j < m; ++j) {
@@ -150,15 +158,23 @@ inline void symmetrize(double* A, int n) {
   }
 }
 
-// Nearest SPD in the eigenbasis (Higham-lite): symmetrize, Jacobi, clamp λ.
+// Symmetric eigenvalue-floor repair. Not a proof of statistical consistency.
+// Valid SPD input above the floor is preserved, rather than re-diagonalized.
 inline void project_pd(double* A, int n, double lam_floor = 1e-12) {
-  if (n <= 0 || n > kCap) {
+  if (!A || n <= 0 || n > kCap || !std::isfinite(lam_floor) || lam_floor <= 0) {
     return;
   }
+  for (int i = 0; i < n * n; ++i) if (!std::isfinite(A[i])) return;
   symmetrize(A, n);
+  double test[kCap * kCap], lower[kCap * kCap];
+  copy(A, test, n * n);
+  for (int i = 0; i < n; ++i) at(test, n, i, i) -= lam_floor;
+  if (chol(test, lower, n, 0.0)) return;
   double V[kCap * kCap];
   eye(V, n);
-  for (int sweep = 0; sweep < 24; ++sweep) {
+  // A sweep is O(n^2) rotations; 24 rotations was not 24 sweeps for L=12.
+  bool converged = false;
+  for (int rotation = 0; rotation < 32 * n * n; ++rotation) {
     double max_off = 0.0;
     int p = 0;
     int q = 1;
@@ -173,6 +189,7 @@ inline void project_pd(double* A, int n, double lam_floor = 1e-12) {
       }
     }
     if (max_off < 1e-14) {
+      converged = true;
       break;
     }
     const double app = at(A, n, p, p);
@@ -182,7 +199,7 @@ inline void project_pd(double* A, int n, double lam_floor = 1e-12) {
     if (std::fabs(apq) > 1e-18) {
       const double theta = 0.5 * (aqq - app) / apq;
       const double sign = (theta >= 0.0) ? 1.0 : -1.0;
-      t = sign / (std::fabs(theta) + std::sqrt(1.0 + theta * theta));
+      t = sign / (std::fabs(theta) + std::hypot(1.0, theta));
     }
     const double c = 1.0 / std::sqrt(1.0 + t * t);
     const double s = t * c;
@@ -205,9 +222,19 @@ inline void project_pd(double* A, int n, double lam_floor = 1e-12) {
       at(V, n, k, q) = s * vip + c * viq;
     }
   }
+  // If the iteration budget is exhausted, retain a conservative Gershgorin
+  // bound in this orthogonal basis instead of silently discarding correlations.
+  double residual_bound = 0.0;
+  if (!converged) {
+    for (int i = 0; i < n; ++i) {
+      double row = 0.0;
+      for (int j = 0; j < n; ++j) if (i != j) row += std::fabs(at(A, n, i, j));
+      residual_bound = std::max(residual_bound, row);
+    }
+  }
   double lam[kCap];
   for (int i = 0; i < n; ++i) {
-    lam[i] = std::max(at(A, n, i, i), lam_floor);
+    lam[i] = std::max(at(A, n, i, i) + residual_bound, lam_floor);
   }
   double tmp[kCap * kCap];
   for (int i = 0; i < n; ++i) {
