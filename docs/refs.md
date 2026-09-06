@@ -8,9 +8,9 @@
 
 | | Где | Зачем |
 | --- | --- | --- |
-| Julier 2002 (scaled UT); Luo & Moroz 2009 (PSD) | `ukf.cpp` $\alpha=0.58$ | необходимое $W_c^{(0)}\ge 0$ ($\alpha\ge 0.518$ при $\beta=2$); достаточное $1/\sqrt{3}\approx 0.577$ |
+| Julier 2002 (scaled UT); Luo & Moroz 2009 (PSD) | `ukf.cpp` $\alpha=0.58$ | необходимое $W_c^{(0)}\ge 0$ даёт окно $\alpha\in[0.517638,\,1.931852]$ при $\beta=2$ и **не зависит от $L$** ($\beta=1$: $[0.618034,\,1.618034]$; $\beta=0$: ровно $\{1\}$); достаточное $1/\sqrt{1+\beta}=0.577350$, выбранное 0.58 — запас $+0.459\,\%$ |
 | Arasaratnam & Haykin, IEEE TSP 2009 | `UkfParams.cubature` | 2L точек; по умолчанию выкл. |
-| Higham (PD) | `lin_alg.hpp` `project_pd` | Якоби + клип $\lambda$; это не square-root UKF |
+| Higham (PD) | `lin_alg.hpp` `project_pd` | Якоби + клип $\lambda$; это не square-root UKF. Измеренное возмущение до правки: $\max\lvert\Delta P\rvert=0.109701$ на плотной SPD $12\times12$, $2.39\cdot10^{-7}$ на реалистичной $P$ ($\mathrm{cond}\approx 2\cdot10^{10}$); после правки — no-op на PD-входе |
 | Bar-Shalom, Li, Kirubarajan 2001 | `score.py` NEES | полосы консистентности; информативны на mismatch, не на twin |
 | Willsky & Jones 1976; Isermann 2006 | детектор $\kappa$ | рамка parity / GLR; в коде — hold + знак остатка, не полный GLR |
 | Palmer & Nourani-Vatani, IROS 2018 | SCA inflate | inflate $R$, не hard-delete |
@@ -43,3 +43,18 @@
 
 `stop_associate.py` читает полилинию остановок и JSONL оценки. Это не
 измерение UKF и не map-matching в $z$.
+
+## Внутренние артефакты проверки
+
+Не литература, а то, на что опираются числа в таблице выше и утверждения доклада.
+Разделёно специально: ссылка на свой же тест — не ссылка на внешний источник.
+
+| Артефакт | Зачем |
+| --- | --- |
+| [`../standalone/test_ut_weights_psd.cpp`](../standalone/test_ut_weights_psd.cpp) | 25 проверок алгебры весов scaled UT (строка Julier / Luo–Moroz); ядро не линкуется, поэтому тест независим от фильтра |
+| [`../standalone/test_integrity_contracts.cpp`](../standalone/test_integrity_contracts.cpp) | 15 контрактов целостности: свидетельство стоянки, свежесть во времени, контракт входа, атомарный откат |
+| [`verification.md`](verification.md) | что исполнялось численно, что выведено, что осталось руками |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | реестр находок `F-01`…`F-17` и их статус |
+| [`review/external-triage-2026-09-06.md`](review/external-triage-2026-09-06.md) | внешний триаж: исходные формулировки находок |
+| [`audit-2026-09-06.md`](audit-2026-09-06.md) | самозаявленные ограничения ветки правок (что не запускалось) |
+| [issue #3](https://github.com/KonkovDV/RailBreak/issues/3) | датированный снимок открытых пунктов |
