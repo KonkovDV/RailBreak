@@ -5,11 +5,61 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <stdexcept>
 
 namespace tram_dr {
 namespace {
 
 constexpr double kDtDefault = 0.02;
+constexpr double kMaxStepS = 0.20;  // larger gaps need explicit replay subdivision
+
+void validate_ukf(const UkfParams& p) {
+  for (double v : {p.alpha, p.beta, p.kappa_ut, p.kappa_cut, p.r_common_mode,
+       p.p_ss_init, p.k_sigma, p.k_over, p.freeze_s, p.kappa_hold_s, p.k_lost,
+       p.notch_lost_s, p.mass_door_kg, p.q_v, p.zupt_hold_s, p.stop_gate_m,
+       p.huber_c, p.slide_grade_lost_s, p.a_kin_downhill, p.mass_prior_log_sigma,
+       p.q_fb_wheels_n, p.path_disagree_floor_mps, p.path_disagree_rel,
+       p.path_disagree_tau_s, p.age_degraded_s, p.age_lost_s}) {
+    if (!std::isfinite(v)) throw std::invalid_argument("nonfinite UKF parameter");
+  }
+  const double c = p.alpha * p.alpha * (kStateDim + p.kappa_ut);
+  if (!p.cubature && (!(c > 0.0) || !std::isfinite(c) ||
+      !std::isfinite(1.0 / c) || p.alpha <= 0.0)) {
+    throw std::invalid_argument("invalid unscented-transform scaling");
+  }
+  if (p.kappa_cut <= 0 || p.r_common_mode < 1 || p.p_ss_init < 0 ||
+      p.k_sigma <= 0 || p.k_over < p.k_sigma || p.freeze_s <= 0 ||
+      p.kappa_hold_s < 0 || p.k_lost <= 0 || p.notch_lost_s < 0 ||
+      p.mass_door_kg < 0 || p.q_v < 0 || p.zupt_hold_s < 0 ||
+      p.stop_gate_m < 0 || p.huber_c < 0 || p.slide_grade_lost_s < 0 ||
+      p.mass_prior_log_sigma < 0 || p.q_fb_wheels_n < 0 ||
+      p.path_disagree_floor_mps < 0 || p.path_disagree_rel < 0 ||
+      p.path_disagree_tau_s < 0 || p.age_degraded_s < 0 ||
+      p.age_lost_s < p.age_degraded_s || p.encoder_pulses_per_rev < 0 ||
+      p.n_stops < 0 || p.n_stops > kMaxStops) {
+    throw std::invalid_argument("invalid UKF bounds, noise or timeout");
+  }
+  for (int i = 0; i < p.n_stops; ++i) {
+    if (!std::isfinite(p.stop_s_m[static_cast<std::size_t>(i)]))
+      throw std::invalid_argument("nonfinite stop coordinate");
+  }
+}
+
+void validate_plant(const PlantParams& p) {
+  for (double v : {p.m0_kg, p.a_trac_max, p.a_svc, p.g, p.v_base_mps,
+       p.A_d, p.B_d, p.C_d, p.r0_m, p.v_eps, p.tau_drv_s, p.gamma_rot,
+       p.brake_nonadhesive_frac, p.i_grade, p.j_max_mps3,
+       p.mass_min_kg, p.mass_max_kg}) {
+    if (!std::isfinite(v)) throw std::invalid_argument("nonfinite plant parameter");
+  }
+  if (p.m0_kg <= 0 || p.r0_m <= 0 || p.g <= 0 || p.v_base_mps <= 0 ||
+      p.v_eps <= 0 || p.a_trac_max < 0 || p.a_svc < 0 || p.A_d < 0 ||
+      p.B_d < 0 || p.C_d < 0 || p.tau_drv_s < 0 || p.gamma_rot < 0 ||
+      p.brake_nonadhesive_frac < 0 || p.brake_nonadhesive_frac > 1 ||
+      p.j_max_mps3 < 0 || p.mass_min_kg <= 0 || p.mass_max_kg <= p.mass_min_kg) {
+    throw std::invalid_argument("invalid plant bounds or units");
+  }
+}
 
 void set_diag_p(double* P, int i, double v) { la::at(P, kStateDim, i, i) = v; }
 
@@ -106,13 +156,27 @@ void step_sigma_xi(double* x_xi, const Input& u, double dt_s, const PlantParams&
 
 Ukf::Ukf() : Ukf(UkfParams{}) {}
 
-Ukf::Ukf(UkfParams cfg) : cfg_(cfg) { reset(); }
+Ukf::Ukf(UkfParams cfg) { set_params(cfg); reset(); }
 
-void Ukf::set_params(const UkfParams& cfg) { cfg_ = cfg; }
+void Ukf::set_params(const UkfParams& cfg) { validate_ukf(cfg); cfg_ = cfg; }
 
-void Ukf::set_plant(const PlantParams& p) { plant_ = p; }
+void Ukf::set_plant(const PlantParams& p) {
+  validate_plant(p);
+  plant_ = p;
+  sca_p_.r0_m = p.r0_m;  // consensus and measurement model must share the scale
+}
 
-void Ukf::set_sca(const ScaParams& p) { sca_p_ = p; }
+void Ukf::set_sca(const ScaParams& p) {
+  for (double v : {p.r0_m, p.sigma_v_mps, p.sigma_v_rel, p.z_thresh, p.inflate_max}) {
+    if (!std::isfinite(v)) throw std::invalid_argument("nonfinite SCA parameter");
+  }
+  if (p.r0_m <= 0 || p.sigma_v_mps <= 0 || p.sigma_v_rel < 0 ||
+      p.z_thresh <= 0 || p.inflate_max < 1 ||
+      std::fabs(p.r0_m - plant_.r0_m) > 1e-12) {
+    throw std::invalid_argument("invalid SCA parameters or wheel-radius mismatch");
+  }
+  sca_p_ = p;
+}
 
 void Ukf::reset() {
   initialized_ = false;
@@ -411,7 +475,6 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
     encoder_outage_ = true;
     nis_valid_ = false;
     last_nis_ = 0.0;
-    s_unobserved_s_ += std::max(last_dt_s_, 0.0);
     return;
   }
   encoder_outage_ = false;
@@ -498,6 +561,7 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   if (!la::chol(P_, Lchol, kStateDim, 1e-9)) {
     la::project_pd(P_, kStateDim);
     if (!la::chol(P_, Lchol, kStateDim, 1e-9)) {
+      ++chol_fail_;
       return;
     }
   }
@@ -590,6 +654,7 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
 
   double Sinv[kNWheels * kNWheels];
   if (!la::inv_spd(Pzz, Sinv, m)) {
+    ++chol_fail_;
     return;
   }
   // K = Pxz * Sinv  (L x m)
@@ -663,20 +728,16 @@ bool Ukf::zupt_gate(const double* omega, std::size_t n, const Input& u) const {
     return false;
   }
   double wmax = 0.0;
-  bool any = false;
   for (int i = 0; i < m; ++i) {
     if (!std::isfinite(omega[i]) || std::fabs(omega[i]) > kOmegaAbsMax) {
-      continue;
+      return false;  // partial encoder evidence cannot establish standstill
     }
-    any = true;
     wmax = std::max(wmax, std::fabs(omega[i]));
-  }
-  if (!any) {
-    return false;
   }
   const double vabs = std::fabs(x_[kV]);
   // Hold-brake standstill is real; locked sliding is not (v still large).
-  return wmax < 0.08 && std::fabs(u.notch) < 0.05 && (u.brake < 0.15 || vabs < 0.35);
+  // A missing/released brake is NOT evidence that a moving body is stationary.
+  return wmax < 0.08 && u.notch_valid && std::fabs(u.notch) < 0.05 && vabs < 0.35;
 }
 
 bool Ukf::mass_door_allowed() const {
@@ -698,13 +759,14 @@ void Ukf::maybe_zupt(const double* omega, std::size_t n, const Input& u) {
   const bool was = standstill_hold_;
   if (!zupt_gate(omega, n, u)) {
     zupt_acc_ = 0.0;
-    if (was && mass_door_allowed()) {
+    if (was && n > 0 && omega != nullptr && n_omega_used_ > 0 && mass_door_allowed()) {
       // Passenger exchange at a named stop, not a wait at a temporary switch.
       const double m0 = std::max(plant_.m0_kg, 1.0);
       const double dm = cfg_.mass_door_kg / m0;
       la::at(P_, kStateDim, kMass, kMass) += dm * dm;
     }
     standstill_hold_ = false;
+    mode_ = Mode::kNormal;
     return;
   }
   zupt_acc_ += std::max(last_dt_s_, 0.0);
@@ -838,11 +900,11 @@ void Ukf::classify(const Input& u, std::size_t n) {
   const double pss_lim = cfg_.k_lost * al_s;
   const int m = static_cast<int>(std::min(n, static_cast<std::size_t>(kNWheels)));
   const bool all_inflated = m >= 4 && last_sca_.n_inflated >= m;
-  if (encoder_outage_ || (n > 0 && n_omega_used_ == 0)) {
-    wheel_outage_s_ += std::max(last_dt_s_, 0.0);
-  } else if (n > 0) {
-    wheel_outage_s_ = 0.0;
-  }
+  // Packet silence, null data and invalid packets all age the same evidence.
+  // ZUPT is fresh evidence too, even though it does not run update_wheels().
+  encoder_outage_ = n_omega_used_ == 0;
+  if (encoder_outage_) wheel_outage_s_ += last_dt_s_;
+  else wheel_outage_s_ = 0.0;
   const bool wheel_age_lost = wheel_outage_s_ > cfg_.age_lost_s;
   const bool wheel_age_deg = wheel_outage_s_ > cfg_.age_degraded_s;
   const bool both_down = slip_latched_ && all_inflated;
@@ -873,16 +935,19 @@ void Ukf::classify(const Input& u, std::size_t n) {
          (last_sca_.n_inflated >= 2) || (n_frozen_ >= 2));
   const bool degraded = slip_latched_ || last_sca_.common_mode || wheels_split ||
                         path_disagree_latched_ || (pvv > 4.0) || (pl_s >= al_s) ||
-                        cfg_.r0_uncalibrated || wheel_age_deg;
+                        cfg_.r0_uncalibrated || wheel_age_deg || !u.notch_valid;
   if (lost) {
     confidence_ = Confidence::kLost;
     confidence_v_ = Confidence::kLost;
     confidence_s_ = Confidence::kLost;
   } else if (degraded) {
     confidence_ = Confidence::kDegraded;
-    confidence_v_ = wheels_split || (pvv > 4.0) ? Confidence::kDegraded : Confidence::kOk;
+    confidence_v_ = (wheels_split || (pvv > 4.0) || last_sca_.common_mode ||
+                     cfg_.r0_uncalibrated || wheel_age_deg || !u.notch_valid)
+                        ? Confidence::kDegraded : Confidence::kOk;
     confidence_s_ = (slip_latched_ || last_sca_.common_mode || path_disagree_latched_ ||
-                     cfg_.r0_uncalibrated || wheel_age_deg)
+                     wheels_split || (pl_s >= al_s) || cfg_.r0_uncalibrated ||
+                     wheel_age_deg || !u.notch_valid)
                         ? Confidence::kDegraded
                         : Confidence::kOk;
   } else {
@@ -890,7 +955,8 @@ void Ukf::classify(const Input& u, std::size_t n) {
     confidence_v_ = Confidence::kOk;
     confidence_s_ = Confidence::kOk;
   }
-  if (mode_ == Mode::kStandstill) {
+  if (standstill_hold_) {
+    mode_ = Mode::kStandstill;
     return;
   }
   const double v_body = x_[kV];
@@ -962,6 +1028,30 @@ UkfEstimate Ukf::snapshot() const {
 
 UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::size_t n,
                                    double dt_s) {
+  // Input contract: finite controls and 0 < dt <= 0.20 s (subdivide larger
+  // known gaps). A violating frame is refused per frame, not silently
+  // absorbed: the last finite estimate is kept, the output is LOST, and the
+  // estimator recovers when valid inputs resume. Latching until reset() would
+  // turn one bad DDS payload into a permanent loss of the backup channel.
+  const auto reject = [this]() {
+    confidence_ = confidence_v_ = confidence_s_ = Confidence::kLost;
+    mode_ = Mode::kSensorFault;
+    n_omega_used_ = 0;
+    nis_valid_ = false;
+    last_nis_ = 0.0;
+    auto e = snapshot();
+    e.confidence = e.confidence_v = e.confidence_s = Confidence::kLost;
+    return e;
+  };
+  if (!std::isfinite(dt_s) || dt_s <= 0.0 || dt_s > kMaxStepS ||
+      !std::isfinite(u.notch) || !std::isfinite(u.brake)) {
+    return reject();
+  }
+  const Ukf previous = *this;  // atomic step: rollback a numerically invalid result
+  n = omega ? std::min(n, static_cast<std::size_t>(kNWheels)) : 0;
+  n_omega_used_ = 0;
+  nis_valid_ = false;
+  last_nis_ = 0.0;
   last_u_ = u;
   last_dt_s_ = dt_s;
   if (!initialized_) {
@@ -988,15 +1078,37 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
       // leak into F_bias (unobservable vs hold brake / grade).
       nis_valid_ = false;
       last_nis_ = 0.0;
+      n_omega_used_ = static_cast<int>(n);  // all samples passed zupt_gate
+      encoder_outage_ = false;
+      double phys[kStateDim];
+      std::memcpy(phys, x_, sizeof(phys));
+      xi_to_phys_p(phys, plant_);
+      last_sca_ = sca_analyze(omega, n, &phys[kD0], sca_p_);
+      n_frozen_ = n_slip_axles_ = 0;
+      std::memset(frozen_, 0, sizeof(frozen_));
+      relative_wheel_slide_ = kappa_hold_acc_ = 0.0;
+      note_omega(omega, static_cast<int>(n));
       maybe_zupt(omega, n, u);
     } else {
       update_wheels(omega, n);
       maybe_zupt(omega, n, u);
       apply_mass_prior();
-      accumulate_path_disagree(u, dt_s);
+      if (n_omega_used_ > 0) accumulate_path_disagree(u, dt_s);
     }
   } else {
-    nis_valid_ = false;
+    maybe_zupt(nullptr, 0, u);  // invalidate a hold; missing data is not departure
+  }
+  bool healthy = chol_fail_ == previous.chol_fail_;
+  for (double value : x_) healthy = healthy && std::isfinite(value);
+  for (double value : P_) healthy = healthy && std::isfinite(value);
+  healthy = healthy && std::isfinite(f_trac_filt_) && std::isfinite(v_chan_a_) &&
+            std::isfinite(path_disagree_m_) && std::isfinite(last_nis_);
+  double check[kStateDim * kStateDim];
+  if (healthy) healthy = la::chol(P_, check, kStateDim, 1e-12);
+  if (!healthy) {
+    *this = previous;
+    ++chol_fail_;
+    return reject();
   }
   if (have_v_prev_ && dt_s > 1e-6) {
     a_kin_ = (x_[kV] - v_prev_) / dt_s;
@@ -1012,8 +1124,8 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
   const double a_lim = 1.2 * std::clamp(phys_a[kMu], kMuMin, kMuMax) * plant_.g;
   a_unphysical_ = std::fabs(a_kin_) > a_lim;
   classify(u, n);
-  if (slip_latched_) {
-    s_unobserved_s_ += std::max(dt_s, 0.0);
+  if (slip_latched_ || n_omega_used_ == 0) {
+    s_unobserved_s_ += dt_s;
   }
   return snapshot();
 }
