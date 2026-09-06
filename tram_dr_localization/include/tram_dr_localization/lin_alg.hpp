@@ -21,6 +21,21 @@ inline void copy(const double* src, double* dst, int n) {
   }
 }
 
+// True when every one of the first n entries is finite. Callers that own a
+// covariance are expected to use this before handing it to project_pd(); see
+// the finiteness contract documented there.
+inline bool all_finite(const double* a, int n) {
+  if (!a || n < 0) {
+    return false;
+  }
+  for (int i = 0; i < n; ++i) {
+    if (!std::isfinite(a[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 inline void add_scaled(const double* a, double s, const double* b, double* out, int n) {
   for (int i = 0; i < n; ++i) {
     out[i] = a[i] + s * b[i];
@@ -72,7 +87,7 @@ inline void mat_mul(const double* A, const double* B, double* C, int n) {
 inline bool chol(const double* A, double* L, int n, double jitter = 1e-9) {
   if (!A || !L || n <= 0 || n > kCap || !std::isfinite(jitter) || jitter < 0)
     return false;
-  for (int i = 0; i < n * n; ++i) if (!std::isfinite(A[i])) return false;
+  if (!all_finite(A, n * n)) return false;
   double work[kCap * kCap];
   for (int i = 0; i < n * n; ++i) {
     work[i] = A[i];
@@ -106,7 +121,7 @@ inline bool chol(const double* A, double* L, int n, double jitter = 1e-9) {
 // Solve A x = b for SPD A via Cholesky. x may alias b.
 inline bool solve_spd(const double* A, const double* b, double* x, int n) {
   if (!b || !x || n <= 0 || n > kCap) return false;
-  for (int i = 0; i < n; ++i) if (!std::isfinite(b[i])) return false;
+  if (!all_finite(b, n)) return false;
   double L[kCap * kCap];
   if (!chol(A, L, n, 1e-12)) {
     return false;
@@ -160,16 +175,37 @@ inline void symmetrize(double* A, int n) {
 
 // Symmetric eigenvalue-floor repair. Not a proof of statistical consistency.
 // Valid SPD input above the floor is preserved, rather than re-diagonalized.
-inline void project_pd(double* A, int n, double lam_floor = 1e-12) {
+//
+// Finiteness contract (F-09)
+// --------------------------
+// Returns true only when the input was finite on entry and the result is
+// finite and has every eigenvalue at or above lam_floor. Returns false, and
+// leaves A byte-for-byte unchanged, when:
+//   * the arguments are invalid (null A, n out of range, non-positive floor);
+//   * any entry of A is NaN or +/-Inf on entry;
+//   * the Jacobi reconstruction produced a non-finite entry.
+//
+// A is deliberately NOT sanitized on failure. Overwriting a poisoned
+// covariance with a large finite diagonal - the obvious "fail safe" choice -
+// would make the caller's subsequent Cholesky health check succeed, so a hard
+// NaN fault would be silently downgraded to a plausible-looking
+// maximum-uncertainty estimate that the integrity monitor cannot see. Keeping
+// the poisoned matrix and reporting false lets the caller do the only correct
+// thing: reject the frame, roll back to the last healthy state, and raise the
+// fault. Establishing finiteness before the call is therefore the caller's
+// duty, and la::all_finite() exists for exactly that.
+//
+// Callers must not treat a false return as "the matrix is now usable".
+[[maybe_unused]] inline bool project_pd(double* A, int n, double lam_floor = 1e-12) {
   if (!A || n <= 0 || n > kCap || !std::isfinite(lam_floor) || lam_floor <= 0) {
-    return;
+    return false;
   }
-  for (int i = 0; i < n * n; ++i) if (!std::isfinite(A[i])) return;
+  if (!all_finite(A, n * n)) return false;
   symmetrize(A, n);
   double test[kCap * kCap], lower[kCap * kCap];
   copy(A, test, n * n);
   for (int i = 0; i < n; ++i) at(test, n, i, i) -= lam_floor;
-  if (chol(test, lower, n, 0.0)) return;
+  if (chol(test, lower, n, 0.0)) return true;
   double V[kCap * kCap];
   eye(V, n);
   // A sweep is O(n^2) rotations; 24 rotations was not 24 sweeps for L=12.
@@ -246,10 +282,14 @@ inline void project_pd(double* A, int n, double lam_floor = 1e-12) {
       at(tmp, n, i, j) = acc;
     }
   }
+  // Rotations and the reconstruction can overflow on inputs that were finite
+  // but enormous. Report that instead of handing back a NaN covariance.
+  if (!all_finite(tmp, n * n)) return false;
   for (int i = 0; i < n * n; ++i) {
     A[i] = tmp[i];
   }
   symmetrize(A, n);
+  return true;
 }
 
 }  // namespace la

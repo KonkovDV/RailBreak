@@ -27,6 +27,13 @@ target_include_directories(test_integrity_contracts PRIVATE ${PKG}/include)
 # on the algebra rather than a tautology against ukf.cpp.
 add_executable(test_ut_weights_psd test_ut_weights_psd.cpp)
 
+# The dependent counterpart of the above: cross-checks the shipped
+# ut_weights.hpp against the same closed-form window and against hand-derived
+# values, and pins the F-08 hazard (alpha = 0.58 is admissible at beta = 2 but
+# not at beta = 1 or beta = 0). Header-only, so no core sources are linked.
+add_executable(test_ut_weights_header test_ut_weights_header.cpp)
+target_include_directories(test_ut_weights_header PRIVATE ${PKG}/include)
+
 add_executable(replay_ukf replay_ukf.cpp ${TRAM_DR_CORE_SRC})
 target_include_directories(replay_ukf PRIVATE ${PKG}/include)
 
@@ -34,6 +41,7 @@ enable_testing()
 add_test(NAME test_core COMMAND test_core)
 add_test(NAME test_integrity_contracts COMMAND test_integrity_contracts)
 add_test(NAME test_ut_weights_psd COMMAND test_ut_weights_psd)
+add_test(NAME test_ut_weights_header COMMAND test_ut_weights_header)
 
 if(MSVC)
   set(_tram_dr_warn /W4)
@@ -43,4 +51,5 @@ endif()
 target_compile_options(test_core PRIVATE ${_tram_dr_warn})
 target_compile_options(test_integrity_contracts PRIVATE ${_tram_dr_warn})
 target_compile_options(test_ut_weights_psd PRIVATE ${_tram_dr_warn})
+target_compile_options(test_ut_weights_header PRIVATE ${_tram_dr_warn})
 target_compile_options(replay_ukf PRIVATE ${_tram_dr_warn})
