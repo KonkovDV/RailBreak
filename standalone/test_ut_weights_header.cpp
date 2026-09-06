@@ -99,6 +99,8 @@ int main() {
   check_near(hi, std::sqrt(2.0 + std::sqrt(3.0)), 1e-15, "beta=2 upper edge");
   check_near(lo, 0.517638090205041, 1e-12, "beta=2 lower edge decimal");
   check_near(hi, 1.931851652578137, 1e-12, "beta=2 upper edge decimal");
+  // The beta=2 edges are exact reciprocals: their product is sqrt(4-3) = 1.
+  check_near(lo * hi, 1.0, 1e-15, "beta=2 edges are exact reciprocals");
 
   check(alpha_window(1.0, &lo, &hi), "alpha_window(beta=1) succeeds");
   check_near(lo, (std::sqrt(5.0) - 1.0) / 2.0, 1e-12, "beta=1 lower edge is 1/phi");
@@ -156,12 +158,19 @@ int main() {
   }
   check_near(sufficient_alpha_lower(2.0), 1.0 / std::sqrt(3.0), 1e-15,
              "sufficient bound at beta=2 is 1/sqrt(3)");
-  // Shipped margin over the sufficient bound: 0.58/0.5773502691896258 - 1.
+  // Shipped margin over the sufficient bound: 0.58*sqrt(3) - 1 = 0.004589468...
   check_near(kAlpha / sufficient_alpha_lower(kBeta) - 1.0, 0.00459, 5e-6,
              "shipped alpha clears Luo-Moroz bound by 0.459 %");
-  // Shipped margin over the true lower edge.
-  check_near(kAlpha / std::sqrt(2.0 - std::sqrt(3.0)) - 1.0, 0.12053, 5e-5,
-             "shipped alpha clears the true beta=2 edge by 12.05 %");
+  // Shipped margin over the TRUE lower edge. Because the two edges are exact
+  // reciprocals, this margin is exactly 0.58*sqrt(2+sqrt3) - 1, whose value is
+  // 0.1204739584953189..., i.e. 12.047 % and NOT 12.053 %. The identity is
+  // asserted first so that a mistyped decimal can never be mistaken for a
+  // wrong window - the confusion that once turned this branch's CI red.
+  check_near(kAlpha / std::sqrt(2.0 - std::sqrt(3.0)) - 1.0,
+             kAlpha * std::sqrt(2.0 + std::sqrt(3.0)) - 1.0, 1e-12,
+             "margin over the true edge == 0.58*sqrt(2+sqrt3) - 1");
+  check_near(kAlpha / std::sqrt(2.0 - std::sqrt(3.0)) - 1.0, 0.12047396, 1e-8,
+             "shipped alpha clears the true beta=2 edge by 12.047 %");
 
   // ---- 8. predicate agrees with the closed form on a fine grid ----------
   // The predicate and the window are two different computations; they must
