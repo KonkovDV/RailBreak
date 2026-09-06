@@ -61,6 +61,9 @@ jobs:
           persist-credentials: false
       # F-11: this job used to build test_core only, so the integrity
       # contracts and the UT weight algebra never ran under sanitizers.
+      # The target list below is explicit, which means every new test target
+      # must be added here as well - the Release job above picks new targets
+      # up through ctest, this one does not.
       - name: sanitizers on all core test targets
         run: |
           cmake -S standalone -B standalone/build-asan \
@@ -68,9 +71,11 @@ jobs:
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build standalone/build-asan \
             --target test_core test_integrity_contracts test_ut_weights_psd \
+                     test_ut_weights_header \
             --parallel
           export ASAN_OPTIONS=detect_leaks=1
           export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
           ./standalone/build-asan/test_core
           ./standalone/build-asan/test_integrity_contracts
           ./standalone/build-asan/test_ut_weights_psd
+          ./standalone/build-asan/test_ut_weights_header
