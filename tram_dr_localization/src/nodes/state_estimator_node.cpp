@@ -24,9 +24,37 @@
 #include "tram_dr_localization/ukf.hpp"
 
 // UNINITIALIZED until notch or wheel_odom. No Imu / NavSatFix / PointCloud2.
-// Predict is event-driven (wheel callback). Δt from header.stamp when the
-// type has one; else receive time. Timer is watchdog + publish. Always
-// publish (loss of wheels must not silence the topic).
+// Predict is event-driven (wheel callback). Timer is watchdog + publish.
+// Always publish (loss of wheels must not silence the topic).
+//
+// Timebase contract (F-17b)
+// -------------------------
+// Two clocks are in play here and they are NEVER subtracted from one another:
+//
+//   * the measurement timebase - header.stamp on joint_state / twist_stamped.
+//     It defines the interval between two sensor samples, i.e. dt.
+//   * this node's clock - now(). It defines how long ago something arrived,
+//     i.e. every freshness/staleness age.
+//
+// The previous implementation kept one last_step_ and filled it from
+// whichever clock happened to produce the current frame, then differenced
+// across the two. On a bag replayed without use_sim_time:=true the offset
+// between those clocks is hours or years, so dt alternated between a huge
+// positive and a huge negative number and the clamp turned both into
+// plausible 200 ms / 5 ms steps: the filter integrated at the wrong rate in
+// complete silence. The same mixing disabled the notch and wheel freshness
+// watchdogs, which are what the integrity case actually rests on.
+//
+// Timer-driven predict-only steps carry no header stamp, so they are measured
+// with a node-clock delta and the filter time they consume is accumulated in
+// consumed_since_meas_s_. The next stamped frame subtracts that amount, so the
+// filter advances along a single monotone timeline with no double counting and
+// no cross-clock arithmetic.
+//
+// dt is validated, never clamped into plausibility. Regressions are rejected,
+// long gaps are advanced as repeated predict-only steps so Q accumulates over
+// the true elapsed time, and every fabricated microsecond is counted and
+// published.
 
 class StateEstimatorNode : public rclcpp::Node {
  public:
@@ -115,6 +143,31 @@ class StateEstimatorNode : public rclcpp::Node {
     age_degraded_s_ = cfg.age_degraded_s;
     age_lost_s_ = cfg.age_lost_s;
     twist_is_omega_ = declare_parameter("twist_is_omega", false);
+
+    // --- time hygiene parameters (F-17b) ---------------------------------
+    // notch_stale_s stays well below UkfParams::notch_lost_s so the core owns
+    // the documented LOST delay; this is only the "stop trusting the value"
+    // threshold.
+    notch_stale_s_ = declare_parameter("notch_stale_s", 0.25);
+    default_dt_s_ = declare_parameter("default_dt_s", 0.02);
+    // 1 ms, not the old 5 ms: a 5 ms floor makes any source above 200 Hz
+    // integrate faster than real time.
+    dt_min_s_ = declare_parameter("dt_min_s", 0.001);
+    dt_max_s_ = declare_parameter("dt_max_s", 0.20);
+    stamp_regression_tol_s_ = declare_parameter("stamp_regression_tol_s", 0.001);
+    stamp_skew_warn_s_ = declare_parameter("stamp_skew_warn_s", 5.0);
+    // 100 * dt_max_s = 20 s of catch-up. Beyond that a dead-reckoned solution
+    // is meaningless: AL_s = 5 + 0.05 s has long been exceeded.
+    max_catchup_steps_ = std::max(1, declare_parameter("max_catchup_steps", 100));
+    if (!(dt_min_s_ > 0.0) || !(dt_max_s_ > dt_min_s_) || !std::isfinite(dt_min_s_) ||
+        !std::isfinite(dt_max_s_)) {
+      throw std::invalid_argument("require 0 < dt_min_s < dt_max_s");
+    }
+    if (!std::isfinite(default_dt_s_) || default_dt_s_ < dt_min_s_ ||
+        default_dt_s_ > dt_max_s_) {
+      throw std::invalid_argument("require dt_min_s <= default_dt_s <= dt_max_s");
+    }
+
     const std::string notch_type = declare_parameter("notch_type", std::string("float32"));
     const std::string wheels_type = declare_parameter("wheels_type", std::string("float64_array"));
     if (notch_type != "float32" && notch_type != "float64" && notch_type != "int8" &&
@@ -137,7 +190,16 @@ class StateEstimatorNode : public rclcpp::Node {
     sub_brake_ = create_subscription<std_msgs::msg::Float32>(
         "/tram/brake_cmd", in_qos_,
         [this](const std_msgs::msg::Float32& msg) {
-          last_u_.brake = std::clamp(static_cast<double>(msg.data), 0.0, 1.0);
+          const double b = static_cast<double>(msg.data);
+          // std::clamp(NaN, 0.0, 1.0) returns NaN: both comparisons are
+          // false, so the value passes through untouched. A clamp is not an
+          // input filter (F-17).
+          if (!std::isfinite(b)) {
+            ++bad_brake_;
+            input_fault_ = true;
+            return;
+          }
+          last_u_.brake = std::clamp(b, 0.0, 1.0);
         });
     subscribe_wheels(wheels_type);
     RCLCPP_INFO(get_logger(),
@@ -153,29 +215,65 @@ class StateEstimatorNode : public rclcpp::Node {
 
  private:
   void apply_notch(double raw) {
+    // F-17: a non-finite command must never be promoted to a valid input.
+    // map_notch() propagates NaN, and notch_valid = true then tells the core
+    // "the controller position is known" while handing it NaN. That poisons
+    // the traction force and therefore the entire predict step, and it does
+    // so while the diagnostics still report a fresh, valid notch.
+    if (!std::isfinite(raw)) {
+      ++bad_notch_;
+      input_fault_ = true;
+      last_u_.notch_valid = false;
+      return;
+    }
     last_u_.notch = tram_dr::map_notch(raw, notch_max_abs_);
     last_u_.notch_valid = true;
     have_notch_ = true;
-    last_notch_stamp_ = now();
+    // Arrival freshness is a property of THIS node's clock, never of the
+    // publisher's header stamp. Mixing the two was the defect (F-17b).
+    last_notch_arrival_ = now();
   }
 
   void apply_wheels(const double* data, std::size_t n, const rclcpp::Time* stamp = nullptr) {
     n_omega_ = std::min(n, n_wheels_param_);
+    n_omega_nonfinite_ = 0;
     for (std::size_t i = 0; i < n_omega_; ++i) {
       omega_[i] = data[i];
+      if (!std::isfinite(data[i])) {
+        ++n_omega_nonfinite_;
+      }
     }
-    // Ingest all-NaN frames too: SCA inflates every axle and the UKF goes LOST.
-    // Skipping them left last_sca_ stale and status OK until the topic died.
+    // Ingest all-NaN frames too: SCA inflates every axle and the UKF goes
+    // LOST. Skipping them left last_sca_ stale and status OK until the topic
+    // died. Non-finite omega is therefore DATA, not a fault - but it is now
+    // counted so an operator can tell a dead encoder from a healthy zero.
     have_wheels_ = n_omega_ > 0;
     if (n_omega_ == 0) {
       return;
     }
-    last_wheel_stamp_ = (stamp != nullptr && stamp->nanoseconds() > 0) ? *stamp : now();
+    const rclcpp::Time arrival = now();
+    last_wheel_arrival_ = arrival;
+    if (stamp != nullptr && stamp->nanoseconds() > 0) {
+      note_stamp_skew(*stamp, arrival);
+    }
     step_filter(true, stamp);
   }
 
   void apply_twist_vx(double vx, const rclcpp::Time* stamp = nullptr) {
+    // A malformed twist is not the same thing as a dead encoder. Synthesising
+    // a full NaN wheel frame from it would be indistinguishable from a real
+    // all-NaN encoder frame, which the core deliberately treats as data.
+    if (!std::isfinite(vx)) {
+      ++bad_wheels_;
+      input_fault_ = true;
+      return;
+    }
     const double w = twist_is_omega_ ? vx : vx / std::max(r0_m_, 1e-6);
+    if (!std::isfinite(w)) {
+      ++bad_wheels_;
+      input_fault_ = true;
+      return;
+    }
     double tmp[tram_dr::kNWheels];
     for (std::size_t i = 0; i < n_wheels_param_; ++i) {
       tmp[i] = w;
@@ -254,33 +352,156 @@ class StateEstimatorNode : public rclcpp::Node {
     return out;
   }
 
-  void step_filter(bool fresh_wheels, const rclcpp::Time* meas_stamp = nullptr) {
-    const rclcpp::Time t =
-        (meas_stamp != nullptr && meas_stamp->nanoseconds() > 0) ? *meas_stamp : now();
-    double dt = 0.02;
-    if (last_step_.has_value()) {
-      dt = (t - *last_step_).seconds();
+  // One-shot operator warning when the measurement timebase and the node
+  // clock are far apart. The usual cause is replaying a recorded bag without
+  // use_sim_time:=true - exactly the configuration in which the old code
+  // silently differenced the two clocks against each other.
+  void note_stamp_skew(const rclcpp::Time& stamp, const rclcpp::Time& arrival) {
+    const double skew = (arrival - stamp).seconds();
+    if (!std::isfinite(skew)) {
+      return;
     }
-    dt = std::clamp(dt, 0.005, 0.20);
-    last_step_ = t;
-    last_step_used_wheels_ = fresh_wheels;
+    stamp_skew_s_ = skew;
+    if (std::fabs(skew) < stamp_skew_warn_s_) {
+      return;
+    }
+    ++stamp_skew_events_;
+    if (!warned_skew_) {
+      warned_skew_ = true;
+      RCLCPP_WARN(get_logger(),
+                  "header.stamp is %.3f s away from this node's clock. dt is taken "
+                  "from header stamps and freshness from the node clock, so both "
+                  "remain correct - but if this is a bag replay, launch with "
+                  "use_sim_time:=true so the two agree.",
+                  skew);
+    }
+  }
 
+  // Snapshot the control input and apply the notch freshness watchdog. Both
+  // sides of the age comparison are this node's clock.
+  tram_dr::Input resolve_input(const rclcpp::Time& wall) {
     tram_dr::Input u = last_u_;
     if (!have_notch_) {
       u.notch_valid = false;
-    } else if (last_notch_stamp_.has_value()) {
-      const double notch_age = (t - *last_notch_stamp_).seconds();
-      // Invalidate after a short silence so UKF's notch_lost_s (2 s) is the
-      // documented LOST delay. Waiting notch_lost_s here plus another
-      // notch_lost_s in classify doubled the watchdog.
-      if (notch_age > 0.25) {
-        u.notch_valid = false;
-        last_u_.notch_valid = false;
-      }
+      return u;
     }
+    if (!last_notch_arrival_.has_value()) {
+      return u;
+    }
+    // The old code compared last_notch_arrival_ (node clock) against t, which
+    // was a header stamp on stamped sources. On a bag replay notch_age was
+    // therefore off by the wall-clock/bag-time offset, and with a negative
+    // offset the invalidation below NEVER fired: a dead controller topic kept
+    // reading as fresh indefinitely (F-17b).
+    const double notch_age = (wall - *last_notch_arrival_).seconds();
+    // Invalidate after a short silence so UkfParams::notch_lost_s (2 s) is
+    // the documented LOST delay. Waiting notch_lost_s here plus another
+    // notch_lost_s in classify doubled the watchdog.
+    if (!std::isfinite(notch_age) || notch_age > notch_stale_s_) {
+      u.notch_valid = false;
+      last_u_.notch_valid = false;
+    }
+    return u;
+  }
+
+  void step_filter(bool fresh_wheels, const rclcpp::Time* meas_stamp = nullptr) {
+    const rclcpp::Time wall = now();
+    const bool use_meas = (meas_stamp != nullptr && meas_stamp->nanoseconds() > 0);
+    timebase_is_meas_ = use_meas;
+
+    double dt = default_dt_s_;
+
+    if (use_meas) {
+      if (!last_meas_stamp_.has_value()) {
+        // First stamped frame: nothing to difference against. Anchor and take
+        // one nominal step rather than inventing an interval.
+        last_meas_stamp_ = *meas_stamp;
+        consumed_since_meas_s_ = 0.0;
+      } else {
+        const double raw = (*meas_stamp - *last_meas_stamp_).seconds();
+        if (!std::isfinite(raw) || raw < -stamp_regression_tol_s_) {
+          // Out-of-order sample, a looping bag, or a publisher clock jump.
+          // The old code clamped this to +5 ms and stepped the filter
+          // forward, so time ran backwards in the data and forwards in the
+          // estimate. Re-anchor, raise the fault, propagate nothing.
+          ++stamp_regressions_;
+          input_fault_ = true;
+          last_meas_stamp_ = *meas_stamp;
+          consumed_since_meas_s_ = 0.0;
+          last_wall_ = wall;
+          return;
+        }
+        // Subtract the filter time already consumed by timer-driven
+        // predict-only steps since the previous stamped frame, so the two
+        // paths cannot double count the same interval.
+        dt = raw - consumed_since_meas_s_;
+        last_meas_stamp_ = *meas_stamp;
+        consumed_since_meas_s_ = 0.0;
+      }
+    } else if (last_wall_.has_value()) {
+      dt = (wall - *last_wall_).seconds();
+    }
+
+    last_wall_ = wall;
+
+    if (!std::isfinite(dt)) {
+      ++stamp_regressions_;
+      input_fault_ = true;
+      return;
+    }
+
+    double consumed = 0.0;
+    int catchup = 0;
+    if (dt > dt_max_s_) {
+      // A real gap. Propagating it as one clamped 0.20 s step - what the old
+      // code did - tells the filter that 200 ms elapsed when seconds did, so
+      // Q accumulates far too little and the integrity monitor never sees the
+      // outage it exists to catch. Advance the gap as a sequence of
+      // predict-only steps of dt_max_s_ so the covariance grows over the true
+      // elapsed time, then land the measurement on the final step.
+      const double needed = std::floor(dt / dt_max_s_);
+      if (!std::isfinite(needed) || needed > static_cast<double>(max_catchup_steps_)) {
+        // Unbridgeable. Do not pretend otherwise: re-anchor and fail closed.
+        ++dt_gaps_;
+        input_fault_ = true;
+        consumed_since_meas_s_ = 0.0;
+        return;
+      }
+      catchup = static_cast<int>(needed);
+      ++dt_gaps_;
+      for (int i = 0; i < catchup; ++i) {
+        const tram_dr::Input ug = resolve_input(wall);
+        last_e_ = ukf_.predict_and_update(ug, nullptr, 0, dt_max_s_);
+        have_estimate_ = true;
+        ++catchup_steps_;
+        consumed += dt_max_s_;
+      }
+      dt -= static_cast<double>(catchup) * dt_max_s_;
+    }
+
+    if (dt < dt_min_s_) {
+      // Duplicate stamp, a sample the timer path already propagated past, or
+      // a source faster than dt_min_s_. Floor it instead of inflating it: the
+      // fabricated interval is bounded by dt_min_s_ (1 ms) rather than by the
+      // old 5 ms floor, which made any source above 200 Hz integrate faster
+      // than real time. Every application is counted.
+      ++dt_floored_;
+      dt = dt_min_s_;
+    }
+
+    last_dt_s_ = dt;
+    consumed += dt;
+    last_step_used_wheels_ = fresh_wheels;
     const std::size_t n = (fresh_wheels && have_wheels_) ? n_omega_ : 0;
+    const tram_dr::Input u = resolve_input(wall);
     last_e_ = ukf_.predict_and_update(u, n > 0 ? omega_.data() : nullptr, n, dt);
     have_estimate_ = true;
+
+    if (!use_meas) {
+      // Remember how much filter time this timer-driven step consumed so the
+      // next stamped frame can subtract it.
+      consumed_since_meas_s_ += consumed;
+    }
   }
 
   void publish_state(const rclcpp::Time& t) {
@@ -296,8 +517,11 @@ class StateEstimatorNode : public rclcpp::Node {
     diagnostic_msgs::msg::DiagnosticStatus st;
     st.name = "tram_dr";
 
-    const double age_s =
-        last_wheel_stamp_.has_value() ? std::max(0.0, (t - *last_wheel_stamp_).seconds()) : 1.0e9;
+    // Arrival latency: node clock on both sides of the subtraction (F-17b).
+    const double age_s = last_wheel_arrival_.has_value()
+                             ? std::max(0.0, (t - *last_wheel_arrival_).seconds())
+                             : 1.0e9;
+    const bool fault = input_fault_;
 
     if (!have_estimate_) {
       msg.pose.covariance[0] = 1.0e6;
@@ -309,8 +533,10 @@ class StateEstimatorNode : public rclcpp::Node {
       st.values.push_back(kv("model_version", tram_dr::kModelVersion));
       st.values.push_back(kv("vehicle_profile", vehicle_profile_));
       st.values.push_back(kv("n_wheels", std::to_string(n_wheels_param_)));
+      push_time_hygiene(st);
       d.status.push_back(st);
       diag_->publish(d);
+      input_fault_ = false;
       return;
     }
 
@@ -320,6 +546,12 @@ class StateEstimatorNode : public rclcpp::Node {
       conf = tram_dr::Confidence::kLost;
     } else if (e.initialized && age_s > age_degraded_s_ && conf == tram_dr::Confidence::kOk) {
       conf = tram_dr::Confidence::kDegraded;
+    }
+    // An input or timing fault this cycle means the estimate rests on data
+    // that was rejected or on an interval that could not be established.
+    // Fail closed rather than publishing OK next to a nonzero fault counter.
+    if (fault) {
+      conf = tram_dr::Confidence::kLost;
     }
 
     msg.pose.pose.position.x = e.x.s_m;
@@ -345,6 +577,9 @@ class StateEstimatorNode : public rclcpp::Node {
     }
     st.message = std::string(tram_dr::confidence_label(conf)) + " mode=" +
                   tram_dr::mode_label(e.mode);
+    if (fault) {
+      st.message += " (input/timing fault)";
+    }
     st.values.push_back(kv("confidence", tram_dr::confidence_label(conf)));
     st.values.push_back(kv("confidence_v", tram_dr::confidence_label(e.confidence_v)));
     st.values.push_back(kv("confidence_s", tram_dr::confidence_label(e.confidence_s)));
@@ -380,15 +615,37 @@ class StateEstimatorNode : public rclcpp::Node {
     st.values.push_back(kv("al_s_m", std::to_string(e.al_s_m)));
     st.values.push_back(kv("a_kin", std::to_string(e.a_kin_mps2)));
     st.values.push_back(kv("a_unphysical", e.a_unphysical ? "1" : "0"));
+    push_time_hygiene(st);
     d.status.push_back(st);
     diag_->publish(d);
+    input_fault_ = false;
+  }
+
+  // Everything an operator needs to tell "the filter is fine" apart from
+  // "the filter is being fed a broken timeline" (F-17 / F-17b).
+  void push_time_hygiene(diagnostic_msgs::msg::DiagnosticStatus& st) const {
+    st.values.push_back(kv("timebase", timebase_is_meas_ ? "header_stamp" : "node_clock"));
+    st.values.push_back(kv("stamp_skew_s", std::to_string(stamp_skew_s_)));
+    st.values.push_back(kv("stamp_skew_events", std::to_string(stamp_skew_events_)));
+    st.values.push_back(kv("dt_s", std::to_string(last_dt_s_)));
+    st.values.push_back(kv("stamp_regressions", std::to_string(stamp_regressions_)));
+    st.values.push_back(kv("dt_gaps", std::to_string(dt_gaps_)));
+    st.values.push_back(kv("dt_floored", std::to_string(dt_floored_)));
+    st.values.push_back(kv("catchup_steps", std::to_string(catchup_steps_)));
+    st.values.push_back(kv("bad_notch", std::to_string(bad_notch_)));
+    st.values.push_back(kv("bad_brake", std::to_string(bad_brake_)));
+    st.values.push_back(kv("bad_wheels", std::to_string(bad_wheels_)));
+    st.values.push_back(kv("n_omega_nonfinite", std::to_string(n_omega_nonfinite_)));
+    st.values.push_back(kv("input_fault", input_fault_ ? "1" : "0"));
   }
 
   void tick() {
     const rclcpp::Time t = now();
-    if ((have_wheels_ || have_notch_) && last_step_.has_value()) {
-      const double idle = (t - *last_step_).seconds();
-      if (idle > 1.5 * period_s_) {
+    // last_wall_ is written by every executed step and is always this node's
+    // clock, so this comparison is single-timebase by construction.
+    if ((have_wheels_ || have_notch_) && last_wall_.has_value()) {
+      const double idle = (t - *last_wall_).seconds();
+      if (std::isfinite(idle) && idle > 1.5 * period_s_) {
         step_filter(false);
       }
     }
@@ -413,9 +670,37 @@ class StateEstimatorNode : public rclcpp::Node {
   bool twist_is_omega_{false};
   std::string vehicle_profile_{"combino_nf100"};
   bool last_step_used_wheels_{false};
-  std::optional<rclcpp::Time> last_step_;
-  std::optional<rclcpp::Time> last_wheel_stamp_;
-  std::optional<rclcpp::Time> last_notch_stamp_;
+
+  // --- time hygiene state (F-17b) ---------------------------------------
+  double notch_stale_s_{0.25};
+  double default_dt_s_{0.02};
+  double dt_min_s_{0.001};
+  double dt_max_s_{0.20};
+  double stamp_regression_tol_s_{0.001};
+  double stamp_skew_warn_s_{5.0};
+  int max_catchup_steps_{100};
+  // Measurement-timebase anchor: only ever differenced against header stamps.
+  std::optional<rclcpp::Time> last_meas_stamp_;
+  // Node-clock anchor: only ever differenced against now().
+  std::optional<rclcpp::Time> last_wall_;
+  std::optional<rclcpp::Time> last_wheel_arrival_;
+  std::optional<rclcpp::Time> last_notch_arrival_;
+  double consumed_since_meas_s_{0.0};
+  double stamp_skew_s_{0.0};
+  double last_dt_s_{0.0};
+  bool timebase_is_meas_{false};
+  bool warned_skew_{false};
+  bool input_fault_{false};
+  int stamp_skew_events_{0};
+  int stamp_regressions_{0};
+  int dt_gaps_{0};
+  int dt_floored_{0};
+  int catchup_steps_{0};
+  int bad_notch_{0};
+  int bad_brake_{0};
+  int bad_wheels_{0};
+  int n_omega_nonfinite_{0};
+
   rclcpp::QoS in_qos_{1};
 
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_;
