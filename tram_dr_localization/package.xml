@@ -2,7 +2,9 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>tram_dr_localization</name>
-  <version>0.0.6</version>
+  <!-- Must track kModelVersion in include/tram_dr_localization/types.hpp.
+       F-20: this said 0.0.6 while the shipped constant said tramDR-0.0.7. -->
+  <version>0.0.7</version>
   <description>Backup tram dead-reckoning from controller notch and wheel speeds. No GNSS/IMU/lidar in the filter.</description>
   <maintainer email="KonkovDV@users.noreply.github.com">KonkovDV</maintainer>
   <license>MIT</license>

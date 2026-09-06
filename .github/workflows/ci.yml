@@ -79,3 +79,53 @@ jobs:
           ./standalone/build-asan/test_integrity_contracts
           ./standalone/build-asan/test_ut_weights_psd
           ./standalone/build-asan/test_ut_weights_header
+
+  ros:
+    # F-19: every job above builds standalone/ only. Until this job existed,
+    # no ROS node in tram_dr_localization was ever compiled by CI and none of
+    # the four ament_add_gtest suites ever ran. The node layer is where all
+    # input-validation and timebase handling lives, so the entire class of
+    # defect that F-17 / F-17b belong to was invisible to CI by construction.
+    # Distro matches the Dockerfile (osrf/ros:humble-desktop).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: workspace and dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          apt-get update
+          # Installed explicitly rather than assumed: the base image contents
+          # vary between ros-core / ros-base tags.
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            python3-colcon-common-extensions \
+            python3-rosdep
+          rosdep init 2>/dev/null || true
+          rosdep update --rosdistro "$ROS_DISTRO"
+          # Same layout the Dockerfile uses, so this job validates that too.
+          mkdir -p /ws/src
+          cp -a "$GITHUB_WORKSPACE/tram_dr_localization" /ws/src/
+          rosdep install --from-paths /ws/src --ignore-src -y --rosdistro "$ROS_DISTRO"
+      - name: colcon build (core library + all four nodes)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          cd /ws
+          colcon build --packages-select tram_dr_localization \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+      - name: colcon test (test_types, test_plant, test_sca, test_ukf)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          cd /ws
+          colcon test --packages-select tram_dr_localization \
+            --event-handlers console_direct+
+          colcon test-result --all --verbose
