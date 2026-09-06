@@ -23,7 +23,10 @@ constexpr double kMuMax = 0.5;
 constexpr double kMassMinKg = 20000.0;
 constexpr double kMassMaxKg = 70000.0;
 constexpr double kOmegaAbsMax = 80.0;
-constexpr const char* kModelVersion = "tramDR-0.0.6";
+// 0.0.7: fail-closed ZUPT evidence, non-latching mode reset, time-based encoder
+// freshness, dt/finiteness contract with atomic rollback. Numbers in
+// docs/metrics.md were measured on 0.0.6 and are not yet recomputed here.
+constexpr const char* kModelVersion = "tramDR-0.0.7";
 
 enum StateIndex {
   kS = 0,
