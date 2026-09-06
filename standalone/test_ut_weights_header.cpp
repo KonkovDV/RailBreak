@@ -10,8 +10,14 @@
 //
 // Runs under NDEBUG: failures are counted and reported through the exit code
 // rather than asserted away.
+//
+// Iteration deliberately uses plain arrays rather than range-for over a
+// braced-init-list: the latter deduces std::initializer_list, which requires
+// <initializer_list> to be declared, and neither <cmath> nor <cstdio> is
+// obliged to provide it. Arrays need no library support at all.
 
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 
 #include "tram_dr_localization/ut_weights.hpp"
@@ -78,8 +84,9 @@ int main() {
   // W_m0 = (alpha^2 L - L) / (alpha^2 L) = 1 - 1/alpha^2, so L cancels.
   const double wc0_ref = 2.0 + kBeta - kAlpha * kAlpha - 1.0 / (kAlpha * kAlpha);
   check_near(w.wc0, wc0_ref, 1e-12, "W_c0 == 2 + beta - a^2 - 1/a^2");
-  for (const int L : {1, 2, 4, 12, 13, 25, 64}) {
-    const Weights wl = weights(kAlpha, kBeta, kKappa, L);
+  static const int kDims[] = {1, 2, 4, 12, 13, 25, 64};
+  for (std::size_t i = 0; i < sizeof(kDims) / sizeof(kDims[0]); ++i) {
+    const Weights wl = weights(kAlpha, kBeta, kKappa, kDims[i]);
     check_near(wl.wc0, wc0_ref, 1e-12, "W_c0 independent of L at kappa=0");
     check_near(wl.wm0, 1.0 - 1.0 / (kAlpha * kAlpha), 1e-12,
                "W_m0 independent of L at kappa=0");
@@ -133,7 +140,9 @@ int main() {
   check(!weights_psd_ok(0.58, 2.0, 0.0, -3), "negative L rejected");
 
   // ---- 7. Luo-Moroz sufficient bound ------------------------------------
-  for (const double beta : {0.0, 0.5, 1.0, 2.0, 3.0, 7.0}) {
+  static const double kBetasSuf[] = {0.0, 0.5, 1.0, 2.0, 3.0, 7.0};
+  for (std::size_t i = 0; i < sizeof(kBetasSuf) / sizeof(kBetasSuf[0]); ++i) {
+    const double beta = kBetasSuf[i];
     const double a_suf = sufficient_alpha_lower(beta);
     check(std::isfinite(a_suf), "sufficient bound finite");
     check(weights_psd_ok(a_suf, beta, 0.0, kL), "sufficient bound is admissible");
@@ -157,7 +166,9 @@ int main() {
   // ---- 8. predicate agrees with the closed form on a fine grid ----------
   // The predicate and the window are two different computations; they must
   // classify every grid point identically away from the boundary.
-  for (const double beta : {0.0, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0}) {
+  static const double kBetasGrid[] = {0.0, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0};
+  for (std::size_t i = 0; i < sizeof(kBetasGrid) / sizeof(kBetasGrid[0]); ++i) {
+    const double beta = kBetasGrid[i];
     double wlo = 0.0, whi = 0.0;
     if (!alpha_window(beta, &wlo, &whi)) {
       check(false, "grid: alpha_window failed");
