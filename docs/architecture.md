@@ -1,14 +1,16 @@
 # Архитектура
 
-Продукт: **tramDR** (`tramDR-0.0.6`). Пакет ROS 2 Humble: `tram_dr_localization`.
+Продукт: **tramDR** (`tramDR-0.0.7`). Пакет ROS 2 Humble: `tram_dr_localization`.
 Ядро `libtram_dr` — C++17 без `rclcpp` (сборка и тесты через `standalone/`).
+История изменений и открытые пункты — [`../CHANGELOG.md`](../CHANGELOG.md);
+граница проверенного — [`verification.md`](verification.md).
 
 ```
 topic_adapter_node     чужие имена/типы → /tram/* (по умолчанию выкл.)
 state_estimator_node   предикт по колёсам; публикация 50 Гц
 map_projector_node     s → NavSatFix (STATUS_NO_FIX, не приёмник GNSS)
 fault_monitor_node     watchdog на /tram/diagnostics
-libtram_dr             plant (Дэвис+Кулон) → SCA → scaled UKF
+libtram_dr             контракт входа → plant (Дэвис+Кулон) → SCA → scaled UKF
 входы фильтра          notch, brake, wheel_odom  (нет GNSS / IMU / лидара)
 GT                     /gt/* только оффлайн
 ```
@@ -33,15 +35,47 @@ $a_{\max}$, $P_{\max}$, Ø Львёнка и Витязя **не** паспор�
 Лидар / NavSatFix / одометрия ЦБТ в bag — GT оффлайн (`identify_*`, чекер),
 никогда подписка оценщика.
 
+## Контракты ядра (0.0.7)
+
+Это не «проверки на всякий случай», а граница ответственности между узлом и
+фильтром. Каждая строка закреплена тестом, а не комментарием.
+
+| Контракт | Поведение ядра | Где закреплено |
+| --- | --- | --- |
+| $\Delta t\in[5,200]\,\mathrm{ms}$ | шаг отклонён, состояние не тронуто | `test_integrity_contracts` |
+| конечность `notch`, `brake`, $\omega_i$ | шаг отклонён; NaN не проникает в $P$ | `test_integrity_contracts` |
+| атомарность шага | при отказе Холецкого — полный откат (`*this = previous`), `chol_fail`++ | `test_integrity_contracts` |
+| стоянка только по свидетельству | нулевые $\omega$ при отпущенном тормозе ZUPT не включают | `test_core`, `test_integrity_contracts` |
+| режим не подтверждает себя | `classify` не читает свой предыдущий вывод как вход | `test_integrity_contracts` |
+| свежесть энкодеров во времени | `freeze_s` в секундах, не в тактах | `test_integrity_contracts` |
+| алгебра весов UT | $W_c^{(0)}\ge 0$ и достаточное условие PSD | `test_ut_weights_psd` (ядро не линкуется) |
+
+Сборка и прогон:
+
+```bash
+cmake -S standalone -B standalone/build -DCMAKE_BUILD_TYPE=Release
+cmake --build standalone/build --parallel
+ctest --test-dir standalone/build --output-on-failure
+```
+
+Цели `standalone/`: `test_core`, `test_integrity_contracts`,
+`test_ut_weights_psd`, `replay_ukf`. Все три тестовые цели зарегистрированы
+в `ctest` и все три собираются под ASan/UBSan в CI (до этого под санитайзерами
+шёл только `test_core` — `F-11`). `-ffast-math` запрещён.
+
 ## Исполнение
 
-Предикт — в колбэке колёс. $\Delta t$ из `header.stamp` у `JointState` /
+Предикт — в колбеке колёс. $\Delta t$ из `header.stamp` у `JointState` /
 `TwistStamped`; иначе время приёма. Канон `Float64MultiArray` штампа не несёт.
 `wheel_latency_s` только в диагностике, из шага plant **не** вычитается.
 Таймер 50 Гц — watchdog `age_s` и публикация последней оценки: топик не
 замолкает при потере колёс. UKF стартует по колёсам; одна ручка фильтр не
 поднимает. Входной QoS: keep-last 1, best-effort. Выход odom: keep-last 1,
-reliable. Нефинитные $\omega$ → frozen, не медиана. `-ffast-math` запрещён.
+reliable. Нефинитные $\omega$ → frozen, не медиана.
+
+Важно для рецензента: узел зажимает $\Delta t$ в контракт до вызова ядра,
+и сейчас делает это для любого знака разности штампов — см. раздел
+«Известные дефекты узлов».
 
 Live и offline — один алгоритм, не bit-identical (штампы ROS vs CSV dt).
 `replay.launch.py`: `use_sim_time:=true`, `ros2 bag play --clock`.
@@ -67,7 +101,7 @@ python tools/eval/inspect_bag.py data/bags/run01 \
 ## Топики
 
 Канон оценщика: **Float32** notch и **Float64MultiArray** колёс на `/tram/*`.
-Иначе — `notch_type` / `wheels_type` или адаптер с **других** имён.
+Иначе — `notch_type` / `wheels_type` или адаптер с **других** имен.
 `TwistStamped.linear.x` — м/с → $\omega=v/r_0$, пока `twist_is_omega` не true.
 
 | | Топик | Тип (канон) |
@@ -86,6 +120,9 @@ python tools/eval/inspect_bag.py data/bags/run01 \
 `nis`, `chol_fail`, `slip_latched`, `zupt_at_stop`.
 `over_m` $=PL_s=k_{\mathrm{over}}\sqrt{P_{ss}}+b_s$.
 Фильтр: $AL_s=5+0.05\max(\hat s,0)$. Чекер HMI: $5+0.05\lvert s_{\mathrm{gt}}\rvert$.
+`chol_fail` — не косметика: рост счётчика означает отклонённые шаги, то есть
+предикт без обновления; при ненулевом значении запись надо разбирать, а не
+сдавать как чистый прогон.
 
 `route_10.yaml` — вершины остановок OSM (9 точек; ginfo: 9 туда / 8 обратно
 без Бурназяна; списки «8» не удаляют стоп без GTFS), не ось пути и не $i(s)$.
@@ -116,7 +153,23 @@ $h(s)$ — `profile_from_bag.py` оффлайн. Длину 5.5 км не цит
 | `r0_uncalibrated` (Львёнок) | `DEGRADED` по $s$ до `identify_coast` |
 | нет колёс дольше $1$ с | `DEGRADED`→`LOST`; публикация идёт |
 | нет колёс на старте | `UNINITIALIZED`; топик публикуется |
+| нефинитный вход или $\Delta t$ вне контракта | шаг отклонён, полный откат, `chol_fail`++; статус по возрасту данных |
+| нулевые $\omega$ при отпущенном тормозе | **не** ZUPT: стоянка требует свидетельства (`F-01`) |
 
 По умолчанию `axle_role` все motor. У Львёнка это факт Bo-Bo, не гипотеза:
 ветки trailer нет. При потере связи с берегом борт считает дальше; на берегу
 растёт `age_s`.
+
+## Известные дефекты узлов
+
+Ядро проверено контракт-тестами, узлы ROS 2 — нет (в среде проверки нет
+`rclcpp`, см. [`verification.md`](verification.md)). Открытый пункт `F-17`
+([issue #3](https://github.com/KonkovDV/RailBreak/issues/3)):
+
+1. `state_estimator_node.cpp` кладёт в `last_u_` значения из топиков без проверки конечности: NaN из `Float32` доедет до вызова ядра.
+2. Разность штампов зажимается в $[5,200]\,\mathrm{ms}$ **включая** отрицательные значения: перестановленные сообщения превращаются в шаг вперёд на 5 мс вместо отбрасывания.
+
+Ядро такой вход отклоняет и откатывает шаг — защита в глубину работает, и потому
+это P1, а не P0. Рекомендация: проверять `std::isfinite` в колбеках и
+отбрасывать немонотонные штампы с инкрементом счётчика в diagnostics, а не
+полагаться на контракт ядра как на единственный барьер.
