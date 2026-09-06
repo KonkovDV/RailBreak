@@ -1,0 +1,69 @@
+/**:
+  ros__parameters:
+    rate_hz: 50.0
+    n_wheels: 4
+    wheel_radius_m: 0.35
+    mass_kg: 28000.0
+    # Combino NF100 (ITSC 2020) until a Moscow data sheet.
+    a_trac_max: 1.3
+    a_svc: 1.2
+    v_base_mps: 6.0          # identify_notch.py fits the knee; do not invent for Львёнок
+    A_d: 800.0
+    B_d: 40.0
+    C_d: 6.0
+    # 0: algebraic F=F* (matches the synth generator).
+    tau_drv_s: 0.0
+    gamma_rot: 0.0
+    ukf_alpha: 0.58         # W_c^(0)≥0 ⇒ α≥0.518; Luo–Moroz PSD ⇒ α≥0.577. Range [0.58, 1]
+    ukf_beta: 2.0            # [0, 2]
+    ukf_kappa: 0.0
+    kappa_cut: 0.25          # |v_wh−v|/max(|v|,1). Range (0, 1]
+    r_common_mode: 80.0      # extra R when |κ| large. Range [1, 1e4]
+    p_ss_init: 0.25          # (0.5 m)^2; s=0 is DR origin
+    k_sigma: 2.0
+    k_over: 2.5              # PL_s = k_over √P_ss + b_s
+    freeze_s: 0.5            # stuck-axle window (s). Range [0.1, 2]
+    ukf_cubature: false      # Arasaratnam–Haykin CKF; default scaled UT
+    kappa_hold_s: 0.2        # |κ| must persist this long before slip latch
+    k_lost: 2.5              # LOST if √P_ss > k_lost * (5 + 0.05 max(s,0))
+    notch_lost_s: 2.0
+    allow_reverse: false
+    mass_door_kg: 3000.0     # P on log m after ZUPT at a stop. Львёнок: 12000.
+    stop_gate_m: 40.0        # |s−stop| for mass_door; route_s_m from route_10.yaml
+    q_v: 0.0025              # white-accel intensity m²/s³ (Van Loan Q_d)
+    zupt_hold_s: 0.3         # standstill only after this window. Range [0, 1]
+    zupt_omega_only_s: 2.0   # F-10: ω≡0 this long with quiet notch forces ZUPT even if |v̂|≥0.35
+    encoder_pulses_per_rev: 0  # 0 = unused; else R(ω) from pulse-count quantization
+    mass_prior_log_sigma: 0.3  # weak prior on log m, applied once per second
+    q_fb_wheels_n: 3000.0      # F_bias RW rate N/√s when wheels agree
+    sca_z_thresh: 2.5
+    sca_sigma_v_rel: 0.0     # extra σ as fraction of |v|; set from inspect_bag if ω is coarse
+    sca_sigma_v_mps: 0.15    # 1-sigma on r*omega before inflation
+    r0_uncalibrated: false   # Львёнок overlay sets true until identify_coast
+    # IRW: average L/R pairs. false if one encoder per wheelset (axle-level ω).
+    sca_pair_lr: true
+    # Share of brake force that skips the μ cap (track magnet). 0 until payload
+    # shows the magnetic-rail channel in /tram/brake_cmd. Do not enable from OSINT.
+    brake_nonadhesive_frac: 0.0
+    notch_as_accel: false   # identify_notch.py; F* = m sat(a_cmd) if the bag is closed-loop
+    i_grade: 0.0            # optional map prior; do not invent OSM / Strogino grades
+    j_max_mps3: 0.0         # |Ḟ| ≤ m j_max; 0 = off (synth). identify_jerk.py on the bag.
+    huber_c: 3.0            # DCS/Huber cap; 0 = off
+    wheel_latency_s: 0.0    # published in diagnostics; not subtracted from plant dt
+    vehicle_profile: combino_nf100
+    axle_role: [0, 0, 0, 0] # 0 motor, 1 trailer. Львёнок: все motor (Bo-Bo).
+    slide_grade_lost_s: 0.4
+    a_kin_downhill: 0.05
+    # xi_to_phys clips k_trac to [0.5, 1.5] and d_i to [0.85, 1.05].
+    # plant_step extra SI clip only when clip_params=true (not on UT points).
+    # Set wheel_radius_m from the data sheet
+    # or identify_coast.py when GT velocity is present.
+    # |notch|≤1 pass-through, else notch/8.
+    notch_max_abs: 8.0
+    # Canonical /tram/* types. Int8 on the same name cannot be republished
+    # in-place by topic_adapter — set notch_type / wheels_type instead.
+    notch_type: float32          # float32 | float64 | int8 | int16
+    wheels_type: float64_array   # float64_array | float32_array | joint_state | twist_stamped
+    twist_is_omega: false        # TwistStamped linear.x is m/s unless true
+    age_degraded_s: 0.25
+    age_lost_s: 1.0

@@ -1,0 +1,16 @@
+.git
+.github
+docs
+evidence
+tools
+standalone
+synth
+data
+*.md
+.gitattributes
+.gitignore
+LICENSE
+NOTICE
+__pycache__
+*.pyc
+standalone/build
