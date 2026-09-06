@@ -326,7 +326,7 @@ int main() {
     expect(e.confidence == tram_dr::Confidence::kOk, "one freeze stays OK");
   }
   {
-    // Relative κ floor is 1 m/s; a 0.14 m/s stop tail must not trip common-mode.
+    // Relative kappa floor is 1 m/s; a 0.14 m/s stop tail must not trip common-mode.
     tram_dr::Ukf ukf;
     tram_dr::Input u;
     u.notch = 0.0;
@@ -550,7 +550,7 @@ int main() {
     }
     expect(!e.sca.common_mode, "ramp sign is not slip");
     expect(!e.slip_latched, "ramp does not latch s");
-    expect(e.pl_s_m > e.under_m, "PL includes k√P");
+    expect(e.pl_s_m > e.under_m, "PL includes k sqrt(P)");
     expect(e.b_s_m > 0.0 && e.b_s_m < 2.0, "MDS bound finite before latch");
   }
   {
@@ -659,7 +659,7 @@ int main() {
       e = ukf.predict_and_update(u, locked, 4, 0.02);
     }
     expect(std::isfinite(e.x.v_mps), "huber slide v finite");
-    expect(e.x.v_mps > 2.0, "huber slide does not collapse v to rω");
+    expect(e.x.v_mps > 2.0, "huber slide does not collapse v to r omega");
     expect(e.b_s_m > 0.1, "b_s uses |v| Td");
   }
   {
@@ -796,13 +796,22 @@ int main() {
     }
     expect(e.x.s_m > 50.0, "driven past stop gate");
     expect(!e.zupt_at_stop, "away from stop vertex");
+    // Come to a genuine stand at a switch: release traction, apply the service
+    // brake, ramp the wheels down to rest at the commanded rate, then hold.
+    // Feeding omega=0 to a body still doing ~12 m/s is the locked-wheel slide
+    // case, which "no zupt on sliding lock" above and "false zero wheels cannot
+    // erase a moving body" in test_integrity_contracts both forbid: standstill
+    // must not be reachable that way. Only the mass door is under test here.
     u.notch = 0.0;
-    u.brake = 0.0;
-    for (int k = 0; k < 40; ++k) {
-      double z[4] = {0.0, 0.0, 0.0, 0.0};
-      e = ukf.predict_and_update(u, z, 4, 0.02);
+    u.brake = 0.6;
+    double v_cmd = std::max(e.x.v_mps, 0.0);
+    for (int k = 0; k < 1500; ++k) {
+      v_cmd = std::max(0.0, v_cmd - 0.6 * 1.2 * 0.02);
+      const double w = v_cmd / r;
+      double omega[4] = {w, w, w, w};
+      e = ukf.predict_and_update(u, omega, 4, 0.02);
     }
-    expect(e.mode == tram_dr::Mode::kStandstill, "zupt off stop");
+    expect(e.mode == tram_dr::Mode::kStandstill, "zupt off stop after a real stand");
     expect(!e.zupt_at_stop, "switch wait is not a stop");
     const double p_hold = e.p_mm;
     u.brake = 0.0;
@@ -814,7 +823,7 @@ int main() {
     expect(e.p_mm < p_hold + 0.5 * door, "no mass_door off stop");
   }
   {
-    // WSP-held slide: |κ| vs UKF-v stays below κ_cut; channel A still sees it.
+    // WSP-held slide: |kappa| vs UKF-v stays below kappa_cut; channel A sees it.
     tram_dr::Ukf ukf;
     tram_dr::Input u;
     u.notch_valid = true;
@@ -867,8 +876,8 @@ int main() {
     expect(e.chol_fail == 0, "grade ramp chol");
   }
   {
-    // Estimated Strogino descent 3.2% (not a survey; centre of 25–40‰).
-    // Coast: no i(s) in the filter. F_bias must eat the grade; κ on coast is
+    // Estimated Strogino descent 3.2% (not a survey; centre of 25-40 permille).
+    // Coast: no i(s) in the filter. F_bias must eat the grade; kappa on coast is
     // model error, not slide.
     tram_dr::PlantParams twin = tram_dr::default_plant_params();
     twin.m0_kg = 22000.0;
@@ -899,8 +908,8 @@ int main() {
       e = ukf.predict_and_update(u, omega, 4, 0.02);
     }
     const double target = -22000.0 * 9.81 * 0.032;
-    // Coast q_Fb is 1000 N/√s: do not demand millinewton match to mgi.
-    // Integrity: sign of the ramp, no κ latch (coast_quiet), v stays OK.
+    // Coast q_Fb is 1000 N/sqrt(s): do not demand millinewton match to mgi.
+    // Integrity: sign of the ramp, no kappa latch (coast_quiet), v stays OK.
     expect(e.x.f_bias_n < -2000.0, "F_bias sign follows Strogino descent");
     expect(std::fabs(e.x.f_bias_n - target) < 9000.0, "F_bias near Strogino mgi");
     expect(!e.slip_latched, "coast on grade is not a slip latch");
@@ -908,8 +917,8 @@ int main() {
     expect(e.chol_fail == 0, "Strogino coast chol");
   }
   {
-    // Class-order tare 22 t is NOT a passport: kernel (δm, δk) vs +12 t pax
-    // (170×70 kg estimate). Expect v OK; do not dump the extra mass into F_bias.
+    // Class-order tare 22 t is NOT a passport: kernel (dm, dk) vs +12 t pax
+    // (170 x 70 kg estimate). Expect v OK; do not dump the extra mass into F_bias.
     tram_dr::PlantParams twin = tram_dr::default_plant_params();
     twin.m0_kg = 22000.0;
     twin.mass_min_kg = 15000.0;
