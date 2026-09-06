@@ -99,19 +99,28 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          apt-get update
-          # Installed explicitly rather than assumed: the base image contents
-          # vary between ros-core / ros-base tags.
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            python3-colcon-common-extensions \
-            python3-rosdep
-          rosdep init 2>/dev/null || true
-          rosdep update --rosdistro "$ROS_DISTRO"
-          # Same layout the Dockerfile uses, so this job validates that too.
+          # Deliberately no apt-get here. ros:humble-ros-base already ships
+          # build-essential, python3-colcon-common-extensions and
+          # python3-rosdep, and its own Dockerfile has already run
+          # `rosdep init`. Calling `apt-get update` would tie this package's
+          # build to the ROS apt repository's signing key staying valid - an
+          # unrelated external dependency that has expired before and that
+          # reports itself as a failure of code it never compiled.
+          command -v colcon
+          command -v rosdep
+          c++ --version
           mkdir -p /ws/src
+          # Same layout the Dockerfile uses, so this job validates that too.
           cp -a "$GITHUB_WORKSPACE/tram_dr_localization" /ws/src/
-          rosdep install --from-paths /ws/src --ignore-src -y --rosdistro "$ROS_DISTRO"
+          # rosdep is best-effort on purpose. This package depends only on
+          # rclcpp, std_msgs, sensor_msgs, nav_msgs and ament_cmake_gtest, all
+          # present in the base image, so an unreachable rosdep index must not
+          # be reported as a compile failure. The colcon build below is the
+          # authoritative check and stays strict.
+          rosdep update --rosdistro "$ROS_DISTRO" \
+            || echo "rosdep update unavailable, continuing on base image contents"
+          rosdep install --from-paths /ws/src --ignore-src -y --rosdistro "$ROS_DISTRO" \
+            || echo "rosdep install incomplete, continuing on base image contents"
       - name: colcon build (core library + all four nodes)
         shell: bash
         run: |
