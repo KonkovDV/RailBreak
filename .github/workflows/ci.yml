@@ -59,11 +59,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: sanitizers on test_core only
+      # F-11: this job used to build test_core only, so the integrity
+      # contracts and the UT weight algebra never ran under sanitizers.
+      - name: sanitizers on all core test targets
         run: |
           cmake -S standalone -B standalone/build-asan \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          cmake --build standalone/build-asan --target test_core --parallel
-          ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
-            ./standalone/build-asan/test_core
+          cmake --build standalone/build-asan \
+            --target test_core test_integrity_contracts test_ut_weights_psd \
+            --parallel
+          export ASAN_OPTIONS=detect_leaks=1
+          export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+          ./standalone/build-asan/test_core
+          ./standalone/build-asan/test_integrity_contracts
+          ./standalone/build-asan/test_ut_weights_psd
