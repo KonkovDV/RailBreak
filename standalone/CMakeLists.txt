@@ -21,12 +21,19 @@ target_include_directories(test_core PRIVATE ${PKG}/include)
 add_executable(test_integrity_contracts test_integrity_contracts.cpp ${TRAM_DR_CORE_SRC})
 target_include_directories(test_integrity_contracts PRIVATE ${PKG}/include)
 
+# Scaled-UT weight algebra and the joint (alpha, beta, kappa) admissibility
+# window from docs/math.md section 5. Deliberately standalone: it links no
+# core sources and includes no repo headers, so it stays an independent check
+# on the algebra rather than a tautology against ukf.cpp.
+add_executable(test_ut_weights_psd test_ut_weights_psd.cpp)
+
 add_executable(replay_ukf replay_ukf.cpp ${TRAM_DR_CORE_SRC})
 target_include_directories(replay_ukf PRIVATE ${PKG}/include)
 
 enable_testing()
 add_test(NAME test_core COMMAND test_core)
 add_test(NAME test_integrity_contracts COMMAND test_integrity_contracts)
+add_test(NAME test_ut_weights_psd COMMAND test_ut_weights_psd)
 
 if(MSVC)
   set(_tram_dr_warn /W4)
@@ -35,4 +42,5 @@ else()
 endif()
 target_compile_options(test_core PRIVATE ${_tram_dr_warn})
 target_compile_options(test_integrity_contracts PRIVATE ${_tram_dr_warn})
+target_compile_options(test_ut_weights_psd PRIVATE ${_tram_dr_warn})
 target_compile_options(replay_ukf PRIVATE ${_tram_dr_warn})
