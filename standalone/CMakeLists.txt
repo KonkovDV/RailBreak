@@ -22,7 +22,7 @@ add_executable(test_integrity_contracts test_integrity_contracts.cpp ${TRAM_DR_C
 target_include_directories(test_integrity_contracts PRIVATE ${PKG}/include)
 
 # Scaled-UT weight algebra and the joint (alpha, beta, kappa) admissibility
-# window from docs/math.md section 5. Deliberately standalone: it links no
+# window described in docs/math.md. Deliberately standalone: it links no
 # core sources and includes no repo headers, so it stays an independent check
 # on the algebra rather than a tautology against ukf.cpp.
 add_executable(test_ut_weights_psd test_ut_weights_psd.cpp)
