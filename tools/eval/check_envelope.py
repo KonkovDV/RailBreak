@@ -118,8 +118,12 @@ def check_rows(rows: list[dict], *, require_gt: bool) -> CheckResult:
     if not out.has_gt:
         out.notes.append("ENVELOPE_GT skipped: no GT")
     else:
-        rate = (out.n_hmi / out.n_ok) if out.n_ok else 0.0
-        out.notes.append(f"HMI-rate={rate:.6f} ({out.n_hmi}/{out.n_ok})")
+        if out.n_ok:
+            rate = out.n_hmi / out.n_ok
+            out.notes.append(f"HMI-rate={rate:.6f} ({out.n_hmi}/{out.n_ok})")
+        else:
+            # Absence of matched OK exposure is not a measured zero risk.
+            out.notes.append("HMI-rate=N/A (0/0; no matched OK exposure)")
         if out.missed_path_m is None:
             out.notes.append("missed_path_until_degraded=n/a")
         else:
