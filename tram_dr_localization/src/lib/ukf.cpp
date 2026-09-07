@@ -305,7 +305,7 @@ void Ukf::init_from_wheels(const double* omega, std::size_t n) {
   set_diag_p(P_, kMass, (2000.0 / m0) * (2000.0 / m0));
   set_diag_p(P_, kKtrac, 0.04);
   for (int i = 0; i < kNWheels; ++i) {
-    set_diag_p(P_, kD0 + i] = 1.0e-4);
+    set_diag_p(P_, kD0 + i, 1.0e-4);
   }
   set_diag_p(P_, kMu, 1.0);  // logit space
   phys_to_xi(x_);
@@ -1167,7 +1167,7 @@ UkfEstimate Ukf::snapshot() const {
   e.x = unpack_state(phys, 0.0);
   State tmp = e.x;
   const PlantDeriv d = (have_f_trac_filt_ &&
-                        (plant_.tau_drv_s > 1e-12 || plant_.j_max_mps3 > 1e-12))
+                        (plant_.tau_drv_s_ > 1e-12 || plant_.j_max_mps3 > 1e-12))
                            ? plant_forces(tmp, last_u_, plant_, f_trac_filt_)
                            : plant_forces(tmp, last_u_, plant_);
   e.x.a_mps2 = d.a_mps2;
