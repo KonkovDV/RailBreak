@@ -54,14 +54,19 @@ Baseline: `91e20a74f0b526fc782b4eb7ddfd3afff73d575b`.
 Физическая порция: `dde3bc7d6594c4a5378348940271170ac7017561`.
 Исправленное расписание prior с устранёнными ошибками переноса файла:
 `5bd39a41aeadcabb80b057fe908fa49cdbe51f44`.
+HMI без экспозиции: `e36358a669d098f37f7de07930d0723021e82a11`.
+Scorer coverage/join: `0827dcdd564df226c7f9a4eeeb8e8eae36e73666`.
 
 | Проверка | До | После | Где |
 | --- | --- | --- | --- |
 | Numerical edges | 119 checks, 76 failures | 119 checks, 0 failures | GCC 11.5, C++17, Release/NDEBUG |
 | Plant contracts | 29 checks, 7 failures | 29 checks, 0 failures | GCC 11.5, Release; повторено в Debug |
 | Prior scheduling | CI cpp/asan failure на test-only commit `6327295` | CI cpp/asan success на `5bd39a4` | Полный UKF, assertions не ослаблены |
+| HMI exposure | 10 tests, 7 failures | 10 tests, 0 failures | Python 3.13, затем Python CI |
+| Scorer exposure/join | 13 tests, 17 failures/subtests | 13 tests, 0 failures | Python 3.13, затем Python CI |
 
-76 и 7 — количества проваленных проверок, **не** число разных дефектов.
+Failure — проваленная проверка, **не** обязательно отдельный дефект.
+Python subtests позволяют получить несколько failures в одном методе.
 Численный тест включает независимый long-double LDL, матрицы размерности
 1…16, нулевые/неопределённые/плохо обусловленные случаи, healthy no-op,
 нечисловые входы и beta до DBL_MAX. Физический тест проверяет оба направления
@@ -74,16 +79,19 @@ draft-ветке возникли дополнительные ошибки тр
 выявил и последующие commits устранили. Итоговый diff UKF относительно
 baseline — только перенос вызова prior и поясняющий комментарий.
 
-Подтверждённый C++/ASan/Python run для `5bd39a4`:
-[GitHub Actions](https://github.com/KonkovDV/RailBreak/actions/runs/34153221667).
-Статусы более ранних commits не являются подтверждением последнего HEAD.
-Окончательный ROS и остальные checks должны проверяться на последнем
-commit PR, включая изменения версии/документации.
+Все четыре job (cpp, asan, python, ros) подтверждены на `0827dcdd`:
+[PR run](https://github.com/KonkovDV/RailBreak/actions/runs/34155875188),
+[push run](https://github.com/KonkovDV/RailBreak/actions/runs/34155869318).
+Статусы более ранних commits не являются подтверждением последнего HEAD;
+после следующих изменений checks проверяются заново.
 
 Локальная среда аудита не имела CMake, ROS, Docker/colcon и пригодного
-ASan runtime. Поэтому локально запускались только перечисленные независимые
-C++ binaries; полный core/e2e и санитайзеры проверялись в CI. Недоступность
-runtime не считается успешным sanitizer-прогоном.
+ASan runtime. Локально запускались перечисленные C++ binaries, 23 Python
+контракта метрик и 6 фикстур структурного checker документации. Полный
+core/e2e, существующие Python suites, ROS и санитайзеры проверялись в CI.
+Недоступность runtime не считается успешным sanitizer-прогоном.
+Локальные исходники/зависимости метрик сверены с Git blob hashes репозитория;
+UKF и GT-модель в регрессионных тестах метрик не подменялись.
 
 ## 4. Python и synthetic e2e
 
@@ -91,17 +99,27 @@ Python 3.11+, основным скриптам достаточно станд�
 
 ```bash
 python3 tools/eval/test_eval.py
+python3 tools/eval/test_metric_contracts.py
 python3 tools/synth/test_generate.py
 python3 tools/eval/no_gnss_scan.py
+python3 tools/eval/test_docs.py
 python3 tools/synth/generate.py --out synth/runs
 python3 tools/eval/run_e2e.py --ukf standalone/build/replay_ukf
 python3 tools/synth/score.py --runs synth/runs
 python3 tools/eval/test_eval.py ReplayCatchupTests
 ```
 
-CI выполняет эти команды. `mismatch_r0` является предусмотренным
-отрицательным контролем и исключением из общего fail gate e2e; зелёный job
-не означает HMI = 0 во всех сценариях. См. [checker.md](checker.md).
+CI выполняет эти команды. 23 metric tests покрывают HMI без экспозиции,
+исходные знаменатели coverage, повтор GT, неупорядоченные/нечисловые времена,
+пустые результаты, граничный tolerance и независимый brute-force join.
+Это не 23 новых сценария движения и не новая таблица точности вагона.
+Структурный docs checker проверяет восемь актуальных документов, относительные
+ссылки, некоторые пути исходников, code fences, версии и список CTest.
+Он не проверяет внешние URL, heading anchors, LaTeX или истинность текста.
+
+`mismatch_r0` является предусмотренным отрицательным контролем и исключением
+из общего fail gate e2e; зелёный job не означает HMI = 0 во всех сценариях.
+См. [checker.md](checker.md).
 
 [metrics.md](metrics.md) содержит **исторические** таблицы 0.0.10.
 Эта порция не переименовывает их в измерения изменённого ядра. Новая таблица
@@ -135,7 +153,7 @@ Dockerfile/Compose и launch прочитаны, но их runtime-провер�
 | Multirate | Время датчика против filter dt; ring/freeze/omega-dot/hold/quantization |
 | ROS input | NaN brake, stale flags, параметры, очень малые dt и накопление времени |
 | ROS output | Quaternion, frames, неоцениваемые covariance, согласование diagnostics |
-| Checker/score | Нулевой знаменатель, исходный coverage, reuse GT и join tolerances |
+| Bag/метрики | Интерполяция, экстраполяция и coverage bag-пути; time-weighted exposure; strict JSON и malformed input |
 | Статистика | Нормированность NIS/NEES, false alarms, exposure, независимые поездки |
 | Физика | Полевые m/r0/тяга/Дэвис/уклон; статическое удержание, WSP и joint faults |
 | Производительность | WCET и latency на целевом контроллере, DDS/executor, HIL |

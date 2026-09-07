@@ -23,6 +23,9 @@
   включая silence и rest, а не только в обычном wheel-update.
 - Добавлены три regression-набора; все **восемь CTest targets** автоматически
   включаются в ASan/UBSan. Версии C++ и ROS package синхронизированы.
+- Исправлены HMI без экспозиции и coverage synthetic scorer до/после join;
+  23 Python-теста проверяют знаменатели, пустые результаты и GT-сопоставление.
+  Документы, ссылки и версии дополнительно проверяются offline-скриптом.
 - Пересмотрены формулы и ограничения: наблюдаемость s, prior, NIS, ZUPT,
   зависимость канала A, диагностика PL/HMI и границы тестовых доказательств.
 
@@ -46,8 +49,10 @@ cmake --build standalone/build --parallel
 ctest --test-dir standalone/build --output-on-failure
 
 python3 tools/eval/test_eval.py
+python3 tools/eval/test_metric_contracts.py
 python3 tools/synth/test_generate.py
 python3 tools/eval/no_gnss_scan.py
+python3 tools/eval/test_docs.py
 ```
 
 Synthetic e2e:
@@ -126,7 +131,7 @@ Dockerfile/Compose присутствуют, но их runtime-проверка 
 
 Требуют следующей инженерной порции: multirate sensor time/freeze,
 валидация ROS-параметров и NaN brake, quaternion/frames/covariance,
-coverage/нулевой знаменатель метрик и runtime graph tests.
+GT-интерполяция и coverage bag-пути, strict-JSON export и runtime graph tests.
 Список и критерии проверки: [verification.md](docs/verification.md).
 
 ## Как читать результаты
@@ -134,7 +139,10 @@ coverage/нулевой знаменатель метрик и runtime graph tes
 - Unit tests проверяют конкретные контракты; санитайзеры — некоторые классы
   ошибок памяти/UB, а не истинность физической модели.
 - HMI-rate checker — условная доля среди matched OK; нужны также availability,
-  coverage и число наблюдений. Текущий вывод `0/0` следует читать как N/A.
+  coverage и число наблюдений. При нулевой экспозиции выводится N/A, не нулевой риск.
+- Synthetic scorer сохраняет исходные количества GT/оценок, различает
+  coverage GT-строк и долю matched estimates. Пустой файл оценки виден явно.
+  Это не time-weighted coverage и не исправление отдельной интерполяции bag-пути.
 - Nonnegative UT weights — достаточная численная политика, не необходимая
   теорема для любой функции и не доказательство калибровки covariance.
 - Абсолютный сдвиг s не наблюдаем по колёсам, но cross-covariance позволяет
@@ -151,8 +159,8 @@ coverage/нулевой знаменатель метрик и runtime graph tes
 | [Математика](docs/math.md) | Силы, интегратор, UT, covariance, наблюдаемость |
 | [Априор и NIS](docs/estimator-priors.md) | Формулы, расписание процесса массы, пределы статистик |
 | [Архитектура](docs/architecture.md) | Компоненты, время, конфигурация, ROS-вход/выход |
-| [Проверки](docs/verification.md) | 8 suites, CI, TDD-свидетельства и открытая матрица |
-| [Checker](docs/checker.md) | Реальные классы нарушений, GT join и знаменатель HMI |
+| [Проверки](docs/verification.md) | CTest, Python-контракты, CI, TDD и открытая матрица |
+| [Checker](docs/checker.md) | Реальные классы нарушений, GT join и знаменатели метрик |
 | [Целостность и риск](docs/integrity-risk.md) | Диагностики, latch и отсутствие safety-гарантий |
 | [Метрики 0.0.10](docs/metrics.md) | Исторические synthetic результаты, не измерения 0.0.11 |
 | [Исторический аудит](docs/audit-2026-09-06.md) | Происхождение старых findings |
