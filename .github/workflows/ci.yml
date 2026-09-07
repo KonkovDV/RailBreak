@@ -28,6 +28,8 @@ jobs:
         run: python tools/synth/test_generate.py
       - name: no GNSS in filter
         run: python tools/eval/no_gnss_scan.py
+      - name: current documentation contracts
+        run: python tools/eval/test_docs.py
 
   cpp:
     runs-on: ubuntu-latest

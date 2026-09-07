@@ -25,7 +25,7 @@
 - `sca.cpp`: согласованность колёс и адаптация дисперсий измерений.
 - `ukf.cpp`: ковариационный UKF, ZUPT, контроль входа, latch и confidence.
 - `lin_alg.hpp`, `ut_weights.hpp`, `prior.hpp`: численные примитивы и формулы.
-- `standalone/replay.cpp`: воспроизведение без ROS; тот же C++ core.
+- `standalone/replay_ukf.cpp`: воспроизведение без ROS; тот же C++ core.
 - `tools/synth` и `tools/eval`: синтетика, независимые формулы, сравнение с GT.
 
 GNSS, IMU и облака точек не являются входами фильтра. Их возможное применение
