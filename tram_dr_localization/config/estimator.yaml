@@ -34,7 +34,15 @@
     zupt_hold_s: 0.3         # standstill only after this window. Range [0, 1]
     zupt_omega_only_s: 2.0   # F-10: ω≡0 this long with quiet notch forces ZUPT even if |v̂|≥0.35
     encoder_pulses_per_rev: 0  # 0 = unused; else R(ω) from pulse-count quantization
-    mass_prior_log_sigma: 0.3  # weak prior on log m, applied once per second
+    # F-23: Gauss–Markov prior on log m, stepped every tick. NOT re-fused once
+    # per second — that added 1/R of information per application and pinned
+    # σ_log m at 0.0293, i.e. ±822 kg at 28 t against a declared ±12500 kg
+    # loading range. This σ is the stationary one: φ²P + (1−φ²)R holds the
+    # variance here for every τ and every dt, so q[kMass] is switched off.
+    mass_prior_log_sigma: 0.3
+    # Reversion time constant. τ=300 s ⇒ φ=0.999933 at dt=0.02; τ=30 ⇒ 0.999334.
+    # 0 ⇒ instant reversion (x=z, P=R). See docs/estimator-priors.md §1.
+    mass_prior_tau_s: 300.0
     q_fb_wheels_n: 3000.0      # F_bias RW rate N/√s when wheels agree
     sca_z_thresh: 2.5
     sca_sigma_v_rel: 0.0     # extra σ as fraction of |v|; set from inspect_bag if ω is coarse
@@ -48,7 +56,8 @@
     notch_as_accel: false   # identify_notch.py; F* = m sat(a_cmd) if the bag is closed-loop
     i_grade: 0.0            # optional map prior; do not invent OSM / Strogino grades
     j_max_mps3: 0.0         # |Ḟ| ≤ m j_max; 0 = off (synth). identify_jerk.py on the bag.
-    huber_c: 3.0            # DCS/Huber cap; 0 = off
+    huber_c: 3.0            # DCS/Huber cap; 0 = off. n_huber_capped on /tram/diagnostics
+                            # tells "axles agree" from "axles were capped into agreeing".
     wheel_latency_s: 0.0    # published in diagnostics; not subtracted from plant dt
     vehicle_profile: combino_nf100
     axle_role: [0, 0, 0, 0] # 0 motor, 1 trailer. Львёнок: все motor (Bo-Bo).
