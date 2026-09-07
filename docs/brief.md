@@ -1,6 +1,6 @@
 # tramDR — канон: физика, наблюдаемость, целостность
 
-Продукт: **tramDR-0.0.9**. Пакет ROS 2 Humble: `tram_dr_localization`.
+Продукт: **tramDR-0.0.10**. Пакет ROS 2 Humble: `tram_dr_localization`.
 Ядро без ROS: C++17 `libtram_dr`. Репозиторий: [KonkovDV/RailBreak](https://github.com/KonkovDV/RailBreak).
 
 Четыре слоя фактов не смешиваются:
@@ -213,7 +213,8 @@ W_m^{(0)}=\frac{\lambda}{L+\lambda},\quad
 W_c^{(0)}=W_m^{(0)}+1-\alpha^2+\beta.
 $$
 
-Необходимое $W_c^{(0)}\ge 0$ при $\beta=2$:
+Неотрицательные веса $W_c^{(0)}\ge 0$ при $\beta=2$ (политика валидатора, не
+необходимое условие PSD):
 $\alpha\ge\sqrt{2-\sqrt{3}}\approx 0.518$. Достаточное Luo–Moroz (PSD):
 $\alpha\ge 1/\sqrt{3}\approx 0.577$. При $\alpha=0.58$, $L=12$:
 $\lambda\approx -7.963$, $W_m^{(0)}\approx -1.973$, $W_c^{(0)}\approx 0.691$.

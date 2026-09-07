@@ -53,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
             f = d / name
             if f.is_file():
                 files[f"{d.name}/{name}"] = _sha256(f)
+        for f in sorted(p for p in d.iterdir() if p.is_file()):
+            key = f"{d.name}/{f.name}"
+            if key not in files:
+                files[key] = _sha256(f)
         meta_path = d / "meta.json"
         if meta_path.is_file():
             seeds.add(json.loads(meta_path.read_text(encoding="utf-8")).get("seed"))

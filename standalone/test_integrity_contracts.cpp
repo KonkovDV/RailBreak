@@ -133,7 +133,9 @@ int main() {
       expect(e.confidence==Confidence::kLost,"invalid dt reports LOST");
       expect(e.x.s_m==before.x.s_m,"rejected dt does not propagate state");
       e=f.predict_and_update(u,w,4,.02);
-      expect(e.confidence==Confidence::kOk,"estimator recovers when inputs are valid again");
+      expect(e.path_integrity_latched,"rejected dt latches path");
+      expect(e.confidence!=Confidence::kLost,"next valid dt is not stuck LOST");
+      expect(e.confidence!=Confidence::kOk,"recovered v is not recovered s");
     }
     for(int field=0;field<2;++field) {
       tram_dr::Ukf f; tram_dr::Input u; auto before=warm(f);
@@ -144,7 +146,9 @@ int main() {
       expect(e.x.s_m==before.x.s_m,"rejected controls do not propagate state");
       u.notch=0; u.brake=0;
       e=f.predict_and_update(u,w,4,.02);
-      expect(e.confidence==Confidence::kOk,"controls recover without a manual reset");
+      expect(e.path_integrity_latched,"rejected controls latch path");
+      expect(e.confidence!=Confidence::kLost,"next valid command is not stuck LOST");
+      expect(e.confidence!=Confidence::kOk,"OK after reject would hide lost path");
     }
     {
       tram_dr::Ukf f; tram_dr::Input u; auto before=warm(f);
@@ -306,6 +310,34 @@ int main() {
       eb = b.predict_and_update(dead, nullptr, 0, .02);
     }
     expect(eb.x.v_mps < ea.x.v_mps - 0.2, "invalid notch must not keep applying traction");
+  }
+  {
+    tram_dr::Ukf f; tram_dr::Input u;
+    auto e=warm(f);
+    expect(e.confidence==Confidence::kOk,"healthy moving precondition");
+    for(int k=0;k<500;++k) e=f.predict_and_update(u,zero,4,.02);
+    expect(e.path_integrity_latched,"F-10 at speed latches path integrity");
+    for(int k=0;k<40;++k) e=f.predict_and_update(u,w,4,.02);
+    expect(e.path_integrity_latched,"path latch survives wheel recovery");
+    expect(e.confidence!=Confidence::kOk,"recovered v is not HMI-OK on s");
+  }
+  {
+    tram_dr::Ukf f; tram_dr::Input u; warm(f);
+    auto e=f.predict_and_update(u,w,4,nan);
+    expect(e.confidence==Confidence::kLost,"NaN dt is LOST this frame");
+    expect(e.path_integrity_latched,"rejected dt latches path");
+    e=f.predict_and_update(u,w,4,.02);
+    expect(e.path_integrity_latched,"next valid frame keeps the latch");
+    expect(e.confidence!=Confidence::kOk,"OK after reject would hide lost path");
+  }
+  {
+    double huge[]={1e308,0,0,1e308};
+    double orig[]={1e308,0,0,1e308};
+    const bool ok=tram_dr::la::project_pd(huge,2);
+    if(!ok){
+      expect(huge[0]==orig[0] && huge[1]==orig[1] && huge[2]==orig[2] && huge[3]==orig[3],
+             "project_pd false restores the input");
+    }
   }
   std::printf("RESULT checks=%d failures=%d\n",checks,failures);
   return failures?1:0;

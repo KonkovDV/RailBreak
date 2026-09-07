@@ -25,7 +25,7 @@ constexpr MapNode kDefaultNodes[] = {
 
 bool project_s(double s_m, double& lat_deg, double& lon_deg,
                const std::vector<MapNode>& nodes) {
-  if (nodes.size() < 2) {
+  if (nodes.size() < 2 || !std::isfinite(s_m)) {
     return false;
   }
   const double s = std::max(0.0, s_m);

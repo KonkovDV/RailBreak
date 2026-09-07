@@ -8,7 +8,7 @@
 
 | | Где | Зачем |
 | --- | --- | --- |
-| Julier 2002 (scaled UT); Luo & Moroz 2009 (PSD) | `ukf.cpp` $\alpha=0.58$ | необходимое $W_c^{(0)}\ge 0$ даёт окно $\alpha\in[0.517638,\,1.931852]$ при $\beta=2$ и **не зависит от $L$** ($\beta=1$: $[0.618034,\,1.618034]$; $\beta=0$: ровно $\{1\}$); достаточное $1/\sqrt{1+\beta}=0.577350$, выбранное 0.58 — запас $+0.459\,\%$ |
+| Julier 2002 (scaled UT); Luo & Moroz 2009 (PSD) | `ukf.cpp` $\alpha=0.58$ | политика валидатора $W_c^{(0)}\ge 0$ (достаточно, не необходимо для PSD, `RB08-12`) даёт окно $\alpha\in[0.517638,\,1.931852]$ при $\beta=2$ и **не зависит от $L$** ($\beta=1$: $[0.618034,\,1.618034]$; $\beta=0$: ровно $\{1\}$); достаточное Luo–Moroz $1/\sqrt{1+\beta}=0.577350$, выбранное 0.58 — запас $+0.459\,\%$ |
 | Arasaratnam & Haykin, IEEE TSP 2009 | `UkfParams.cubature` | 2L точек; по умолчанию выкл. |
 | Higham (PD) | `lin_alg.hpp` `project_pd` | Якоби + клип $\lambda$; это не square-root UKF. Почему downdate здесь не нужен — [`estimator-priors.md`](estimator-priors.md) §3. Измеренное возмущение до правки: $\max\lvert\Delta P\rvert=0.109701$ на плотной SPD $12\times12$, $2.39\cdot10^{-7}$ на реалистичной $P$ ($\mathrm{cond}\approx 2\cdot10^{10}$); после правки — no-op на PD-входе |
 | Kulikova & Kulikov, IFAC 2020; обзор arXiv:2406.05188 | отсутствие SR-фильтра | «previously suggested Cholesky-based UKF implementations are, in fact, the *pseudo* square-root versions… the resulting downdated matrix might be not a positive definite matrix». Возражение про **downdate**; при всех $W_c>0$ downdate не возникает, поэтому обычный UKF защитим. https://ifatwww.et.uni-magdeburg.de/ifac2020/media/pdfs/0536.pdf |
@@ -55,7 +55,7 @@
 
 | Артефакт | Зачем |
 | --- | --- |
-| [`../standalone/test_ut_weights_psd.cpp`](../standalone/test_ut_weights_psd.cpp) | 25 проверок алгебры весов scaled UT (строка Julier / Luo–Moroz); ядро не линкуется, поэтому тест независим от фильтра |
+| [`../standalone/test_ut_weights_psd.cpp`](../standalone/test_ut_weights_psd.cpp) | 28 проверок алгебры весов scaled UT (строка Julier / Luo–Moroz); ядро не линкуется, поэтому тест независим от фильтра |
 | [`../standalone/test_integrity_contracts.cpp`](../standalone/test_integrity_contracts.cpp) | 15 контрактов целостности: свидетельство стоянки, свежесть во времени, контракт входа, атомарный откат |
 | [`../standalone/test_prior_and_nis.cpp`](../standalone/test_prior_and_nis.cpp) | F-23 и F-24 численно: неподвижная точка дефектной рекуррента (закрытая форма **и** итерация), точное тождество сжатия $P_{k+1}-R=\varphi^2(P_k-R)$, предел разрешения реверсии среднего, насыщение NIS на $c^2$ |
 | [`integrity-risk.md`](integrity-risk.md) | бюджет целостности: $k \leftrightarrow$ риск, происхождение AL, связующий перегон маршрута 10 |

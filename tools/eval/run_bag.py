@@ -127,8 +127,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--vehicle",
         type=Path,
-        default=ROOT / "tram_dr_localization" / "config" / "vehicle_lvenok_moscow.yaml",
-        help="vehicle YAML for replay_ukf; n=4 Львёнок default. Use vityaz_m for 6 axles.",
+        default=None,
+        help="vehicle YAML for replay_ukf; default Львёнок. Missing file fails closed.",
     )
     ap.add_argument("--work", type=Path, default=None)
     ap.add_argument("--require-gt", action="store_true")
@@ -151,6 +151,12 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    vehicle = args.vehicle
+    if vehicle is None:
+        vehicle = ROOT / "tram_dr_localization" / "config" / "vehicle_lvenok_moscow.yaml"
+    elif not vehicle.is_file():
+        sys.stderr.write(f"cannot read --vehicle {vehicle}\n")
+        return 1
     inspect_rc = inspect_main([str(args.bag)])
     if inspect_rc == 1:
         return 1
@@ -182,8 +188,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         ukf_out = work / "ukf.jsonl"
         ukf_cmd = [str(args.ukf), str(work / "filter.csv"), str(ukf_out)]
-        if args.vehicle is not None and args.vehicle.is_file():
-            ukf_cmd.extend(["--vehicle", str(args.vehicle)])
+        ukf_cmd.extend(["--vehicle", str(vehicle)])
         if args.route is not None:
             if args.route.is_file() and args.route.stat().st_size > 0:
                 ukf_cmd.extend(["--route", str(args.route)])
@@ -201,7 +206,13 @@ def main(argv: list[str] | None = None) -> int:
     gt_rows = [r for r in rows if r.get("kind") == "gt"]
     if args.baselines:
         print_baselines(work / "filter.csv", gt_rows, est_rows)
+    if args.require_gt and not gt_rows:
+        sys.stderr.write("--require-gt but no /gt records\n")
+        return 2
     if not est_rows:
+        if args.require_gt:
+            sys.stderr.write("--require-gt requires estimates or --ukf\n")
+            return 2
         print("no estimates (inspect-only until --ukf or recorded /tram/state_estimate)")
         return 0
     merged = work / "merged.jsonl"

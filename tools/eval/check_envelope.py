@@ -26,64 +26,93 @@ class CheckResult:
     missed_path_m: float | None = None
 
 
+PAIR_TOL_S = 0.05  # nearest-GT join; unmatched is not HMI-rate 0
+
+
 def _num(row: dict, *keys: str) -> float | None:
     for k in keys:
-        if k in row and row[k] is not None:
-            try:
-                return float(row[k])
-            except (TypeError, ValueError):
-                return None
+        if k not in row or row[k] is None:
+            continue
+        try:
+            v = float(row[k])
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(v):
+            return None
+        return v
     return None
+
+
+def _nearest_gt(gt_pts: list[tuple[float, float]], t: float, tol: float) -> float | None:
+    best_s: float | None = None
+    best_dt = tol + 1.0
+    for tg, sg in gt_pts:
+        dt = abs(tg - t)
+        if dt <= tol and dt < best_dt:
+            best_dt = dt
+            best_s = sg
+    return best_s
 
 
 def check_rows(rows: list[dict], *, require_gt: bool) -> CheckResult:
     out = CheckResult()
-    gt_s: list[tuple[int, float]] = []
+    gt_pts: list[tuple[float, float]] = []
     est: list[dict] = []
+    est_idx: list[int] = []
     for i, row in enumerate(rows):
         topic = str(row.get("topic", ""))
         if topic.startswith("/gt/") or row.get("kind") == "gt":
+            t = _num(row, "t", "t_s")
             s = _num(row, "s", "s_m")
-            if s is not None:
-                gt_s.append((i, s))
+            if t is None or s is None:
+                out.hits.append(f"INVALID_GT at record {i}")
+                continue
+            gt_pts.append((t, s))
             continue
         if topic in {"/tram/state_estimate", "/tram/odometry"} or row.get("kind") == "est":
             est.append(row)
-            cov = _num(row, "p_ss", "pose_cov_0")
-            pvv = _num(row, "p_vv", "twist_cov_0")
-            if cov is None or pvv is None or not math.isfinite(cov) or not math.isfinite(pvv):
-                out.hits.append(f"NO_COVARIANCE at record {i}")
-            elif cov == 0.0 and pvv == 0.0:
-                out.hits.append(f"NO_COVARIANCE at record {i}")
-            conf = str(row.get("confidence", row.get("status", ""))).upper()
-            if conf not in ALLOWED_CONF:
-                out.hits.append(f"NO_CONFIDENCE at record {i}")
-            if conf == "UNINITIALIZED":
-                out.hits.append(f"UNINITIALIZED at record {i}")
-            s_hat = _num(row, "s", "s_m")
-            s_gt = gt_s[-1][1] if gt_s else None
-            # Envelope vs GT whenever GT is present. --require-gt only means
-            # "fail if there is no GT", not "skip the line when GT exists".
-            # ENVELOPE_GT at OK is a hazardously-misleading (HMI) event.
-            if gt_s and conf == "OK":
+            est_idx.append(i)
+    for i in est_idx:
+        row = rows[i]
+        t = _num(row, "t", "t_s")
+        s_hat = _num(row, "s", "s_m")
+        v_hat = _num(row, "v", "v_mps")
+        cov = _num(row, "p_ss", "pose_cov_0")
+        pvv = _num(row, "p_vv", "twist_cov_0")
+        if t is None or s_hat is None or v_hat is None:
+            out.hits.append(f"INVALID_STATE at record {i}")
+        if cov is None or pvv is None:
+            out.hits.append(f"NO_COVARIANCE at record {i}")
+        elif cov < 0.0 or pvv < 0.0:
+            out.hits.append(f"INVALID_COVARIANCE at record {i}")
+        elif cov == 0.0 and pvv == 0.0:
+            out.hits.append(f"NO_COVARIANCE at record {i}")
+        conf = str(row.get("confidence", row.get("status", ""))).upper()
+        if conf not in ALLOWED_CONF:
+            out.hits.append(f"NO_CONFIDENCE at record {i}")
+        if conf == "UNINITIALIZED":
+            out.hits.append(f"UNINITIALIZED at record {i}")
+        s_gt = _nearest_gt(gt_pts, t, PAIR_TOL_S) if t is not None else None
+        if gt_pts and conf == "OK":
+            if s_gt is None or s_hat is None:
+                out.hits.append(f"UNMATCHED_GT at record {i}")
+            else:
                 out.n_ok += 1
-                if s_hat is not None:
-                    ds = abs(s_hat - s_gt)
-                    # 5 m + 5% of travelled GT (calibration line, not a certificate).
-                    limit = 5.0 + 0.05 * abs(s_gt)
-                    if ds > limit:
-                        out.n_hmi += 1
-                        out.hits.append(f"ENVELOPE_GT at record {i}: |s|={ds:.2f} > {limit:.2f}")
-            if (
-                gt_s
-                and conf == "DEGRADED"
-                and out.missed_path_m is None
-                and s_hat is not None
-                and s_gt is not None
-            ):
-                out.missed_path_m = abs(s_hat - s_gt)
-    out.has_gt = bool(gt_s)
-    if require_gt and not gt_s:
+                ds = abs(s_hat - s_gt)
+                limit = 5.0 + 0.05 * abs(s_gt)
+                if ds > limit:
+                    out.n_hmi += 1
+                    out.hits.append(f"ENVELOPE_GT at record {i}: |s|={ds:.2f} > {limit:.2f}")
+        if (
+            gt_pts
+            and conf == "DEGRADED"
+            and out.missed_path_m is None
+            and s_hat is not None
+            and s_gt is not None
+        ):
+            out.missed_path_m = abs(s_hat - s_gt)
+    out.has_gt = bool(gt_pts)
+    if require_gt and not gt_pts:
         out.hits = ["usage: ENVELOPE_GT requested but no /gt records"]
         return out
     if not out.has_gt:

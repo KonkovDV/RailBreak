@@ -401,27 +401,60 @@ def wheel_contact_step(
             w_new, f_adh_n[i] = _implicit_wheel_omega(
                 out[i], v, r, torque, dt, J, q_i, mu0, p
             )
-        # Sign-change under service brake → lock. EN 15595-class: ≤0.4 s then release.
-        # Strict crossing (not ≤): ω=0 would otherwise relock forever.
+        # Sign-change under service brake → lock. EN 15595-class: ≤0.4 s then
+        # dump (negative lock_s) so ω recovers toward v without reversing.
         locked = False
         held = 0.0 if lock_s is None or i >= len(lock_s) else lock_s[i]
-        crossing = (
-            brake > 0.1
-            and abs(notch) < 0.05
-            and out[i] * w_new < 0.0
-            and abs(out[i]) > 1e-4
-        )
-        holding = held > 0.0 and held < WSP_LOCK_MAX_S and brake > 0.1
-        if crossing or holding:
-            if held < WSP_LOCK_MAX_S:
-                w_new = 0.0
-                locked = True
-                if lock_s is not None and i < len(lock_s):
-                    lock_s[i] = held + dt
+
+        def _dump_omega() -> float:
+            torque_dump = f_trac_i * r
+            if p.creep_force == "tanh":
+                f_adh_n[i] = adhesion_force_n(q_i, mu0, r * out[i] - v, v, p)
+                omega_dot = (torque_dump - r * f_adh_n[i]) / max(J, 1.0)
+                return out[i] + omega_dot * dt
+            w_d, f_d = _implicit_wheel_omega(
+                out[i], v, r, torque_dump, dt, J, q_i, mu0, p
+            )
+            f_adh_n[i] = f_d
+            return w_d
+
+        if held < 0.0:
+            w_new = _dump_omega()
+            if lock_s is not None and i < len(lock_s):
+                dump_s = -held + dt
+                if abs(w_new) >= 0.25 or dump_s >= 0.12:
+                    lock_s[i] = 0.0
+                else:
+                    lock_s[i] = -dump_s
+        else:
+            crossing = (
+                brake > 0.1
+                and abs(notch) < 0.05
+                and out[i] * w_new < 0.0
+                and abs(out[i]) > 1e-4
+            )
+            holding = held > 0.0 and held < WSP_LOCK_MAX_S and brake > 0.1
+            if crossing or holding:
+                if held < WSP_LOCK_MAX_S:
+                    w_new = 0.0
+                    locked = True
+                    if lock_s is not None and i < len(lock_s):
+                        lock_s[i] = held + dt
+                elif lock_s is not None and i < len(lock_s):
+                    lock_s[i] = -dt
+                    w_new = _dump_omega()
             elif lock_s is not None and i < len(lock_s):
-                lock_s[i] = 0.0
-        elif lock_s is not None and i < len(lock_s):
-            lock_s[i] = 0.0
+                if held >= WSP_LOCK_MAX_S - 1e-9:
+                    lock_s[i] = -dt
+                    w_new = _dump_omega()
+                else:
+                    lock_s[i] = 0.0
+        # RB08-15: after lock release, passive brake must not reverse ω.
+        if abs(notch) < 0.05 and brake > 0.0:
+            if out[i] >= 0.0:
+                w_new = max(0.0, w_new)
+            else:
+                w_new = min(0.0, w_new)
         clipped = max(-OMEGA_MAX, min(OMEGA_MAX, w_new))
         if p.creep_force != "tanh" and (locked or clipped != w_new):
             f_adh_n[i] = adhesion_force_n(q_i, mu0, r * clipped - v, v, p)

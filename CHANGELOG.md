@@ -11,7 +11,54 @@
 * Граница проверенного (исполнено / прочитано / не запускалось): [`docs/verification.md`](docs/verification.md).
 * Протокол внешнего триажа: [`docs/review/external-triage-2026-09-06.md`](docs/review/external-triage-2026-09-06.md).
 * Протокол внешнего Red Team прохода: [`docs/review/external-redteam-2026-09-06.md`](docs/review/external-redteam-2026-09-06.md).
+* Red Team непрокоммиченного 0.0.10: [`docs/review/redteam-2026-09-07.md`](docs/review/redteam-2026-09-07.md), триаж [`docs/review/triage-2026-09-07.md`](docs/review/triage-2026-09-07.md).
 * Самопроверка ветки исправлений: [`docs/audit-2026-09-06.md`](docs/audit-2026-09-06.md).
+
+---
+
+## tramDR-0.0.10 — 07.09.2026
+
+Пакет аудита `RB08-01`…`RB08-32` (снимок 0.0.8, не путать с `F-21`…`F-36`).
+Константа и `package.xml` подняты **после** пересчёта seed 42.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `RB08-01` | Forced ZUPT на $\lvert v\rvert\ge 0.35$ ставит `path_integrity_latched`; сброс только `reset()`. Восстановленные колёса не возвращают HMI-OK пути | `test_core` / `test_integrity_contracts` | не снимать защёлку таймером |
+| `RB08-02` | Отвергнутый кадр (dt/ручки/численный откат) тоже защёлкивает путь; $P_{ss}$ растёт на $( \max(\lvert v\rvert,1)\Delta t)^2$ | те же + reject `dt=\mathrm{NaN}` | скорость может стать OK отдельно |
+| `RB08-03` | `project_pd(false)` восстанавливает вход побайтно; успех — chol$(A-\lambda_{\mathrm{floor}})$ | `test_core`, `test_integrity_contracts` | — |
+| `RB08-04` | `stamped_interval`: якорь без выдуманного dt, OOO не двигает штамп, дубликат — skip, хвост catch-up не в пол | `test_core` timebase; узел `state_estimator_node` | ROS-нода не в `ctest` |
+| `RB08-05` | Публикация не сбрасывает `input_fault_`; LOST агрегата тянет split-каналы в LOST | чтение `publish_state` | — |
+| `RB08-06` | Старт `brake_valid=false`; тормоз стареет даже без ручки | чтение `resolve_input` | — |
+| `RB08-07` | Watchdog: heartbeat только `status.name=="tram_dr"`; `age_s<0` → STALE | чтение `fault_monitor_node` | — |
+| `RB08-08` | `project_s` отвергает неfinite $s$; проектор не публикует при сбое | `test_core` `project_s` NaN | — |
+| `RB08-09` | Vehicle YAML последним в launch адаптера и оценщика | `replay.launch.py` | — |
+| `RB08-10` | `NotchEncoding::{kAuto,kNormalized,kDiscrete}`; Int8/Int16 → discrete | `test_core` map_notch; `test_eval` | Combino auto без изменений |
+| `RB08-11` | `freeze_s` — прошедшее время, кольцо 128, минимум 5 отсчётов | `test_core` 5 мс × 30 ≠ freeze | — |
+| `RB08-12` | $W_c^{(0)}\ge 0$ — достаточная политика, не необходимое PSD | `test_ut_weights_psd` 28 проверок | — |
+| `RB08-13` | Passive brake не реверсирует $v$ (частичный dt до нуля) | `test_core` plant_step | — |
+| `RB08-14` | Канал A шагает `plant_step` с PT1-состоянием, не алгебраическим `plant_forces` | чтение `step_channel_a` | 3-arg overload остаётся алгебраическим |
+| `RB08-15` | Синтетический тормоз не крутит $\omega$ назад; WSP lock ≤0.4 с, затем dump | `test_generate` slide_brake $\omega\ge 0$, циклы $<0.55$ с | RMSE slide_* не сравнивать с 0.0.9 как «улучшение UKF» |
+| `RB08-16` | Квант энкодера: целые импульсы, $\omega=\Delta\theta/\Delta t$ | `test_generate` | — |
+| `RB08-17` | Чекер fail-closed: NaN/$P<0$ → `INVALID_*`, не HMI-rate 0 | `test_eval` CheckerTests | — |
+| `RB08-18` | Стыковка GT по времени (`PAIR_TOL_S=0.05`), два прохода, `UNMATCHED_GT` | `test_eval` time join | — |
+| `RB08-19` | E2E: пустой `synth/runs` rc=2; `EXPECTED_HMI` только если все hits — `ENVELOPE_GT` | `run_e2e.py` seed 42 | — |
+| `RB08-20` | bag→JSONL: ручка/тормоз stale 0.25 с; диагностик только `/tram/diagnostics` | `test_eval` | — |
+| `RB08-21` | `/gps/speed` не роль notch; notch score ≥3 | `test_eval` | — |
+| `RB08-22` | CDR: ident `00 01` (LE); усечение — ошибка, не короткий успех | `test_eval` roundtrip / BE reject | — |
+| `RB08-23` | Несколько `.db3` — merge по штампу; канон `/tram/wheel_odom` побеждает только если он **есть в bag** | `test_eval` customer names | — |
+| `RB08-24` | Score: один join $(t,s,v,P)$; поле `coverage`; NEES по выровненным тройкам | `score.py` / `test_eval` NEES | — |
+| `RB08-25` | Документы: «политика $W_c^{(0)}\ge 0$», freeze во времени | `docs/math.md`, `brief.md`, `refs.md` | — |
+| `RB08-26` | `stop_associate.py`: `import sys`; dwell до EOF | `test_eval` | — |
+| `RB08-27` | `replay_ukf` JSON: `max_digits10` | `test_eval` epoch round-trip | — |
+| `RB08-28` | CSV: точные `w0`…`w5`, нужны `t` и колёса; иначе `--legacy-csv` | чтение `load_csv` | — |
+| `RB08-29` | `identify_coast` / `profile_from_bag`: dt из $t$, конечный $r_0\in(0.15,0.60)$ | `test_eval` | — |
+| `RB08-30` | `pack_evidence` хеширует все файлы прогона; plot не копирует GT как UKF; CI cpp гоняет `ReplayCatchupTests` | CI yaml / `plot_run.py` | — |
+| `RB08-31` | `run_bag --vehicle` / `--require-gt` fail-closed | `test_eval` | — |
+| `RB08-32` | PoseStamped без выдуманного $v=0$ (`v` is `None`) | `test_eval` | — |
+| `F-13c` | `docs/metrics.md` и `evidence/plots-pitch/` на 0.0.10. HMI 0 на 17/18; `mismatch_r0` **0.515**. `slide_brake` missed path **0.14 м**; в конце 24 кадра LOST (генератор RB08-15) | `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` | bag организатора 25.09 |
+| `RT10-01` | `replay_ukf`: дубликат/регресс штампа не выдумывает $0.001\,\mathrm{s}$; хвост catch-up применяется как есть. Нода: leftover после catch-up не отбрасывается; catch-up — `while (dt>dt_max)`, не `floor` с нулевым хвостом | `test_eval` `test_duplicate_stamp_does_not_invent_dt`; чтение `step_filter` | ROS leftover не в `ctest` |
+
+Не закрыто кодом: пп. 14.4–14.6, bag организатора. F-01 не ослабляли: 0.32 с нулей на выбеге не ZUPT и не path-latch. `kModelVersion` после `RT10-01` **не** поднимали: synth seed 42 идёт с монотонным $0.02\,\mathrm{s}$, поведение фильтра не менялось.
 
 ---
 

@@ -51,6 +51,7 @@ jobs:
           python tools/synth/generate.py --out synth/runs
           python tools/eval/run_e2e.py --ukf standalone/build/replay_ukf
           python tools/synth/score.py --runs synth/runs
+          python tools/eval/test_eval.py ReplayCatchupTests
 
   asan:
     runs-on: ubuntu-latest

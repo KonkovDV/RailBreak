@@ -232,6 +232,9 @@ void Ukf::reset() {
   confidence_s_ = Confidence::kUninitialized;
   f_trac_filt_ = 0.0;
   have_f_trac_filt_ = false;
+  f_chan_a_filt_ = 0.0;
+  have_f_chan_a_filt_ = false;
+  path_integrity_latched_ = false;
   standstill_hold_ = false;
   kappa_hold_acc_ = 0.0;
   notch_missing_s_ = 0.0;
@@ -252,6 +255,7 @@ void Ukf::reset() {
   hist_i_ = 0;
   hist_fill_ = 0;
   std::memset(omega_hist_, 0, sizeof(omega_hist_));
+  std::memset(hist_dt_, 0, sizeof(hist_dt_));
   std::memset(frozen_, 0, sizeof(frozen_));
   std::memset(x_, 0, sizeof(x_));
   std::memset(P_, 0, sizeof(P_));
@@ -309,6 +313,8 @@ void Ukf::init_from_wheels(const double* omega, std::size_t n) {
   confidence_ = Confidence::kDegraded;
   v_chan_a_ = v0;
   have_v_chan_a_ = true;
+  f_chan_a_filt_ = 0.0;
+  have_f_chan_a_filt_ = true;
 }
 
 void Ukf::predict(const Input& u, double dt_s) {
@@ -403,6 +409,7 @@ void Ukf::note_omega(const double* omega, int m) {
   for (int i = 0; i < kNWheels; ++i) {
     omega_hist_[i][hist_i_] = (i < m) ? omega[i] : 0.0;
   }
+  hist_dt_[hist_i_] = std::max(last_dt_s_, 0.0);
   hist_i_ = (hist_i_ + 1) % kFreezeWin;
   if (hist_fill_ < kFreezeWin) {
     ++hist_fill_;
@@ -412,10 +419,22 @@ void Ukf::note_omega(const double* omega, int m) {
 void Ukf::detect_freeze(int m) {
   n_frozen_ = 0;
   std::memset(frozen_, 0, sizeof(frozen_));
-  const double dt = std::max(last_dt_s_, 1e-3);
-  const int need =
-      std::clamp(static_cast<int>(std::lround(cfg_.freeze_s / dt)), 5, kFreezeWin);
-  if (hist_fill_ < need || m <= 0) {
+  if (hist_fill_ < 5 || m <= 0) {
+    return;
+  }
+  // RB08-11: freeze_s is elapsed time, not a sample count. Walk the ring
+  // until the window covers freeze_s (min 5 samples).
+  int need = 0;
+  double elapsed = 0.0;
+  for (int k = 0; k < hist_fill_; ++k) {
+    const int idx = (hist_i_ - 1 - k + kFreezeWin) % kFreezeWin;
+    elapsed += hist_dt_[idx];
+    ++need;
+    if (need >= 5 && elapsed >= cfg_.freeze_s) {
+      break;
+    }
+  }
+  if (need < 5 || elapsed < cfg_.freeze_s) {
     return;
   }
   double var[kNWheels]{};
@@ -845,6 +864,11 @@ void Ukf::maybe_zupt(const double* omega, std::size_t n, const Input& u) {
       la::at(P_, kStateDim, kMass, kMass) += dm * dm;
     }
     standstill_hold_ = false;
+    // RB08-01: leaving the gate recovers v̂, not ŝ. Keep the path latch if
+    // this standstill was a forced ZUPT at speed.
+    if (zupt_estimate_disagree_) {
+      path_integrity_latched_ = true;
+    }
     zupt_estimate_disagree_ = false;
     mode_ = Mode::kNormal;
     return;
@@ -855,6 +879,7 @@ void Ukf::maybe_zupt(const double* omega, std::size_t n, const Input& u) {
   }
   if (v_before >= 0.35) {
     zupt_estimate_disagree_ = true;
+    path_integrity_latched_ = true;
   }
   x_[kV] = 0.0;
   for (int i = 0; i < kStateDim; ++i) {
@@ -869,6 +894,8 @@ void Ukf::maybe_zupt(const double* omega, std::size_t n, const Input& u) {
   mode_ = Mode::kStandstill;
   v_chan_a_ = 0.0;
   have_v_chan_a_ = true;
+  f_chan_a_filt_ = 0.0;
+  have_f_chan_a_filt_ = true;
 }
 
 void Ukf::observe_rest_packet(const double* omega, std::size_t n, const Input& u) {
@@ -912,8 +939,14 @@ void Ukf::step_channel_a(const Input& u, double dt_s) {
   if (u.brake > 0.15) {
     s.f_bias_n = 0.0;
   }
-  const PlantDeriv d = plant_forces(s, u, plant_);
-  v_chan_a_ += d.a_mps2 * dt_s;
+  // RB08-14: same PT1/jerk state as the body plant. Algebraic plant_forces
+  // dropped drive lag on the shadow channel.
+  if (!have_f_chan_a_filt_) {
+    f_chan_a_filt_ = 0.0;
+    have_f_chan_a_filt_ = true;
+  }
+  plant_step(s, u, dt_s, plant_, &f_chan_a_filt_, false);
+  v_chan_a_ = s.v_mps;
   const double vmin = cfg_.allow_reverse ? -22.0 : -1.0;
   v_chan_a_ = std::clamp(v_chan_a_, vmin, 22.0);
 }
@@ -1010,7 +1043,8 @@ void Ukf::classify(const Input& u, std::size_t n) {
   }
   const double s_abs = std::max(x_[kS], 0.0);
   const double sig_s = std::sqrt(std::max(pss, 0.0));
-  const bool s_unbounded = slip_latched_ || path_disagree_latched_;
+  const bool s_unbounded =
+      slip_latched_ || path_disagree_latched_ || path_integrity_latched_;
   const double b_s = missed_path_m();
   const double al_s = 5.0 + 0.05 * s_abs;
   const double pl_s = s_unbounded
@@ -1068,7 +1102,8 @@ void Ukf::classify(const Input& u, std::size_t n) {
       sca_current && last_sca_.n_inflated == 0 &&
       std::fabs(last_sca_.v_consensus_mps - x_[kV]) > kWheelBodyMps;
   const bool degraded = slip_latched_ || (sca_current && last_sca_.common_mode) ||
-                        wheels_split || path_disagree_latched_ || (pvv > 4.0) ||
+                        wheels_split || path_disagree_latched_ || path_integrity_latched_ ||
+                        (pvv > 4.0) ||
                         (pl_s >= al_s) || cfg_.r0_uncalibrated || wheel_age_deg ||
                         !u.notch_valid || !u.brake_valid || zupt_estimate_disagree_ ||
                         incomplete_packet || wheel_body_disagree;
@@ -1085,7 +1120,8 @@ void Ukf::classify(const Input& u, std::size_t n) {
                      wheel_body_disagree)
                         ? Confidence::kDegraded : Confidence::kOk;
     confidence_s_ = (slip_latched_ || (sca_current && last_sca_.common_mode) ||
-                     path_disagree_latched_ || wheels_split || (pl_s >= al_s) ||
+                     path_disagree_latched_ || path_integrity_latched_ || wheels_split ||
+                     (pl_s >= al_s) ||
                      cfg_.r0_uncalibrated || wheel_age_deg || !u.notch_valid ||
                      !u.brake_valid || zupt_estimate_disagree_ || incomplete_packet ||
                      wheel_body_disagree)
@@ -1150,7 +1186,7 @@ UkfEstimate Ukf::snapshot() const {
   const double sig = std::sqrt(std::max(e.p_ss, 0.0));
   const double sig_v = std::sqrt(std::max(e.p_vv, 0.0));
   e.under_m = cfg_.k_sigma * sig;
-  e.s_unbounded = slip_latched_ || path_disagree_latched_;
+  e.s_unbounded = slip_latched_ || path_disagree_latched_ || path_integrity_latched_;
   e.b_s_m = e.s_unbounded ? 0.0 : missed_path_m();
   e.pl_s_m = e.s_unbounded ? std::numeric_limits<double>::infinity()
                            : cfg_.k_over * sig + e.b_s_m;
@@ -1173,17 +1209,23 @@ UkfEstimate Ukf::snapshot() const {
   e.p_mm = la::at(P_, kStateDim, kMass, kMass);
   e.zupt_forced = zupt_estimate_disagree_;
   e.sca_current = n_omega_used_ > 0;
+  e.path_integrity_latched = path_integrity_latched_;
   return e;
 }
 
 UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::size_t n,
                                    double dt_s) {
   // Input contract: finite controls and 0 < dt <= 0.20 s (subdivide larger
-  // known gaps). A violating frame is refused per frame, not silently
-  // absorbed: the last finite estimate is kept, the output is LOST, and the
-  // estimator recovers when valid inputs resume. Latching until reset() would
-  // turn one bad DDS payload into a permanent loss of the backup channel.
-  const auto reject = [this]() {
+  // known gaps). A violating frame is refused per frame: x is kept, the
+  // output is LOST, and v̂ may recover on the next valid packet. Path
+  // integrity stays latched (RB08-02): recovered v is not recovered s.
+  const auto reject = [this, dt_s]() {
+    path_integrity_latched_ = true;
+    if (std::isfinite(dt_s) && dt_s > 0.0 && dt_s <= kMaxStepS) {
+      const double v = std::max(std::fabs(x_[kV]), 1.0);
+      la::at(P_, kStateDim, kS, kS) += (v * dt_s) * (v * dt_s);
+      s_unobserved_s_ += dt_s;
+    }
     confidence_ = confidence_v_ = confidence_s_ = Confidence::kLost;
     mode_ = Mode::kSensorFault;
     n_omega_used_ = 0;
@@ -1258,12 +1300,14 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
   bool healthy = chol_fail_ == previous.chol_fail_;
   for (double value : x_) healthy = healthy && std::isfinite(value);
   for (double value : P_) healthy = healthy && std::isfinite(value);
-  healthy = healthy && std::isfinite(f_trac_filt_) && std::isfinite(v_chan_a_) &&
+  healthy = healthy && std::isfinite(f_trac_filt_) && std::isfinite(f_chan_a_filt_) &&
+            std::isfinite(v_chan_a_) &&
             std::isfinite(path_disagree_m_) && std::isfinite(last_nis_);
   double check[kStateDim * kStateDim];
   if (healthy) healthy = la::chol(P_, check, kStateDim, 1e-12);
   if (!healthy) {
     *this = previous;
+    path_integrity_latched_ = true;
     ++chol_fail_;
     return reject();
   }

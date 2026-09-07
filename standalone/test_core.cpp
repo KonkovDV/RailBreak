@@ -3,6 +3,7 @@
 #include "tram_dr_localization/map.hpp"
 #include "tram_dr_localization/plant.hpp"
 #include "tram_dr_localization/sca.hpp"
+#include "tram_dr_localization/timebase.hpp"
 #include "tram_dr_localization/ukf.hpp"
 #include "tram_dr_localization/vehicle_yaml.hpp"
 
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 
 namespace {
@@ -40,6 +42,10 @@ int main() {
     expect(std::fabs(tram_dr::map_notch(8.0) - 1.0) < 1e-12, "notch 8 -> 1");
     expect(std::fabs(tram_dr::map_notch(4.0) - 0.5) < 1e-12, "notch 4 -> 0.5");
     expect(std::fabs(tram_dr::map_notch(0.4) - 0.4) < 1e-12, "notch already unit");
+    expect(std::fabs(tram_dr::map_notch(1.0, 8.0, tram_dr::NotchEncoding::kDiscrete) - 0.125) < 1e-12,
+           "discrete 1 is first step not full traction");
+    expect(std::fabs(tram_dr::map_notch(1.001, 8.0, tram_dr::NotchEncoding::kNormalized) - 1.0) < 1e-12,
+           "normalized 1.001 clamps, does not divide");
     expect(std::isnan(tram_dr::map_notch(std::numeric_limits<double>::quiet_NaN())),
            "map_notch propagates NaN");
     expect(std::isinf(tram_dr::map_notch(std::numeric_limits<double>::infinity())),
@@ -346,6 +352,36 @@ int main() {
     }
     expect(e.n_frozen == 1, "one stuck axle while others move");
     expect(e.confidence == tram_dr::Confidence::kOk, "one freeze stays OK");
+  }
+  {
+    tram_dr::Ukf ukf;
+    tram_dr::Input u;
+    u.notch_valid = true;
+    const double r = 0.35;
+    const double v = 5.0;
+    double omega[4] = {v / r, v / r, v / r, v / r};
+    tram_dr::UkfEstimate e{};
+    for (int k = 0; k < 40; ++k) {
+      e = ukf.predict_and_update(u, omega, 4, 0.005);
+    }
+    for (int k = 1; k <= 30; ++k) {
+      const double v_live = v + 0.08 * static_cast<double>(k);
+      omega[0] = v_live / r;
+      omega[1] = v_live / r;
+      omega[2] = v_live / r;
+      omega[3] = v / r;
+      e = ukf.predict_and_update(u, omega, 4, 0.005);
+    }
+    expect(e.n_frozen == 0, "5 ms x 30 is 0.15 s, not freeze_s");
+    for (int k = 1; k <= 90; ++k) {
+      const double v_live = v + 0.08 * static_cast<double>(30 + k);
+      omega[0] = v_live / r;
+      omega[1] = v_live / r;
+      omega[2] = v_live / r;
+      omega[3] = v / r;
+      e = ukf.predict_and_update(u, omega, 4, 0.005);
+    }
+    expect(e.n_frozen == 1, "freeze_s is elapsed time at 5 ms");
   }
   {
     // Relative kappa floor is 1 m/s; a 0.14 m/s stop tail must not trip common-mode.
@@ -997,6 +1033,101 @@ int main() {
     expect(tram_dr::project_s(100.0, lat, lon), "map");
     expect(lat > 55.0, "lat near Moscow");
     expect(lon > 37.0 && lon < 37.5, "lon in Strogino/Shchukino");
+    expect(!tram_dr::project_s(std::numeric_limits<double>::quiet_NaN(), lat, lon),
+           "project_s rejects nonfinite s");
+  }
+  {
+    tram_dr::State x;
+    x.v_mps = 0.11;
+    tram_dr::Input u;
+    u.brake = 1.0;
+    u.notch = 0.0;
+    const double e0 = 0.5 * 28000.0 * x.v_mps * x.v_mps;
+    tram_dr::plant_step(x, u, 0.2);
+    expect(x.v_mps >= 0.0 && x.v_mps <= 0.11 + 1e-12, "passive brake does not reverse");
+    const double e1 = 0.5 * 28000.0 * x.v_mps * x.v_mps;
+    expect(e1 <= e0 + 1e-6, "passive brake does not grow kinetic energy");
+  }
+  {
+    double A[4] = {1.0e308, 0.0, 0.0, 1.0e308};
+    double orig[4];
+    std::memcpy(orig, A, sizeof(orig));
+    const bool ok = tram_dr::la::project_pd(A, 2);
+    if (!ok) {
+      expect(std::memcmp(A, orig, sizeof(orig)) == 0, "project_pd false is byte-stable");
+    }
+  }
+  {
+    using tram_dr::MeasDt;
+    const auto a = tram_dr::stamped_interval(false, 0.0, 100.0, 0.0, 0.001, 0.001);
+    expect(a.kind == MeasDt::Kind::kAnchor && a.advance_stamp, "first stamp anchors");
+    const auto r = tram_dr::stamped_interval(true, 100.0, 99.0, 0.0, 0.001, 0.001);
+    expect(r.kind == MeasDt::Kind::kReject && !r.advance_stamp, "OOO does not move stamp");
+    const auto d = tram_dr::stamped_interval(true, 100.0, 100.0, 0.0, 0.001, 0.001);
+    expect(d.kind == MeasDt::Kind::kSkip, "duplicate stamp is skip not floor");
+    const auto g = tram_dr::stamped_interval(true, 100.0, 100.04, 0.0, 0.001, 0.001);
+    expect(g.kind == MeasDt::Kind::kApply && std::fabs(g.dt - 0.04) < 1e-12, "valid interval");
+  }
+  {
+    tram_dr::Ukf ukf;
+    tram_dr::Input u;
+    u.notch_valid = true;
+    const double r = 0.35;
+    double roll[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+    tram_dr::UkfEstimate e{};
+    for (int k = 0; k < 50; ++k) {
+      e = ukf.predict_and_update(u, roll, 4, 0.02);
+    }
+    const double zero[4] = {0, 0, 0, 0};
+    for (int k = 0; k < 500; ++k) {
+      e = ukf.predict_and_update(u, zero, 4, 0.02);
+    }
+    expect(e.path_integrity_latched, "forced ZUPT-at-speed latches path");
+    for (int k = 0; k < 40; ++k) {
+      e = ukf.predict_and_update(u, roll, 4, 0.02);
+    }
+    expect(e.path_integrity_latched, "recovered v does not clear path latch");
+    expect(e.confidence != tram_dr::Confidence::kOk, "path latch is not HMI-OK");
+    expect(e.s_unbounded, "lost metres are unbounded after forced ZUPT");
+  }
+  {
+    tram_dr::Ukf ukf;
+    tram_dr::Input u;
+    u.notch_valid = true;
+    const double r = 0.35;
+    double roll[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+    const double zero[4] = {0, 0, 0, 0};
+    tram_dr::UkfEstimate e{};
+    for (int k = 0; k < 50; ++k) {
+      e = ukf.predict_and_update(u, roll, 4, 0.02);
+    }
+    for (int k = 0; k < 16; ++k) {
+      e = ukf.predict_and_update(u, zero, 4, 0.02);
+    }
+    expect(!e.path_integrity_latched, "0.32 s lock is not forced ZUPT");
+    for (int k = 0; k < 20; ++k) {
+      e = ukf.predict_and_update(u, roll, 4, 0.02);
+    }
+    expect(!e.path_integrity_latched, "short lock does not persist a path latch");
+  }
+  {
+    tram_dr::Ukf ukf;
+    tram_dr::Input u;
+    u.notch_valid = true;
+    const double r = 0.35;
+    double roll[4] = {5.0 / r, 5.0 / r, 5.0 / r, 5.0 / r};
+    tram_dr::UkfEstimate e{};
+    for (int k = 0; k < 50; ++k) {
+      e = ukf.predict_and_update(u, roll, 4, 0.02);
+    }
+    e = ukf.predict_and_update(u, roll, 4, std::numeric_limits<double>::quiet_NaN());
+    expect(e.confidence == tram_dr::Confidence::kLost, "rejected dt is LOST this frame");
+    expect(e.path_integrity_latched, "rejected frame latches path");
+    for (int k = 0; k < 30; ++k) {
+      e = ukf.predict_and_update(u, roll, 4, 0.02);
+    }
+    expect(e.path_integrity_latched, "valid dt does not unlatch lost path");
+    expect(e.confidence != tram_dr::Confidence::kOk, "recovered v is not recovered s");
   }
   if (g_fails) {
     std::fprintf(stderr, "%d failures\n", g_fails);

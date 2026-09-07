@@ -2,6 +2,9 @@
 #include <memory>
 #include <vector>
 
+#include <cmath>
+
+#include "builtin_interfaces/msg/time.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
@@ -41,26 +44,39 @@ class MapProjectorNode : public rclcpp::Node {
         [this](const nav_msgs::msg::Odometry& odom) {
           last_s_ = odom.pose.pose.position.x;
           last_pss_ = odom.pose.covariance[0];
+          last_stamp_ = odom.header.stamp;
           have_odom_ = true;
         });
     timer_ = create_wall_timer(std::chrono::milliseconds(100), [this]() {
       if (!have_odom_) {
         return;
       }
+      if (!std::isfinite(last_s_) || !std::isfinite(last_pss_) || last_pss_ < 0.0) {
+        return;
+      }
+      const rclcpp::Time wall = now();
+      const rclcpp::Time stamp(last_stamp_, wall.get_clock_type());
+      const double age_s = (wall - stamp).seconds();
+      if (!std::isfinite(age_s) || age_s < 0.0 || age_s > 0.5) {
+        return;
+      }
       sensor_msgs::msg::NavSatFix msg;
-      msg.header.stamp = now();
+      msg.header.stamp = last_stamp_;
       msg.header.frame_id = "dead_reckoning";
       msg.status.status = sensor_msgs::msg::NavSatStatus::STATUS_NO_FIX;
       msg.status.service = 0;
+      bool ok = false;
       if (nodes_.empty()) {
-        tram_dr::project_s(last_s_, msg.latitude, msg.longitude);
+        ok = tram_dr::project_s(last_s_, msg.latitude, msg.longitude);
       } else {
-        tram_dr::project_s(last_s_, msg.latitude, msg.longitude, nodes_);
+        ok = tram_dr::project_s(last_s_, msg.latitude, msg.longitude, nodes_);
+      }
+      if (!ok) {
+        return;
       }
       msg.position_covariance_type = sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_DIAGONAL_KNOWN;
-      const double pss = have_odom_ ? last_pss_ : 1.0e4;
-      msg.position_covariance[0] = pss;
-      msg.position_covariance[4] = pss;
+      msg.position_covariance[0] = last_pss_;
+      msg.position_covariance[4] = last_pss_;
       msg.position_covariance[8] = 1.0e6;  // no height from 1D DR
       pub_->publish(msg);
     });
@@ -69,6 +85,7 @@ class MapProjectorNode : public rclcpp::Node {
  private:
   double last_s_{0.0};
   double last_pss_{1.0e4};
+  builtin_interfaces::msg::Time last_stamp_{};
   bool have_odom_{false};
   std::vector<tram_dr::MapNode> nodes_{};
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr pub_;

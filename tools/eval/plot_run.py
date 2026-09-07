@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -61,6 +62,8 @@ def _poly(xs: list[float], ys: list[float], x0: float, y0: float, x1: float, y1:
     h = y1 - y0
     pts = []
     for x, y in zip(xs, ys):
+        if not math.isfinite(x) or not math.isfinite(y):
+            continue
         px = x0 + (x - xmin) / dx * w
         py = y1 - (y - ymin) / dy * h
         pts.append(f"{px:.1f},{py:.1f}")
@@ -115,10 +118,15 @@ def render_svg(
     W, H = 960, 720
     mx, my = 70, 40
     tmin, tmax = t[0], t[-1]
-    smax = max(env_hi + s_naive + s_plant + s_comp + s_ukf + s_gt)
-    smin = min(env_lo + s_naive + s_plant + s_comp + s_ukf + s_gt)
-    vmax = max(v_gt + v_ukf + [0.1])
-    vmin = min(v_gt + v_ukf + [0.0])
+    series_s = env_hi + s_naive + s_plant + s_comp + s_ukf + s_gt
+    series_lo = env_lo + s_naive + s_plant + s_comp + s_ukf + s_gt
+    fin_s = [x for x in series_s if math.isfinite(x)]
+    fin_lo = [x for x in series_lo if math.isfinite(x)]
+    smax = max(fin_s) if fin_s else 1.0
+    smin = min(fin_lo) if fin_lo else 0.0
+    fin_v = [x for x in (v_gt + v_ukf + [0.1, 0.0]) if math.isfinite(x)]
+    vmax = max(fin_v) if fin_v else 0.1
+    vmin = min(fin_v) if fin_v else 0.0
 
     y_s0, y_s1 = my, H * 0.42
     y_v0, y_v1 = H * 0.48, H * 0.78
@@ -127,6 +135,9 @@ def render_svg(
 
     def P(xs, ys, ya, yb, ymin, ymax):
         return _poly(xs, ys, x0, ya, x1, yb, tmin, tmax, ymin, ymax)
+
+    def _fin(xs: list[float]) -> list[float]:
+        return [x for x in xs if math.isfinite(x)]
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
@@ -185,7 +196,9 @@ def plot_dir(run_dir: Path, dest: Path | None = None) -> Path | None:
     comp = complementary(notch, omega, DT, brake=brake)
     est = _load_jsonl(run_dir / "ukf.jsonl")
     if not est:
-        s_ukf, v_ukf, conf = s_gt[:], v_gt[:], ["UNINITIALIZED"] * len(t)
+        s_ukf = [float("nan")] * len(t)
+        v_ukf = [float("nan")] * len(t)
+        conf = ["UNINITIALIZED"] * len(t)
     else:
         s_ukf = [float(r["s"]) for r in est]
         v_ukf = [float(r["v"]) for r in est]

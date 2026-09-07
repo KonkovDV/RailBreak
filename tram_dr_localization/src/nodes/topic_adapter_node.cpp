@@ -41,6 +41,9 @@ class TopicAdapterNode : public rclcpp::Node {
         static_cast<int>(declare_parameter("n_wheels", 4)), 1, tram_dr::kNWheels));
     r0_m_ = declare_parameter("wheel_radius_m", 0.35);
     twist_is_omega_ = declare_parameter("twist_is_omega", false);
+    if (notch_type == "int8" || notch_type == "int16") {
+      notch_enc_ = tram_dr::NotchEncoding::kDiscrete;
+    }
     const bool map_notch = in_notch_ != kOutNotch;
     const bool map_brake = in_brake_ != kOutBrake;
     const bool map_wheels = in_wheels_ != kOutWheels;
@@ -159,7 +162,7 @@ class TopicAdapterNode : public rclcpp::Node {
       return;
     }
     std_msgs::msg::Float32 out;
-    out.data = static_cast<float>(tram_dr::map_notch(raw, notch_max_abs_));
+    out.data = static_cast<float>(tram_dr::map_notch(raw, notch_max_abs_, notch_enc_));
     pub_notch_->publish(out);
   }
 
@@ -178,6 +181,7 @@ class TopicAdapterNode : public rclcpp::Node {
   std::string in_brake_;
   std::string in_wheels_;
   double notch_max_abs_{8.0};
+  tram_dr::NotchEncoding notch_enc_{tram_dr::NotchEncoding::kAuto};
   std::size_t n_wheels_{4};
   double r0_m_{0.35};
   bool twist_is_omega_{false};

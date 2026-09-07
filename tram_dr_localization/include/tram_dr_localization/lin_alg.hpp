@@ -201,6 +201,10 @@ inline void symmetrize(double* A, int n) {
     return false;
   }
   if (!all_finite(A, n * n)) return false;
+  // RB08-03: Jacobi can overflow after mutating A. Restore byte-for-byte on
+  // any false path so a failed repair is not a silent eigendecomposition.
+  double orig[kCap * kCap];
+  copy(A, orig, n * n);
   symmetrize(A, n);
   double test[kCap * kCap], lower[kCap * kCap];
   copy(A, test, n * n);
@@ -284,11 +288,20 @@ inline void symmetrize(double* A, int n) {
   }
   // Rotations and the reconstruction can overflow on inputs that were finite
   // but enormous. Report that instead of handing back a NaN covariance.
-  if (!all_finite(tmp, n * n)) return false;
-  for (int i = 0; i < n * n; ++i) {
-    A[i] = tmp[i];
+  if (!all_finite(tmp, n * n)) {
+    copy(orig, A, n * n);
+    return false;
   }
+  copy(tmp, A, n * n);
   symmetrize(A, n);
+  copy(A, test, n * n);
+  for (int i = 0; i < n; ++i) {
+    at(test, n, i, i) -= lam_floor;
+  }
+  if (!chol(test, lower, n, 0.0)) {
+    copy(orig, A, n * n);
+    return false;
+  }
   return true;
 }
 

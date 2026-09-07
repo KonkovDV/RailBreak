@@ -3,7 +3,7 @@
 Файл отвечает на единственный вопрос, который обычно задаёт жюри и почти
 никогда не задаёт автор: **что здесь измерено, а что заявлено.**
 
-Состояние: 07.09.2026, ядро `tramDR-0.0.9`.
+Состояние: 07.09.2026, ядро `tramDR-0.0.10`.
 Открытые пункты — issue [#3](https://github.com/KonkovDV/RailBreak/issues/3).
 Что именно изменилось — [`../CHANGELOG.md`](../CHANGELOG.md).
 
@@ -23,7 +23,7 @@
 
 | Что | Уровень | Результат |
 | :--- | :-: | :--- |
-| Алгебра весов Scaled UT: $\lambda$, $W_m^{(0)}$, $W_c^{(0)}$, $W_i$, суммы, окна $\alpha$ по $\beta$ | **E** | независимый стенд + `standalone/test_ut_weights_psd.cpp`: 25 проверок, exit 0 |
+| Алгебра весов Scaled UT: $\lambda$, $W_m^{(0)}$, $W_c^{(0)}$, $W_i$, суммы, окна $\alpha$ по $\beta$ | **E** | независимый стенд + `standalone/test_ut_weights_psd.cpp`: 28 проверок, exit 0 |
 | Дискретизация $Q$ пары $(s,v)$ против интеграла Ван Лоана | **E** | невязка $1.06\cdot10^{-22}$ при $\Delta t=0.02$ с |
 | `la::chol` на нефинитном входе | **E** | до `F-05`: возвращала `true`; после: отказ |
 | `la::inv_spd` на NaN-матрице | **E** | до `F-06`: «успех»; после: отказ |
@@ -34,11 +34,12 @@
 | Атомарный откат в `predict_and_update` | **R** | снимок `const Ukf previous = *this` → проверка конечности → `la::chol(P_, …, 1e-12)` → при отказе `*this = previous; ++chol_fail_; return reject()` |
 | Фикстура `zupt off stop` (`F-12`) | **E** | `ctest` Release, цель `test_core` |
 | Четыре узла ROS 2 (`state_estimator`, `topic_adapter`, `map_projector`, `fault_monitor`) | **E** | job `ros` зелёный: [run 34057677488](https://github.com/KonkovDV/RailBreak/actions/runs/34057677488) (`colcon build` + ament gtest) |
-| `tools/eval/test_eval.py`, `tools/synth/test_generate.py` | **E** | локально 06.09.2026: `test_eval` 88/88 |
+| `tools/eval/test_eval.py`, `tools/synth/test_generate.py` | **E** | локально 07.09.2026: `test_eval` **98/98** (в т.ч. `RT10-01` duplicate-stamp); `test_generate` 21 |
 | Сборка `Dockerfile` / `docker compose` | **N** | не запускалась |
 | Секрет-скан репозитория | **N** | не выполнен |
 | Текст Положения хакатона (пп. 7.6 / 8.7 / 10.7 / 14.2.2) | **N** | файл Положения не открылся; нумерация взята из публичного описания и **подлежит сверке с подписанным PDF** до сдачи |
-| Пересчёт метрик на ядре 0.0.9 | **E** | `docs/metrics.md` снят на `tramDR-0.0.9`, seed 42; графики `evidence/plots-pitch/` пересобраны. `ctest` 5/5, `test_eval` 88/88, e2e HMI 0 на 17/18 |
+| Пересчёт метрик на ядре 0.0.10 | **E** | `docs/metrics.md` снят на `tramDR-0.0.10`, seed 42; графики `evidence/plots-pitch/` пересобраны. e2e HMI 0 на 17/18. После `RT10-01` e2e не переснимали: synth монотонен |
+| Red Team 07.09.2026 (`RT10-*`) | **R** + **E** | [`docs/review/redteam-2026-09-07.md`](review/redteam-2026-09-07.md); `RT10-01` закрыт тестом duplicate-stamp |
 | Gauss–Markov априор массы и pre-Huber NIS (`F-34`/`F-35`) | **E** | `test_prior_and_nis`; `test_core` $P_{mm}$ после 80 с |
 | Common-mode $\kappa$ против канала A (`F-36`) | **E** | `test_core` locked slide не OK; e2e `slide_brake` 404 OK, HMI 0 |
 
@@ -92,7 +93,7 @@ $W_i=1/[2(L+\lambda)]$.
 $\sum W_c=1+(1-\alpha^2+\beta)$ и при $\beta\ne\alpha^2-1$ **не равна единице**
 по построению: это не ошибка нормировки, а свойство scaled UT.
 
-### 4.2 Окно допустимых $\alpha$ (условие $W_c^{(0)}\ge0$, $\kappa_{\mathrm{UT}}=0$)
+### 4.2 Окно допустимых $\alpha$ (политика $W_c^{(0)}\ge0$, $\kappa_{\mathrm{UT}}=0$)
 
 При $\kappa_{\mathrm{UT}}=0$ имеем $W_c^{(0)}=2+\beta-\alpha^2-1/\alpha^2$,
 откуда окно **не зависит от $L$**:

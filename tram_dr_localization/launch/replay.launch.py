@@ -36,15 +36,15 @@ def generate_launch_description():
                 package="tram_dr_localization",
                 executable="topic_adapter_node",
                 name="topic_adapter",
-                parameters=[customer_yaml, sim],
+                parameters=[customer_yaml, sim, LaunchConfiguration("vehicle")],
                 output="screen",
             ),
             Node(
                 package="tram_dr_localization",
                 executable="state_estimator_node",
                 name="state_estimator",
-                parameters=[estimator_yaml, LaunchConfiguration("vehicle"), customer_yaml,
-                            route_yaml, sim],
+                parameters=[estimator_yaml, customer_yaml, route_yaml, sim,
+                            LaunchConfiguration("vehicle")],
                 output="screen",
             ),
             Node(

@@ -8,6 +8,8 @@
 #include "rclcpp/rclcpp.hpp"
 
 // Watchdog on /tram/diagnostics. Does not re-implement the estimator.
+// RB08-07: only status.name == "tram_dr" is a heartbeat. Empty/foreign arrays
+// do not refresh. Negative age (clock jump) is STALE.
 
 class FaultMonitorNode : public rclcpp::Node {
  public:
@@ -16,10 +18,13 @@ class FaultMonitorNode : public rclcpp::Node {
     sub_ = create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
         "/tram/diagnostics", 10,
         [this](const diagnostic_msgs::msg::DiagnosticArray& msg) {
-          last_diag_ = now();
-          if (!msg.status.empty()) {
-            last_level_ = msg.status.front().level;
-            last_message_ = msg.status.front().message;
+          for (const auto& st : msg.status) {
+            if (st.name == "tram_dr") {
+              last_diag_ = now();
+              last_level_ = st.level;
+              last_message_ = st.message;
+              return;
+            }
           }
         });
     timer_ = create_wall_timer(std::chrono::milliseconds(200), [this]() {
@@ -29,7 +34,7 @@ class FaultMonitorNode : public rclcpp::Node {
       st.name = "tram_dr_watchdog";
       const bool never = !last_diag_.has_value();
       const double age_s = never ? 1.0e9 : (now() - *last_diag_).seconds();
-      if (never || age_s > 0.5) {
+      if (never || !std::isfinite(age_s) || age_s > 0.5 || age_s < 0.0) {
         st.level = diagnostic_msgs::msg::DiagnosticStatus::STALE;
         st.message = "estimator silent";
       } else {

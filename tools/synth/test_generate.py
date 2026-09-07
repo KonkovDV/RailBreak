@@ -54,7 +54,7 @@ class GenerateTests(unittest.TestCase):
         clean = simulate("coast_no_wire", duration_s=2.0)
         q = simulate("coast_no_wire", duration_s=2.0, quantize=256)
         self.assertEqual(q[-1]["gt_v"], clean[-1]["gt_v"])
-        step = 2.0 * math.pi / 256.0
+        step = 2.0 * math.pi / (256.0 * 0.02)
         self.assertAlmostEqual(q[-1]["w0"] / step, round(q[-1]["w0"] / step), places=6)
 
     def test_slip_accel_wheels_outrun_body(self) -> None:
@@ -75,6 +75,9 @@ class GenerateTests(unittest.TestCase):
             ratios.append(v_wh / r["gt_v"])
         self.assertGreater(len(ratios), 20)
         self.assertLess(min(ratios), 0.4)
+        for r in rows:
+            if r["gt_v"] > 0.2:
+                self.assertGreaterEqual(min(r["w0"], r["w1"], r["w2"], r["w3"]), -1e-9)
 
     def test_slip_naive_path_overshoots_body(self) -> None:
         rows = simulate("slip_accel", duration_s=12.0)

@@ -96,10 +96,23 @@ void plant_step(State& x, const Input& u, double dt_s, const PlantParams& p,
   if (f_trac_filt != nullptr) {
     *f_trac_filt = f_cmd;
   }
+  const double s0 = x.s_m;
+  const double v0 = x.v_mps;
   const PlantDeriv d = plant_forces(x, u, p, f_cmd);
   x.a_mps2 = d.a_mps2;
-  x.s_m += x.v_mps * dt_s + 0.5 * d.a_mps2 * dt_s * dt_s;
-  x.v_mps += d.a_mps2 * dt_s;
+  x.s_m = s0 + v0 * dt_s + 0.5 * d.a_mps2 * dt_s * dt_s;
+  x.v_mps = v0 + d.a_mps2 * dt_s;
+  // RB08-13: constant-a Euler can cross zero and increase kinetic energy.
+  // Passive brake (no traction) must not reverse the car.
+  const bool no_traction = std::fabs(commanded_notch(u)) < 0.05;
+  const bool braking = commanded_brake(u) > 1e-9;
+  if (no_traction && braking && v0 * x.v_mps < 0.0 && std::fabs(d.a_mps2) > 1e-18) {
+    const double t_stop = -v0 / d.a_mps2;
+    if (t_stop > 0.0 && t_stop <= dt_s) {
+      x.s_m = s0 + v0 * t_stop + 0.5 * d.a_mps2 * t_stop * t_stop;
+      x.v_mps = 0.0;
+    }
+  }
   if (clip_params) {
     x.m_eff_kg = std::clamp(x.m_eff_kg, p.mass_min_kg, p.mass_max_kg);
     x.k_trac = std::clamp(x.k_trac, kKtracMin, kKtracMax);

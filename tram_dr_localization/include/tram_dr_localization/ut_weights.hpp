@@ -27,7 +27,10 @@
 //   W_c0 = 2 + beta - alpha^2 - 1/alpha^2
 //
 // which is INDEPENDENT of the state dimension L. Requiring W_c0 >= 0 is a
-// quadratic in alpha^2 with roots ((2+beta) +/- sqrt((2+beta)^2 - 4)) / 2:
+// *sufficient* policy for a nonnegative-weight covariance (and the shipped
+// validator). It is not necessary for P to be PSD: a negative W_c0 can still
+// yield a PSD outer-product sum (RB08-12). The quadratic in alpha^2 has
+// roots ((2+beta) +/- sqrt((2+beta)^2 - 4)) / 2:
 //
 //   beta = 2 -> alpha in [sqrt(2-sqrt3), sqrt(2+sqrt3)] = [0.5176381, 1.9318517]
 //   beta = 1 -> alpha in [1/phi, phi]                   = [0.6180340, 1.6180340]
@@ -70,10 +73,9 @@ inline Weights weights(double alpha, double beta, double kappa, int L) {
   return w;
 }
 
-// The joint admissibility predicate. True only when the triple (alpha, beta,
-// kappa) yields a finite, usable weight set with W_c0 >= 0 at dimension L,
-// i.e. only when the unscented covariance is guaranteed PSD before any
-// project_pd() repair.
+// Conservative policy guard (RB08-12). True when the triple yields a finite
+// usable weight set with W_c0 >= 0 at dimension L. That is sufficient for a
+// nonnegative-weight covariance before project_pd(), not necessary for PSD.
 inline bool weights_psd_ok(double alpha, double beta, double kappa, int L) {
   if (!std::isfinite(alpha) || !std::isfinite(beta) || !std::isfinite(kappa)) {
     return false;

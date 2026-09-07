@@ -23,9 +23,8 @@ constexpr double kMuMax = 0.5;
 constexpr double kMassMinKg = 20000.0;
 constexpr double kMassMaxKg = 70000.0;
 constexpr double kOmegaAbsMax = 80.0;
-// 0.0.9: Gauss–Markov mass prior; NIS against pre-Huber S; common-mode κ
-// vs channel A. docs/metrics.md is measured on this constant.
-constexpr const char* kModelVersion = "tramDR-0.0.9";
+// 0.0.10: audit pack RB08-01…32. docs/metrics.md remesured seed 42.
+constexpr const char* kModelVersion = "tramDR-0.0.10";
 
 enum StateIndex {
   kS = 0,
@@ -63,15 +62,28 @@ inline double commanded_brake(const Input& u) {
   return u.brake_valid ? u.brake : 0.0;
 }
 
-// ±1 pass through; |raw|>1 is treated as raw/notch_max_abs (default 8).
-inline double map_notch(double raw, double notch_max_abs = 8.0) {
+// How a raw controller value is mapped onto [-1, 1].
+// kAuto: |raw|≤1 pass-through (Combino already-normalized); else raw/N.
+// kNormalized: always clamp to [-1, 1]; never divide (1.001 stays ~1, not 0.125).
+// kDiscrete: always raw/N (Int8 ±8 → 1 is 8, not 1). RB08-10: auto was
+// non-monotonic on {0,1,2,8}.
+enum class NotchEncoding { kAuto = 0, kNormalized = 1, kDiscrete = 2 };
+
+inline double map_notch(double raw, double notch_max_abs = 8.0,
+                        NotchEncoding enc = NotchEncoding::kAuto) {
   if (!std::isfinite(raw)) {
     return raw;  // propagate: never turn NaN/Inf into a plausible idle
+  }
+  const double m = std::max(std::fabs(notch_max_abs), 1.0);
+  if (enc == NotchEncoding::kDiscrete) {
+    return std::clamp(raw / m, -1.0, 1.0);
+  }
+  if (enc == NotchEncoding::kNormalized) {
+    return std::clamp(raw, -1.0, 1.0);
   }
   if (std::fabs(raw) <= 1.0) {
     return std::clamp(raw, -1.0, 1.0);
   }
-  const double m = std::max(notch_max_abs, 1.0);
   return std::clamp(raw / m, -1.0, 1.0);
 }
 

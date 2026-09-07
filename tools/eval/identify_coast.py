@@ -29,13 +29,38 @@ def _rows(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def _v_wheel(row: dict, r0: float) -> float:
+def _dt_of(rows: list[dict], default: float = DT) -> float:
+    ts: list[float] = []
+    for row in rows:
+        raw = row.get("t_s", row.get("t"))
+        if raw in (None, ""):
+            continue
+        try:
+            t = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(t):
+            ts.append(t)
+    dts = [ts[i] - ts[i - 1] for i in range(1, len(ts)) if ts[i] > ts[i - 1]]
+    if len(dts) < 2:
+        return default
+    dts.sort()
+    return dts[len(dts) // 2]
+
+
+def _v_wheel(row: dict, r0: float) -> float | None:
     ws = []
-    for k in ("w0", "w1", "w2", "w3"):
+    for k in ("w0", "w1", "w2", "w3", "w4", "w5"):
         if k in row and row[k] not in (None, ""):
-            ws.append(float(row[k]))
+            try:
+                w = float(row[k])
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(w):
+                return None
+            ws.append(w)
     if not ws:
-        return 0.0
+        return None
     return r0 * sum(ws) / len(ws)
 
 
@@ -73,16 +98,25 @@ def _r0_from_gt(rows: list[dict], dt_s: float) -> float | None:
     return num / den
 
 
-def identify(rows: list[dict], *, dt_s: float = DT, p: PlantParams | None = None) -> dict:
+def identify(rows: list[dict], *, dt_s: float | None = None, p: PlantParams | None = None) -> dict:
     p = p or PlantParams()
     r0 = p.r0_m
+    if dt_s is None:
+        dt_s = _dt_of(rows)
     a_vals: list[float] = []
     fmax_vals: list[float] = []
     v_prev = None
     for row in rows:
-        notch = float(row.get("notch") or 0.0)
-        brake = float(row.get("brake") or 0.0)
+        try:
+            notch = float(row.get("notch") or 0.0)
+            brake = float(row.get("brake") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(notch) or not math.isfinite(brake):
+            continue
         v = _v_wheel(row, r0)
+        if v is None or not math.isfinite(v):
+            continue
         if v_prev is None:
             v_prev = v
             continue
@@ -110,8 +144,10 @@ def identify(rows: list[dict], *, dt_s: float = DT, p: PlantParams | None = None
         out["F_max_n"] = float(statistics.median(fmax_vals))
         out["a_trac_max"] = out["F_max_n"] / p.m0_kg
     r0_hat = _r0_from_gt(rows, dt_s)
-    if r0_hat is not None:
+    out["r0_calibrated"] = False
+    if r0_hat is not None and math.isfinite(r0_hat) and 0.15 < r0_hat < 0.60:
         out["wheel_radius_m"] = r0_hat
+        out["r0_calibrated"] = True
     out["note"] = (
         "coast/accel median; Combino defaults if n_coast=0. "
         "Keys A_d / a_trac_max are ROS params on the node."
@@ -127,7 +163,7 @@ def format_yaml(est: dict) -> str:
         f"    A_d: {est['A_d']:.1f}",
         f"    a_trac_max: {est['a_trac_max']:.3f}",
     ]
-    if "wheel_radius_m" in est:
+    if est.get("r0_calibrated") and "wheel_radius_m" in est:
         lines.append(f"    wheel_radius_m: {est['wheel_radius_m']:.4f}")
         lines.append("    r0_uncalibrated: false")
     lines.append("    # tau_drv_s: 0.0")

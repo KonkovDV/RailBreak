@@ -287,14 +287,15 @@ class BaselineTests(unittest.TestCase):
 class CheckerTests(unittest.TestCase):
     def test_no_covariance(self) -> None:
         result = check_rows(
-            [{"kind": "est", "confidence": "OK"}],
+            [{"kind": "est", "confidence": "OK", "t": 0.0, "s": 0.0, "v": 0.0}],
             require_gt=False,
         )
         self.assertTrue(any("NO_COVARIANCE" in h for h in result.hits))
 
     def test_ok_with_cov(self) -> None:
         result = check_rows(
-            [{"kind": "est", "confidence": "OK", "p_ss": 4.0, "p_vv": 0.2, "s": 1.0}],
+            [{"kind": "est", "confidence": "OK", "t": 0.0, "s": 1.0, "v": 0.1,
+              "p_ss": 4.0, "p_vv": 0.2}],
             require_gt=False,
         )
         self.assertEqual(result.hits, [])
@@ -304,8 +305,9 @@ class CheckerTests(unittest.TestCase):
     def test_envelope(self) -> None:
         result = check_rows(
             [
-                {"kind": "gt", "s": 0.0},
-                {"kind": "est", "confidence": "OK", "p_ss": 1.0, "p_vv": 0.1, "s": 100.0},
+                {"kind": "gt", "t": 0.0, "s": 0.0},
+                {"kind": "est", "confidence": "OK", "t": 0.0, "s": 100.0, "v": 1.0,
+                 "p_ss": 1.0, "p_vv": 0.1},
             ],
             require_gt=True,
         )
@@ -314,8 +316,9 @@ class CheckerTests(unittest.TestCase):
     def test_envelope_without_require_gt_flag(self) -> None:
         result = check_rows(
             [
-                {"kind": "gt", "s": 0.0},
-                {"kind": "est", "confidence": "OK", "p_ss": 1.0, "p_vv": 0.1, "s": 100.0},
+                {"kind": "gt", "t": 0.0, "s": 0.0},
+                {"kind": "est", "confidence": "OK", "t": 0.0, "s": 100.0, "v": 1.0,
+                 "p_ss": 1.0, "p_vv": 0.1},
             ],
             require_gt=False,
         )
@@ -329,7 +332,8 @@ class CheckerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "ok.jsonl"
             path.write_text(
-                json.dumps({"kind": "est", "confidence": "DEGRADED", "p_ss": 9.0, "p_vv": 0.4})
+                json.dumps({"kind": "est", "confidence": "DEGRADED", "t": 0.0,
+                            "s": 0.0, "v": 0.0, "p_ss": 9.0, "p_vv": 0.4})
                 + "\n",
                 encoding="utf-8",
             )
@@ -342,8 +346,9 @@ class CheckerTests(unittest.TestCase):
     def test_hmi_rate_on_ok_breach(self) -> None:
         result = check_rows(
             [
-                {"kind": "gt", "s": 0.0},
-                {"kind": "est", "confidence": "OK", "p_ss": 1.0, "p_vv": 0.1, "s": 100.0},
+                {"kind": "gt", "t": 0.0, "s": 0.0},
+                {"kind": "est", "confidence": "OK", "t": 0.0, "s": 100.0, "v": 1.0,
+                 "p_ss": 1.0, "p_vv": 0.1},
             ],
             require_gt=True,
         )
@@ -354,8 +359,9 @@ class CheckerTests(unittest.TestCase):
     def test_hmi_rate_zero_inside_envelope(self) -> None:
         result = check_rows(
             [
-                {"kind": "gt", "s": 10.0},
-                {"kind": "est", "confidence": "OK", "p_ss": 1.0, "p_vv": 0.1, "s": 10.2},
+                {"kind": "gt", "t": 0.0, "s": 10.0},
+                {"kind": "est", "confidence": "OK", "t": 0.0, "s": 10.2, "v": 1.0,
+                 "p_ss": 1.0, "p_vv": 0.1},
             ],
             require_gt=True,
         )
@@ -366,13 +372,46 @@ class CheckerTests(unittest.TestCase):
     def test_missed_path_at_first_degraded(self) -> None:
         result = check_rows(
             [
-                {"kind": "gt", "s": 4.0},
-                {"kind": "est", "confidence": "DEGRADED", "p_ss": 1.0, "p_vv": 0.1, "s": 6.5},
+                {"kind": "gt", "t": 0.0, "s": 4.0},
+                {"kind": "est", "confidence": "DEGRADED", "t": 0.0, "s": 6.5, "v": 0.0,
+                 "p_ss": 1.0, "p_vv": 0.1},
             ],
             require_gt=True,
         )
         self.assertEqual(result.hits, [])
         self.assertAlmostEqual(result.missed_path_m, 2.5, places=6)
+
+    def test_nan_not_hmi_zero(self) -> None:
+        result = check_rows(
+            [
+                {"kind": "gt", "t": 0.0, "s": 0.0},
+                {"kind": "est", "confidence": "OK", "t": 0.0, "s": "nan", "v": 1.0,
+                 "p_ss": 1.0, "p_vv": 0.1},
+            ],
+            require_gt=True,
+        )
+        self.assertTrue(any("INVALID_STATE" in h for h in result.hits))
+        self.assertEqual(result.n_hmi, 0)
+
+    def test_negative_pss(self) -> None:
+        result = check_rows(
+            [{"kind": "est", "confidence": "OK", "t": 0.0, "s": 0.0, "v": 0.0,
+              "p_ss": -1.0, "p_vv": 0.1}],
+            require_gt=False,
+        )
+        self.assertTrue(any("INVALID_COVARIANCE" in h for h in result.hits))
+
+    def test_time_join_not_last_seen(self) -> None:
+        result = check_rows(
+            [
+                {"kind": "est", "confidence": "OK", "t": 0.0, "s": 100.0, "v": 1.0,
+                 "p_ss": 1.0, "p_vv": 0.1},
+                {"kind": "gt", "t": 10.0, "s": 0.0},
+            ],
+            require_gt=True,
+        )
+        self.assertTrue(any("UNMATCHED_GT" in h for h in result.hits))
+        self.assertEqual(result.n_hmi, 0)
 
 
 class Rosbag2Tests(unittest.TestCase):
@@ -502,6 +541,9 @@ class InspectQDefaultsTests(unittest.TestCase):
         self.assertAlmostEqual(map_notch(8.0), 1.0)
         self.assertAlmostEqual(map_notch(-4.0), -0.5)
         self.assertAlmostEqual(map_notch(0.4), 0.4)
+        self.assertAlmostEqual(map_notch(1.0, encoding="discrete"), 0.125)
+        self.assertAlmostEqual(map_notch(1.0, encoding="auto"), 1.0)
+        self.assertAlmostEqual(map_notch(1.001, encoding="normalized"), 1.0)
 
     def test_map_notch_nonfinite_not_idle(self) -> None:
         from rosbag2_io import map_notch
@@ -579,6 +621,26 @@ class InspectQDefaultsTests(unittest.TestCase):
         self.assertAlmostEqual(rec["y"], 2.0, places=6)
         self.assertAlmostEqual(rec["z"], 145.2, places=6)
 
+    def test_pose_stamped_has_no_invented_speed(self) -> None:
+        from rosbag2_io import decode_message, encode_pose_stamped
+
+        blob = encode_pose_stamped(10.0, 2.0, 145.2)
+        rec = decode_message("geometry_msgs/msg/PoseStamped", blob)
+        self.assertIsNotNone(rec)
+        self.assertTrue(rec.get("v") in (None, ))
+
+    def test_cdr_rejects_big_endian(self) -> None:
+        from rosbag2_io import decode_message
+
+        blob = b"\x00\x00\x00\x00" + b"\x00\x00\x00\x00"
+        self.assertIsNone(decode_message("std_msgs/msg/Float32", blob))
+
+    def test_cdr_rejects_truncated_odometry(self) -> None:
+        from rosbag2_io import decode_message, encode_odometry
+
+        blob = encode_odometry(1.0, 2.0, 0.1, 0.2)
+        self.assertIsNone(decode_message("nav_msgs/msg/Odometry", blob[:20]))
+
     def test_inspect_q2_q3_on_customer_names(self) -> None:
         from inspect_bag import main as inspect_main
         from bag_to_jsonl import _load_adapter, bag_to_rows
@@ -630,6 +692,28 @@ class InspectQDefaultsTests(unittest.TestCase):
             wheels = [r for r in recs if "w0" in r]
             self.assertEqual(len(wheels), 4)
             self.assertAlmostEqual(wheels[0]["notch"], 1.0)
+
+    def test_inspect_does_not_guess_gps_speed_as_notch(self) -> None:
+        from inspect_bag import guess_roles, probe_bag
+        from rosbag2_io import encode_float32, encode_float64_array, write_bag
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bag = Path(tmp) / "gps"
+            rows = []
+            for k in range(4):
+                ts = k * 20_000_000
+                rows.append(("/gps/speed", "std_msgs/msg/Float32", ts, encode_float32(8.0)))
+                rows.append(
+                    (
+                        "/tram/wheel_odom",
+                        "std_msgs/msg/Float64MultiArray",
+                        ts + 1,
+                        encode_float64_array([10.0, 10.0, 10.0, 10.0]),
+                    )
+                )
+            write_bag(bag, rows)
+            roles = guess_roles(probe_bag(bag)["stats"])
+            self.assertNotEqual(roles.get("notch"), "/gps/speed")
 
     def test_uninitialized_odometry_not_ok(self) -> None:
         from bag_to_jsonl import bag_to_rows, _load_aliases
@@ -1005,6 +1089,76 @@ class ReplayCatchupTests(unittest.TestCase):
             # 25 s at ~3.5 m/s. A 20 s cap would land near 70 m.
             self.assertGreater(recs[-1]["s"], 80.0)
 
+    def test_duplicate_stamp_does_not_invent_dt(self) -> None:
+        import json
+        import subprocess
+
+        exe = self._replay_ukf()
+        if exe is None:
+            self.skipTest("replay_ukf not built")
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "filter.csv"
+            out_path = Path(tmp) / "out.jsonl"
+            w = 10.0
+            csv_path.write_text(
+                "t_s,notch,brake,w0,w1,w2,w3\n"
+                f"0.00,0.0,0,{w},{w},{w},{w}\n"
+                f"0.00,0.0,0,{w},{w},{w},{w}\n"
+                f"0.02,0.0,0,{w},{w},{w},{w}\n",
+                encoding="utf-8",
+            )
+            r = subprocess.run(
+                [str(exe), str(csv_path), str(out_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            recs = [
+                json.loads(line)
+                for line in out_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(recs), 2)
+            self.assertAlmostEqual(recs[0]["t"], 0.0, places=9)
+            self.assertAlmostEqual(recs[1]["t"], 0.02, places=9)
+
+    def test_epoch_timestamps_round_trip(self) -> None:
+        import json
+        import subprocess
+
+        exe = self._replay_ukf()
+        if exe is None:
+            self.skipTest("replay_ukf not built")
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "filter.csv"
+            out_path = Path(tmp) / "out.jsonl"
+            t0 = 1780000001.12345
+            t1 = t0 + 0.02
+            w = 10.0
+            csv_path.write_text(
+                "t_s,notch,brake,w0,w1,w2,w3\n"
+                f"{t0:.17g},0.0,0,{w},{w},{w},{w}\n"
+                f"{t1:.17g},0.0,0,{w},{w},{w},{w}\n",
+                encoding="utf-8",
+            )
+            r = subprocess.run(
+                [str(exe), str(csv_path), str(out_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            recs = [
+                json.loads(line)
+                for line in out_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(recs), 2)
+            self.assertNotEqual(recs[0]["t"], recs[1]["t"])
+            self.assertAlmostEqual(recs[0]["t"], t0, places=9)
+            self.assertAlmostEqual(recs[1]["t"], t1, places=9)
+
 
 class ScoreNeesTests(unittest.TestCase):
     def test_mean_nees_unit_variance(self) -> None:
@@ -1147,6 +1301,13 @@ class PitchToolsTests(unittest.TestCase):
         est = identify(rows)
         self.assertGreater(est["n_samples"], 8)
         self.assertGreater(est["j_max_mps3"], 0.3)
+
+    def test_stop_associate_cli_imports_sys(self) -> None:
+        from stop_associate import main as stop_main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.jsonl"
+            self.assertEqual(stop_main([str(missing)]), 1)
 
     def test_stop_associate_nearest_vertex(self) -> None:
         from stop_associate import associate

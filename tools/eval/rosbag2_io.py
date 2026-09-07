@@ -31,60 +31,78 @@ class CdrIn:
     def __init__(self, blob: bytes) -> None:
         if len(blob) < 4:
             raise ValueError("cdr too short")
+        # Encapsulation header is big-endian: CDR_LE is bytes 00 01, not uint16 LE.
+        ident = (blob[0] << 8) | blob[1]
+        if ident != 0x0001:
+            raise ValueError("cdr not little-endian")
         self.buf = blob
         self.i = 4
+
+    def _need(self, n: int) -> None:
+        if self.i + n > len(self.buf):
+            raise ValueError("cdr truncated")
 
     def _align(self, n: int) -> None:
         off = self.i - 4
         pad = (n - (off % n)) % n
-        self.i += pad
+        if pad:
+            self._need(pad)
+            self.i += pad
 
     def u32(self) -> int:
         self._align(4)
+        self._need(4)
         v = struct.unpack_from("<I", self.buf, self.i)[0]
         self.i += 4
         return v
 
     def i32(self) -> int:
         self._align(4)
+        self._need(4)
         v = struct.unpack_from("<i", self.buf, self.i)[0]
         self.i += 4
         return v
 
     def i8(self) -> int:
+        self._need(1)
         v = struct.unpack_from("<b", self.buf, self.i)[0]
         self.i += 1
         return v
 
     def i16(self) -> int:
         self._align(2)
+        self._need(2)
         v = struct.unpack_from("<h", self.buf, self.i)[0]
         self.i += 2
         return v
 
     def u8(self) -> int:
+        self._need(1)
         v = self.buf[self.i]
         self.i += 1
         return v
 
     def f32(self) -> float:
         self._align(4)
+        self._need(4)
         v = struct.unpack_from("<f", self.buf, self.i)[0]
         self.i += 4
         return v
 
     def f64(self) -> float:
         self._align(8)
+        self._need(8)
         v = struct.unpack_from("<d", self.buf, self.i)[0]
         self.i += 8
         return v
 
     def string(self) -> str:
         n = self.u32()
-        remain = max(0, len(self.buf) - self.i)
-        advance = min(n, remain)
-        raw = self.buf[self.i : self.i + min(advance, MAX_CDR_STR)]
-        self.i += advance
+        if n < 0 or n > MAX_CDR_STR:
+            raise ValueError("cdr string too long")
+        self._need(n)
+        raw = self.buf[self.i : self.i + n]
+        self.i += n
         if raw.endswith(b"\x00"):
             raw = raw[:-1]
         return raw.decode("utf-8", errors="replace")
@@ -278,17 +296,25 @@ def encode_diagnostic_array(
     return b"\x00\x01\x00\x00" + bytes(w.buf)
 
 
-def map_notch(raw: float, notch_max_abs: float = 8.0) -> float:
-    """Twin of tram_dr::map_notch. |raw|<=1 passes through; else raw/N (Q2 N=8)."""
+def map_notch(
+    raw: float,
+    notch_max_abs: float = 8.0,
+    encoding: str = "auto",
+) -> float:
+    """Twin of tram_dr::map_notch. encoding: auto | normalized | discrete."""
     try:
         x = float(raw)
     except (TypeError, ValueError):
         return float("nan")
     if x != x or x in (float("inf"), float("-inf")):
         return x
+    m = max(abs(float(notch_max_abs)), 1.0)
+    if encoding == "discrete":
+        return max(-1.0, min(1.0, x / m))
+    if encoding == "normalized":
+        return max(-1.0, min(1.0, x))
     if abs(x) <= 1.0:
         return max(-1.0, min(1.0, x))
-    m = max(float(notch_max_abs), 1.0)
     return max(-1.0, min(1.0, x / m))
 
 
@@ -416,7 +442,7 @@ def _decode_message(msg_type: str, blob: bytes) -> dict[str, Any] | None:
         z = r.f64()
         for _ in range(4):
             _ = r.f64()
-        return {"s": x, "y": y, "z": z, "v": 0.0}
+        return {"s": x, "y": y, "z": z, "v": None}
     if t in {
         "diagnostic_msgs/DiagnosticArray",
         "diagnostic_msgs/msg/DiagnosticArray",
@@ -431,16 +457,22 @@ def _decode_message(msg_type: str, blob: bytes) -> dict[str, Any] | None:
         message = ""
         for _ in range(nstat):
             _level = r.u8()
-            _ = r.string()
-            message = r.string()
-            _ = r.string()
+            name = r.string()
+            msg = r.string()
+            _hw = r.string()
             nkv = r.u32()
             if nkv > MAX_CDR_SEQ:
                 return None
+            this_kvs: dict[str, str] = {}
             for _ in range(nkv):
                 k = r.string()
                 v = r.string()
-                kvs[k] = v
+                this_kvs[k] = v
+            if name == "tram_dr" or (not kvs and "confidence" in this_kvs):
+                kvs = this_kvs
+                message = msg
+                if name == "tram_dr":
+                    break
         out: dict[str, Any] = {"values": kvs, "message": message}
         if "confidence" in kvs:
             out["confidence"] = kvs["confidence"]
@@ -546,20 +578,26 @@ def iter_messages(bagdir: Path) -> Iterator[tuple[int, str, str, bytes]]:
         raise FileNotFoundError(
             f"no sqlite3 .db3 in {bagdir}; if this is mcap, pip install rosbags"
         )
-    for db in dbs:
+    import heapq
+
+    def _one(db: Path) -> Iterator[tuple[int, int, str, str, bytes]]:
         con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
         try:
             topics = {
                 row[0]: (row[1], row[2])
                 for row in con.execute("SELECT id, name, type FROM topics")
             }
-            for topic_id, ts, blob in con.execute(
-                "SELECT topic_id, timestamp, data FROM messages ORDER BY timestamp, id"
+            for topic_id, ts, mid, blob in con.execute(
+                "SELECT topic_id, timestamp, id, data FROM messages ORDER BY timestamp, id"
             ):
                 name, typ = topics.get(topic_id, ("", ""))
-                yield int(ts), name, typ, blob
+                yield int(ts), int(mid), name, typ, blob
         finally:
             con.close()
+
+    merged = heapq.merge(*(_one(db) for db in dbs))
+    for ts, _mid, name, typ, blob in merged:
+        yield ts, name, typ, blob
 
 
 def write_bag(bagdir: Path, rows: list[tuple[str, str, int, bytes]]) -> None:

@@ -60,7 +60,7 @@ tools/eval/identify_jerk.py
 | --- | --- |
 | `test_core` | сквозное поведение фильтра, режимы, ZUPT, стоянка после реального торможения |
 | `test_integrity_contracts` | контракты целостности: свидетельство стоянки, $\omega$-only ZUPT, live-only $z$, `s_unbounded`, свежесть во времени, контракт входа, атомарный откат, отказ `chol`/`inv_spd` на NaN |
-| `test_ut_weights_psd` | 25 проверок алгебры весов scaled UT; **ядро не линкуется** — тест нельзя «починить» правкой фильтра |
+| `test_ut_weights_psd` | 28 проверок алгебры весов scaled UT; **ядро не линкуется** — тест нельзя «починить» правкой фильтра |
 | `test_ut_weights_header` | сверка поставляемого `ut_weights.hpp` с той же алгеброй |
 | `test_prior_and_nis` | неподвижная точка дефектного mass prior и насыщение Huber-NIS; header-only |
 

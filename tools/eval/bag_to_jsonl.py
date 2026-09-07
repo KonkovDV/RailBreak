@@ -149,15 +149,28 @@ def bag_to_rows(
     from inspect_bag import guess_roles, probe_bag
 
     aliases = dict(aliases)
-    guessed = guess_roles(probe_bag(bagdir)["stats"])
+    probed = probe_bag(bagdir)
+    guessed = guess_roles(probed["stats"])
+    present = set(probed["stats"])
     role_keys = {"notch": "notch", "brake": "brake", "wheels": "wheels", "estimate": "est"}
     for role, dest in role_keys.items():
         name = guessed.get(role)
         if name:
             aliases.setdefault(name, dest)
+    wheel_topics = {n for n, r in aliases.items() if r == "wheels"}
+    wheel_present = {n for n in wheel_topics if n in present}
+    # RB08-23: if the bag actually has /tram/wheel_odom, it wins. An unused
+    # default alias must not hide the customer wheel topic.
+    if CANONICAL["wheels"] in wheel_present and len(wheel_present) > 1:
+        wheel_present = {CANONICAL["wheels"]}
+    if len(wheel_present) > 1:
+        raise ValueError(f"multiple wheel streams: {sorted(wheel_present)}")
+    aliases = {n: r for n, r in aliases.items() if r != "wheels" or n in wheel_present}
     rows: list[dict] = []
     skipped: dict[str, int] = {}
-    last: dict[str, float | list[float]] = {"notch": math.nan, "brake": math.nan}
+    last: dict[str, float] = {"notch": math.nan, "brake": math.nan}
+    last_t: dict[str, float | None] = {"notch": None, "brake": None}
+    stale_s = 0.25
     for ts_ns, name, typ, blob in iter_messages(bagdir):
         t = ts_ns * 1e-9
         role = aliases.get(name)
@@ -193,6 +206,8 @@ def bag_to_rows(
         if role == "diag" or name == DIAGNOSTICS_TOPIC or (
             typ.replace("/msg/", "/") == "diagnostic_msgs/DiagnosticArray"
         ):
+            if name != DIAGNOSTICS_TOPIC:
+                continue
             decoded = decode_message(typ, blob) or {}
             rec = {
                 "kind": "diag",
@@ -211,13 +226,16 @@ def bag_to_rows(
             raw = float(decoded["data"])
             if not math.isfinite(raw):
                 continue
-            last["notch"] = map_notch(raw, notch_max_abs)
+            enc = "discrete" if "Int8" in typ or "Int16" in typ else "auto"
+            last["notch"] = map_notch(raw, notch_max_abs, encoding=enc)
+            last_t["notch"] = t
             rows.append({"kind": "input", "t": t, "notch": last["notch"], "topic": name})
         elif role == "brake":
             raw = float(decoded["data"])
             if not math.isfinite(raw):
                 continue
             last["brake"] = max(0.0, min(1.0, raw))
+            last_t["brake"] = t
             rows.append({"kind": "input", "t": t, "brake": last["brake"], "topic": name})
         elif role == "wheels":
             raw = decoded.get("data") or decoded.get("velocity")
@@ -228,11 +246,19 @@ def bag_to_rows(
                 w = vx if twist_is_omega else vx / max(wheel_radius_m, 1e-6)
                 raw = [w]
             omega = pad_wheels(list(raw or []), n_wheels)
+            notch = last["notch"]
+            brake = last["brake"]
+            nt = last_t["notch"]
+            bt = last_t["brake"]
+            if nt is None or (t - nt) > stale_s:
+                notch = math.nan
+            if bt is None or (t - bt) > stale_s:
+                brake = math.nan
             rec = {
                 "kind": "input",
                 "t": t,
-                "notch": last["notch"],
-                "brake": last["brake"],
+                "notch": notch,
+                "brake": brake,
                 "topic": name,
             }
             for i, w in enumerate(omega[:n_wheels]):

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -60,20 +61,21 @@ double parse_csv_double(const std::string& raw, bool missing_nan) {
 void json_num(std::ostream& o, const char* key, double v) {
   o << "\"" << key << "\":";
   if (std::isfinite(v)) {
-    o << v;
+    o << std::defaultfloat << std::setprecision(std::numeric_limits<double>::max_digits10)
+      << v;
   } else {
     o << "null";
   }
 }
 
 int wheel_index(const std::string& h) {
-  if (h.size() < 2 || (h[0] != 'w' && h[0] != 'W')) {
+  if (h.size() != 2 || (h[0] != 'w' && h[0] != 'W')) {
     return -1;
   }
-  if (!std::isdigit(static_cast<unsigned char>(h[1]))) {
+  if (h[1] < '0' || h[1] > '5') {
     return -1;
   }
-  return std::atoi(h.c_str() + 1);
+  return h[1] - '0';
 }
 
 std::vector<std::string> split_csv(const std::string& line) {
@@ -86,7 +88,7 @@ std::vector<std::string> split_csv(const std::string& line) {
   return out;
 }
 
-bool load_csv(const char* path, std::vector<Row>& rows) {
+bool load_csv(const char* path, std::vector<Row>& rows, bool legacy) {
   std::ifstream in(path);
   if (!in) {
     return false;
@@ -96,9 +98,9 @@ bool load_csv(const char* path, std::vector<Row>& rows) {
     return false;
   }
   const std::vector<std::string> header = split_csv(line);
-  int col_t = 0;
-  int col_notch = 1;
-  int col_brake = 2;
+  int col_t = -1;
+  int col_notch = -1;
+  int col_brake = -1;
   std::vector<int> wcols;
   for (int i = 0; i < static_cast<int>(header.size()); ++i) {
     const std::string& h = header[static_cast<std::size_t>(i)];
@@ -108,6 +110,8 @@ bool load_csv(const char* path, std::vector<Row>& rows) {
       col_notch = i;
     } else if (h == "brake") {
       col_brake = i;
+    } else if (h == "gt_s" || h == "gt_v" || h == "gt") {
+      continue;
     } else {
       const int wi = wheel_index(h);
       if (wi >= 0 && wi < tram_dr::kNWheels) {
@@ -119,9 +123,22 @@ bool load_csv(const char* path, std::vector<Row>& rows) {
     }
   }
   int n_w = static_cast<int>(wcols.size());
-  if (n_w <= 0) {
+  if (legacy && (col_t < 0 || n_w <= 0)) {
+    col_t = (col_t < 0) ? 0 : col_t;
+    col_notch = (col_notch < 0) ? 1 : col_notch;
+    col_brake = (col_brake < 0) ? 2 : col_brake;
     n_w = 4;
     wcols = {3, 4, 5, 6};
+  }
+  if (col_t < 0 || n_w <= 0) {
+    std::cerr << "replay_ukf: CSV needs t_s/t and w0..wN columns (or --legacy-csv)\n";
+    return false;
+  }
+  if (col_notch < 0) {
+    col_notch = -1;
+  }
+  if (col_brake < 0) {
+    col_brake = -1;
   }
   while (std::getline(in, line)) {
     if (line.empty()) {
@@ -138,7 +155,10 @@ bool load_csv(const char* path, std::vector<Row>& rows) {
       }
       return parse_csv_double(cells[static_cast<std::size_t>(col)], missing_nan);
     };
-    r.t = at(col_t, false);
+    r.t = at(col_t, true);
+    if (!std::isfinite(r.t)) {
+      continue;
+    }
     r.u.notch = at(col_notch, true);
     r.u.notch_valid = std::isfinite(r.u.notch);
     if (!r.u.notch_valid) {
@@ -166,11 +186,14 @@ int main(int argc, char** argv) {
   const char* out_path = nullptr;
   const char* vehicle_path = nullptr;
   const char* route_path = nullptr;
+  bool legacy_csv = false;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--vehicle") == 0 && i + 1 < argc) {
       vehicle_path = argv[++i];
     } else if (std::strcmp(argv[i], "--route") == 0 && i + 1 < argc) {
       route_path = argv[++i];
+    } else if (std::strcmp(argv[i], "--legacy-csv") == 0) {
+      legacy_csv = true;
     } else if (csv_path == nullptr) {
       csv_path = argv[i];
     } else if (out_path == nullptr) {
@@ -179,11 +202,11 @@ int main(int argc, char** argv) {
   }
   if (csv_path == nullptr || out_path == nullptr) {
     std::cerr << "usage: replay_ukf filter.csv out.jsonl [--vehicle vehicle.yaml] "
-                 "[--route route_10.yaml]\n";
+                 "[--route route_10.yaml] [--legacy-csv]\n";
     return 1;
   }
   std::vector<Row> rows;
-  if (!load_csv(csv_path, rows)) {
+  if (!load_csv(csv_path, rows, legacy_csv)) {
     std::cerr << "cannot read " << csv_path << "\n";
     return 1;
   }
@@ -238,7 +261,6 @@ int main(int argc, char** argv) {
   std::vector<double> tick_us;
   tick_us.reserve(rows.size());
   constexpr double kDtMax = 0.20;
-  constexpr double kDtMin = 0.001;
   constexpr int kMaxCatchup = 18000;  // 1 h at kDtMax; then clamp leftover
   bool first = true;
   tram_dr::Input hold{};
@@ -249,7 +271,8 @@ int main(int argc, char** argv) {
       dt = 0.02;
       first = false;
     } else if (!std::isfinite(dt) || dt <= 0.0) {
-      dt = kDtMin;
+      // RT10-01: duplicate / regressing stamps must not invent kDtMin.
+      continue;
     }
     t_prev = r.t;
     int catchup = 0;
@@ -262,8 +285,8 @@ int main(int argc, char** argv) {
     if (dt > kDtMax) {
       dt = kDtMax;
     }
-    if (dt < kDtMin) {
-      dt = kDtMin;
+    if (dt <= 0.0) {
+      continue;
     }
     const auto t0 = std::chrono::steady_clock::now();
     const tram_dr::UkfEstimate e =

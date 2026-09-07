@@ -95,7 +95,7 @@ int main() {
 
   // 3. Shipped configuration is admissible, with the margins docs/math.md claims.
   check(ut_weights_psd_ok(alpha, beta, kappa, L), "shipped alpha=0.58, beta=2 admissible");
-  check(alpha > lo, "alpha=0.58 above necessary edge 0.518");
+  check(alpha > lo, "alpha=0.58 above policy edge 0.518");
   check(alpha > 1.0 / std::sqrt(1.0 + beta), "alpha=0.58 above Luo-Moroz 1/sqrt(1+beta)=0.5774");
   check(ut_weights_psd_ok(alpha, beta, 0.25, L), "kappa_cut=0.25 variant admissible");
   check(ut_weights_psd_ok(1.0, beta, kappa, L), "alpha=1 cubature limit admissible");
@@ -110,6 +110,17 @@ int main() {
         "alpha=0.58 with beta=0 must be REJECTED (Wc0 = -1.309)");
   check(!ut_weights_psd_ok(0.1, beta, kappa, L), "alpha=0.1 must be REJECTED");
   check(!ut_weights_psd_ok(0.5, beta, kappa, L), "alpha=0.5 must be REJECTED (Wc0 = -0.25)");
+
+  // RB08-12: W_c0 >= 0 is a sufficient policy for nonnegative-weight P, not a
+  // necessary condition for PSD. The guard still rejects the triple.
+  {
+    const UtWeights wneg = ut_weights(0.5, 2.0, 0.0, 1);
+    check(wneg.wc0 < 0.0, "alpha=0.5 beta=2 has Wc0<0");
+    check(!ut_weights_psd_ok(0.5, 2.0, 0.0, 1), "policy still rejects Wc0<0");
+    const double wi = wneg.wi;
+    const double p = wneg.wc0 * 1.0 + 2.0 * wi * 1.0;
+    check(p > 0.0, "negative Wc0 can still yield P>0 (sufficient, not necessary)");
+  }
 
   std::printf("\n%d/%d checks passed\n", g_total - g_failed, g_total);
   return g_failed == 0 ? 0 : 1;

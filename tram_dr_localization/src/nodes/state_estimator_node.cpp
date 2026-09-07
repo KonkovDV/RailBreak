@@ -21,6 +21,7 @@
 #include "std_msgs/msg/int16.hpp"
 #include "std_msgs/msg/int8.hpp"
 
+#include "tram_dr_localization/timebase.hpp"
 #include "tram_dr_localization/ukf.hpp"
 
 // UNINITIALIZED until notch or wheel_odom. No Imu / NavSatFix / PointCloud2.
@@ -156,6 +157,8 @@ class StateEstimatorNode : public rclcpp::Node {
     age_degraded_s_ = cfg.age_degraded_s;
     age_lost_s_ = cfg.age_lost_s;
     twist_is_omega_ = declare_parameter("twist_is_omega", false);
+    last_u_.brake_valid = false;
+    last_u_.notch_valid = false;
 
     // --- time hygiene parameters (F-17b) ---------------------------------
     // notch_stale_s stays well below UkfParams::notch_lost_s so the core owns
@@ -190,6 +193,19 @@ class StateEstimatorNode : public rclcpp::Node {
         notch_type != "int16") {
       throw std::invalid_argument(
           "notch_type must be float32|float64|int8|int16, got " + notch_type);
+    }
+    const std::string notch_enc = declare_parameter("notch_encoding", std::string("auto"));
+    if (notch_enc != "auto" && notch_enc != "normalized" && notch_enc != "discrete") {
+      throw std::invalid_argument(
+          "notch_encoding must be auto|normalized|discrete, got " + notch_enc);
+    }
+    if (notch_enc == "discrete" ||
+        ((notch_type == "int8" || notch_type == "int16") && notch_enc != "normalized")) {
+      notch_enc_ = tram_dr::NotchEncoding::kDiscrete;
+    } else if (notch_enc == "normalized") {
+      notch_enc_ = tram_dr::NotchEncoding::kNormalized;
+    } else {
+      notch_enc_ = tram_dr::NotchEncoding::kAuto;
     }
     if (wheels_type != "float64_array" && wheels_type != "float32_array" &&
         wheels_type != "joint_state" && wheels_type != "twist_stamped") {
@@ -245,7 +261,7 @@ class StateEstimatorNode : public rclcpp::Node {
       last_u_.notch_valid = false;
       return;
     }
-    last_u_.notch = tram_dr::map_notch(raw, notch_max_abs_);
+    last_u_.notch = tram_dr::map_notch(raw, notch_max_abs_, notch_enc_);
     last_u_.notch_valid = true;
     have_notch_ = true;
     // Arrival freshness is a property of THIS node's clock, never of the
@@ -407,27 +423,20 @@ class StateEstimatorNode : public rclcpp::Node {
     tram_dr::Input u = last_u_;
     if (!have_notch_) {
       u.notch_valid = false;
-      return u;
+    } else if (last_notch_arrival_.has_value()) {
+      const double notch_age = (wall - *last_notch_arrival_).seconds();
+      if (!std::isfinite(notch_age) || notch_age < 0.0 || notch_age > notch_stale_s_) {
+        u.notch_valid = false;
+        last_u_.notch_valid = false;
+      }
     }
-    if (!last_notch_arrival_.has_value()) {
-      return u;
-    }
-    // The old code compared last_notch_arrival_ (node clock) against t, which
-    // was a header stamp on stamped sources. On a bag replay notch_age was
-    // therefore off by the wall-clock/bag-time offset, and with a negative
-    // offset the invalidation below NEVER fired: a dead controller topic kept
-    // reading as fresh indefinitely (F-17b).
-    const double notch_age = (wall - *last_notch_arrival_).seconds();
-    // Invalidate after a short silence so UkfParams::notch_lost_s (2 s) is
-    // the documented LOST delay. Waiting notch_lost_s here plus another
-    // notch_lost_s in classify doubled the watchdog.
-    if (!std::isfinite(notch_age) || notch_age > notch_stale_s_) {
-      u.notch_valid = false;
-      last_u_.notch_valid = false;
-    }
-    if (have_brake_ && last_brake_arrival_.has_value()) {
+    // RB08-06: never skip brake age because notch was missing. Unknown brake
+    // is not an observed zero.
+    if (!have_brake_) {
+      u.brake_valid = false;
+    } else if (last_brake_arrival_.has_value()) {
       const double brake_age = (wall - *last_brake_arrival_).seconds();
-      if (!std::isfinite(brake_age) || brake_age > brake_stale_s_) {
+      if (!std::isfinite(brake_age) || brake_age < 0.0 || brake_age > brake_stale_s_) {
         u.brake_valid = false;
         last_u_.brake_valid = false;
       }
@@ -443,32 +452,32 @@ class StateEstimatorNode : public rclcpp::Node {
     double dt = default_dt_s_;
 
     if (use_meas) {
-      if (!last_meas_stamp_.has_value()) {
-        // First stamped frame: nothing to difference against. Anchor and take
-        // one nominal step rather than inventing an interval.
+      const double stamp_s = meas_stamp->seconds();
+      const bool have = last_meas_stamp_.has_value();
+      const double last_s = have ? last_meas_stamp_->seconds() : 0.0;
+      const tram_dr::MeasDt dec = tram_dr::stamped_interval(
+          have, last_s, stamp_s, consumed_since_meas_s_, dt_min_s_,
+          stamp_regression_tol_s_);
+      if (dec.kind == tram_dr::MeasDt::Kind::kAnchor) {
         last_meas_stamp_ = *meas_stamp;
         consumed_since_meas_s_ = 0.0;
-      } else {
-        const double raw = (*meas_stamp - *last_meas_stamp_).seconds();
-        if (!std::isfinite(raw) || raw < -stamp_regression_tol_s_) {
-          // Out-of-order sample, a looping bag, or a publisher clock jump.
-          // The old code clamped this to +5 ms and stepped the filter
-          // forward, so time ran backwards in the data and forwards in the
-          // estimate. Re-anchor, raise the fault, propagate nothing.
-          ++stamp_regressions_;
-          input_fault_ = true;
-          last_meas_stamp_ = *meas_stamp;
-          consumed_since_meas_s_ = 0.0;
-          last_wall_ = wall;
-          return;
-        }
-        // Subtract the filter time already consumed by timer-driven
-        // predict-only steps since the previous stamped frame, so the two
-        // paths cannot double count the same interval.
-        dt = raw - consumed_since_meas_s_;
-        last_meas_stamp_ = *meas_stamp;
-        consumed_since_meas_s_ = 0.0;
+        last_wall_ = wall;
+        return;
       }
+      if (dec.kind == tram_dr::MeasDt::Kind::kReject) {
+        ++stamp_regressions_;
+        input_fault_ = true;
+        last_wall_ = wall;
+        return;
+      }
+      if (dec.kind == tram_dr::MeasDt::Kind::kSkip) {
+        ++dt_floored_;
+        last_wall_ = wall;
+        return;
+      }
+      dt = dec.dt;
+      last_meas_stamp_ = *meas_stamp;
+      consumed_since_meas_s_ = 0.0;
     } else if (last_wall_.has_value()) {
       dt = (wall - *last_wall_).seconds();
     }
@@ -482,42 +491,38 @@ class StateEstimatorNode : public rclcpp::Node {
     }
 
     double consumed = 0.0;
-    int catchup = 0;
     if (dt > dt_max_s_) {
-      // A real gap. Propagating it as one clamped 0.20 s step - what the old
-      // code did - tells the filter that 200 ms elapsed when seconds did, so
-      // Q accumulates far too little and the integrity monitor never sees the
-      // outage it exists to catch. Advance the gap as a sequence of
-      // predict-only steps of dt_max_s_ so the covariance grows over the true
-      // elapsed time, then land the measurement on the final step.
       const double needed = std::floor(dt / dt_max_s_);
       if (!std::isfinite(needed) || needed > static_cast<double>(max_catchup_steps_)) {
-        // Unbridgeable. Do not pretend otherwise: re-anchor and fail closed.
         ++dt_gaps_;
         input_fault_ = true;
-        consumed_since_meas_s_ = 0.0;
         return;
       }
-      catchup = static_cast<int>(needed);
       ++dt_gaps_;
-      for (int i = 0; i < catchup; ++i) {
+      // Same contract as replay_ukf: hold steps while dt > dt_max so leftover
+      // stays in (0, dt_max]. floor() leftover 0 would drop this stamp's wheels.
+      while (dt > dt_max_s_) {
         const tram_dr::Input ug = resolve_input(wall);
         last_e_ = ukf_.predict_and_update(ug, nullptr, 0, dt_max_s_);
         have_estimate_ = true;
         ++catchup_steps_;
         consumed += dt_max_s_;
+        dt -= dt_max_s_;
       }
-      dt -= static_cast<double>(catchup) * dt_max_s_;
     }
 
     if (dt < dt_min_s_) {
-      // Duplicate stamp, a sample the timer path already propagated past, or
-      // a source faster than dt_min_s_. Floor it instead of inflating it: the
-      // fabricated interval is bounded by dt_min_s_ (1 ms) rather than by the
-      // old 5 ms floor, which made any source above 200 Hz integrate faster
-      // than real time. Every application is counted.
-      ++dt_floored_;
-      dt = dt_min_s_;
+      if (!use_meas) {
+        // Timer leftover: bank, do not invent dt_min.
+        ++dt_floored_;
+        consumed_since_meas_s_ += std::max(dt, 0.0);
+        return;
+      }
+      if (dt <= 0.0) {
+        ++dt_floored_;
+        return;
+      }
+      // Measurement leftover after catch-up: apply the true remainder.
     }
 
     last_dt_s_ = dt;
@@ -527,6 +532,9 @@ class StateEstimatorNode : public rclcpp::Node {
     const tram_dr::Input u = resolve_input(wall);
     last_e_ = ukf_.predict_and_update(u, n > 0 ? omega_.data() : nullptr, n, dt);
     have_estimate_ = true;
+    if (fresh_wheels) {
+      input_fault_ = false;
+    }
 
     if (!use_meas) {
       // Remember how much filter time this timer-driven step consumed so the
@@ -567,22 +575,24 @@ class StateEstimatorNode : public rclcpp::Node {
       push_time_hygiene(st);
       d.status.push_back(st);
       diag_->publish(d);
-      input_fault_ = false;
       return;
     }
 
     tram_dr::UkfEstimate e = last_e_;
     tram_dr::Confidence conf = e.confidence;
+    tram_dr::Confidence conf_v = e.confidence_v;
+    tram_dr::Confidence conf_s = e.confidence_s;
     if (e.initialized && age_s > age_lost_s_) {
       conf = tram_dr::Confidence::kLost;
     } else if (e.initialized && age_s > age_degraded_s_ && conf == tram_dr::Confidence::kOk) {
       conf = tram_dr::Confidence::kDegraded;
     }
-    // An input or timing fault this cycle means the estimate rests on data
-    // that was rejected or on an interval that could not be established.
-    // Fail closed rather than publishing OK next to a nonzero fault counter.
     if (fault) {
       conf = tram_dr::Confidence::kLost;
+    }
+    if (conf == tram_dr::Confidence::kLost) {
+      conf_v = tram_dr::Confidence::kLost;
+      conf_s = tram_dr::Confidence::kLost;
     }
 
     msg.pose.pose.position.x = e.x.s_m;
@@ -612,8 +622,8 @@ class StateEstimatorNode : public rclcpp::Node {
       st.message += " (input/timing fault)";
     }
     st.values.push_back(kv("confidence", tram_dr::confidence_label(conf)));
-    st.values.push_back(kv("confidence_v", tram_dr::confidence_label(e.confidence_v)));
-    st.values.push_back(kv("confidence_s", tram_dr::confidence_label(e.confidence_s)));
+    st.values.push_back(kv("confidence_v", tram_dr::confidence_label(conf_v)));
+    st.values.push_back(kv("confidence_s", tram_dr::confidence_label(conf_s)));
     st.values.push_back(kv("chol_fail", std::to_string(e.chol_fail)));
     st.values.push_back(kv("s_unobserved_s", std::to_string(e.s_unobserved_s)));
     st.values.push_back(kv("n_omega_used", std::to_string(e.n_omega_used)));
@@ -633,6 +643,7 @@ class StateEstimatorNode : public rclcpp::Node {
     st.values.push_back(kv("relative_wheel_slide", std::to_string(e.relative_wheel_slide)));
     st.values.push_back(kv("path_disagree_m", std::to_string(e.path_disagree_m)));
     st.values.push_back(kv("path_disagree_latched", e.path_disagree_latched ? "1" : "0"));
+    st.values.push_back(kv("path_integrity_latched", e.path_integrity_latched ? "1" : "0"));
     st.values.push_back(kv("zupt_at_stop", e.zupt_at_stop ? "1" : "0"));
     st.values.push_back(kv("zupt_forced", e.zupt_forced ? "1" : "0"));
     st.values.push_back(kv("s_unbounded", e.s_unbounded ? "1" : "0"));
@@ -653,7 +664,6 @@ class StateEstimatorNode : public rclcpp::Node {
     push_time_hygiene(st);
     d.status.push_back(st);
     diag_->publish(d);
-    input_fault_ = false;
   }
 
   // The terms a protection level is built from, so a reviewer can recompute
@@ -750,6 +760,7 @@ class StateEstimatorNode : public rclcpp::Node {
   bool have_estimate_{false};
   std::size_t n_wheels_param_{4};
   double notch_max_abs_{8.0};
+  tram_dr::NotchEncoding notch_enc_{tram_dr::NotchEncoding::kAuto};
   double age_degraded_s_{0.25};
   double age_lost_s_{1.0};
   double period_s_{0.02};

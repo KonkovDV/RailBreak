@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++17](https://img.shields.io/badge/Standard-C%2B%2B17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![ROS 2 Humble](https://img.shields.io/badge/ROS_2-Humble-orange.svg)](https://docs.ros.org/en/humble/)
-[![core](https://img.shields.io/badge/core-tramDR--0.0.9-informational.svg)](CHANGELOG.md)
+[![core](https://img.shields.io/badge/core-tramDR--0.0.10-informational.svg)](CHANGELOG.md)
 
 Резервное счисление путевой координаты $s$ и продольной скорости $v$ трамвая
 по положению контроллера, команде тормоза и угловым скоростям осей.
@@ -17,7 +17,7 @@
 уверенность и объявляет деградацию.
 
 Ядро `libtram_dr` — C++17 без ROS. Пакет ROS 2 Humble: `tram_dr_localization`
-(версия `tramDR-0.0.9`). Сборка и тесты ядра — из `standalone/`: цели
+(версия `tramDR-0.0.10`). Сборка и тесты ядра — из `standalone/`: цели
 `test_core`, `test_integrity_contracts`, `test_ut_weights_psd`,
 `test_ut_weights_header`, `test_prior_and_nis`, `replay_ukf`.
 
@@ -39,9 +39,10 @@
 
 | Документ | Что внутри |
 | :--- | :--- |
-| [`CHANGELOG.md`](CHANGELOG.md) | что изменилось в `tramDR-0.0.9`, каким контрактом закреплено, что осталось открытым |
+| [`CHANGELOG.md`](CHANGELOG.md) | что изменилось в `tramDR-0.0.10`, каким контрактом закреплено, что осталось открытым |
 | [`docs/verification.md`](docs/verification.md) | граница проверенного: что исполнялось численно, что прочитано построчно, что не запускалось вообще |
 | [`docs/review/external-redteam-2026-09-06.md`](docs/review/external-redteam-2026-09-06.md) | второй внешний проход: что перепроверено численно, что исправлено, что осталось |
+| [`docs/review/redteam-2026-09-07.md`](docs/review/redteam-2026-09-07.md) | Red Team непрокоммиченного 0.0.10 (RB08 + `RT10-01`); триаж — [`docs/review/triage-2026-09-07.md`](docs/review/triage-2026-09-07.md) |
 | [issue #3](https://github.com/KonkovDV/RailBreak/issues/3) | открытые находки с приоритетами и предложенными правками |
 
 Формулировка «ошибок нет» здесь сознательно не используется: у резервного
@@ -141,7 +142,7 @@ flowchart TD
 
 ---
 
-## Контракты целостности ядра (0.0.9)
+## Контракты целостности ядра (0.0.10)
 
 Шесть из них появились после триажа: до 0.0.7 фильтр мог принять чужое
 свидетельство за своё или оставить в состоянии результат неудачного шага.
@@ -381,7 +382,7 @@ $\\sqrt{2-\\sqrt3}\\cdot\\sqrt{2+\\sqrt3}=\\sqrt{4-3}=1$. Поэтому вто�
 [`ut_weights.hpp`](tram_dr_localization/include/tram_dr_localization/ut_weights.hpp)
 (`weights_psd_ok`, `alpha_window`, `sufficient_alpha_lower`) и закреплён
 **двумя независимыми тестами**: `test_ut_weights_psd.cpp` не включает ни один
-заголовок репозитория и выводит окно с нуля (25 проверок), а
+заголовок репозитория и выводит окно с нуля (28 проверок), а
 `test_ut_weights_header.cpp` сверяет с ним поставляемый заголовок, включая
 сетку из 28 000 точек. Одну и ту же ошибку в алгебре нужно совершить дважды и
 в двух разных формах, чтобы она прошла CI.
@@ -516,7 +517,7 @@ $\\lvert s-s_{\\mathrm{stop}}\\rvert\\le 40$ м, если карта остан�
 ## Что измерено
 
 Организаторский rosbag2 ещё не выдан (окно кода 25–27.09.2026).
-Цифры ниже — **синтетический близнец**, seed 42, ядро `tramDR-0.0.9`. Канон:
+Цифры ниже — **синтетический близнец**, seed 42, ядро `tramDR-0.0.10`. Канон:
 [`docs/metrics.md`](docs/metrics.md). Архив 0.0.6:
 [`evidence/synth-2026-09-04/`](evidence/synth-2026-09-04/). Графики:
 [`evidence/plots-pitch/`](evidence/plots-pitch/) могут отставать на один пакет.
@@ -589,7 +590,7 @@ python tools/synth/score.py
 | :--- | :--- |
 | `test_core` | поведение фильтра |
 | `test_integrity_contracts` | 15 контрактов целостности |
-| `test_ut_weights_psd` | 25 проверок алгебры Scaled UT; собирается **без ядра и без его заголовков** |
+| `test_ut_weights_psd` | 28 проверок алгебры Scaled UT; собирается **без ядра и без его заголовков** |
 | `test_ut_weights_header` | сверка поставляемого `ut_weights.hpp` с той же алгеброй, сетка 28 000 точек |
 | `test_prior_and_nis` | Gauss–Markov априор массы и насыщение Huber-NIS; header-only |
 

@@ -295,10 +295,11 @@ def simulate(name: str, duration_s: float = 30.0, noise_sigma: float = 0.0,
     nw = max(len(c0.d), 4)
     omega = [0.0] * nw
     lock_s = [0.0] * nw
+    theta = [0.0] * nw
+    last_pulses = [0] * nw
     x.d = list(c0.d)
     x.m_eff_kg = c0.mass_kg
     rng = random.Random(SEED)
-    q_step = (2.0 * math.pi / quantize) if quantize > 0 else 0.0
     rows: list[dict] = []
     t = 0.0
     n = int(duration_s / DT)
@@ -324,6 +325,8 @@ def simulate(name: str, duration_s: float = 30.0, noise_sigma: float = 0.0,
         if len(omega) < len(c.d):
             omega.extend([0.0] * (len(c.d) - len(omega)))
             lock_s.extend([0.0] * (len(c.d) - len(lock_s)))
+            theta.extend([0.0] * (len(c.d) - len(theta)))
+            last_pulses.extend([0] * (len(c.d) - len(last_pulses)))
         p.polach_A = c.polach_A
         p.polach_B_s_per_m = c.polach_B
         p.polach_kA = c.polach_kA
@@ -343,8 +346,18 @@ def simulate(name: str, duration_s: float = 30.0, noise_sigma: float = 0.0,
         measured = list(omega)
         if noise_sigma > 0.0:
             measured = [w + rng.gauss(0.0, noise_sigma) for w in measured]
-        if q_step > 0.0:
-            measured = [round(w / q_step) * q_step for w in measured]
+        if quantize > 0:
+            q_meas = []
+            for i, w in enumerate(measured):
+                while i >= len(theta):
+                    theta.append(0.0)
+                    last_pulses.append(0)
+                theta[i] += w * DT
+                pulses = int(round(theta[i] * quantize / (2.0 * math.pi)))
+                dp = pulses - last_pulses[i]
+                last_pulses[i] = pulses
+                q_meas.append(dp * 2.0 * math.pi / (quantize * DT))
+            measured = q_meas
         if name == "axle_fault" and t > 8.0:
             if hold_w3 is None:
                 hold_w3 = measured[3]

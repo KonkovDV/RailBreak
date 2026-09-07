@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,16 +81,20 @@ def associate(
         return []
     events: list[dict] = []
     t0 = None
+    t_last = None
     s_acc = 0.0
     n_acc = 0
     for rec in rows:
-        t = float(rec.get("t") or 0.0)
+        t = rec.get("t")
         v = rec.get("v")
         s = rec.get("s")
-        if v is None or s is None:
+        if v is None or s is None or t is None:
             continue
+        t = float(t)
         v = float(v)
         s = float(s)
+        if not math.isfinite(t) or not math.isfinite(v) or not math.isfinite(s):
+            continue
         if abs(v) <= v_cut:
             if t0 is None:
                 t0 = t
@@ -96,6 +102,7 @@ def associate(
                 n_acc = 0
             s_acc += s
             n_acc += 1
+            t_last = t
             continue
         if t0 is not None and n_acc > 0 and (t - t0) >= dwell_s:
             s_hat = s_acc / n_acc
@@ -114,6 +121,9 @@ def associate(
         t0 = None
         n_acc = 0
     if t0 is not None and n_acc > 0:
+        t_end = t_last if t_last is not None else t0
+        if (t_end - t0) < dwell_s:
+            return events
         s_hat = s_acc / n_acc
         nearest = min(stops, key=lambda st: abs(st["s_m"] - s_hat))
         dist = abs(nearest["s_m"] - s_hat)

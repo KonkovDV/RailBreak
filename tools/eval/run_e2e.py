@@ -44,10 +44,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if not args.runs.is_dir():
         sys.stderr.write(f"missing {args.runs}; run tools/synth/generate.py first\n")
-        return 1
+        return 2
+    dirs = sorted(
+        p for p in args.runs.iterdir() if p.is_dir() and (p / "filter.csv").is_file()
+    )
+    if not dirs:
+        sys.stderr.write(f"empty {args.runs}: no scenario with filter.csv\n")
+        return 2
     rc = 0
-    for d in sorted(p for p in args.runs.iterdir() if p.is_dir()):
-        if not (d / "filter.csv").is_file():
+    for d in dirs:
+        if not (d / "meta.json").is_file():
+            sys.stderr.write(f"{d.name}: missing meta.json scenario manifest\n")
+            rc = 2
             continue
         ukf_out = d / "ukf.jsonl"
         cmd = [str(args.ukf), str(d / "filter.csv"), str(ukf_out)]
@@ -63,8 +71,6 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"{d.name}: replay_ukf rc={r.returncode}\n")
             rc = 2
             continue
-        # Interleave gt/est by t: the checker compares against the last gt
-        # record seen, so concatenated files would test est[t] vs gt[end].
         gt_rows = [
             json.loads(line)
             for line in (d / "gt.jsonl").read_text(encoding="utf-8").splitlines()
@@ -98,12 +104,22 @@ def main(argv: list[str] | None = None) -> int:
         for line in (c.stdout or "").splitlines():
             if line.startswith("HMI-rate") or line.startswith("missed_path"):
                 print(f"  {line}")
+        stderr = c.stderr or ""
+        hit_lines = [
+            ln.strip()
+            for ln in stderr.splitlines()
+            if ln.strip() and ln.strip() != "checker dirty:"
+        ]
+        envelope_only = bool(hit_lines) and all("ENVELOPE_GT" in h for h in hit_lines)
         if c.returncode != 0:
-            if d.name in EXPECTED_HMI and "ENVELOPE_GT" in (c.stderr or ""):
-                print(f"  expected HMI (unobservable d_bar / r0); not a gate fail")
+            if d.name in EXPECTED_HMI and envelope_only:
+                print("  expected HMI (unobservable d_bar / r0); not a gate fail")
             else:
-                sys.stderr.write(c.stderr)
+                sys.stderr.write(stderr)
                 rc = 2
+        if d.name not in EXPECTED_HMI and conf.get("OK", 0) == 0:
+            sys.stderr.write(f"{d.name}: no OK frames on a nominal scenario\n")
+            rc = 2
         try:
             plot_dir(d)
         except Exception as ex:  # pragma: no cover

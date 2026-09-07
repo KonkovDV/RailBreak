@@ -194,6 +194,8 @@ def guess_roles(stats: dict[str, dict[str, Any]]) -> dict[str, str]:
         for name, st in stats.items():
             if name == roles.get("wheels"):
                 continue
+            if _sensor_forbidden(name, st["type"]):
+                continue
             typ = _norm_type(st["type"])
             if "MultiArray" in typ:
                 continue
@@ -210,8 +212,9 @@ def guess_roles(stats: dict[str, dict[str, Any]]) -> dict[str, str]:
                     score += 2
                 if mn < 0.0:
                     score += 1
-            if score:
-                cands.append((score, name))
+            if score < 3:
+                continue
+            cands.append((score, name))
         cands.sort(reverse=True)
         if cands:
             roles["notch"] = cands[0][1]
@@ -219,6 +222,8 @@ def guess_roles(stats: dict[str, dict[str, Any]]) -> dict[str, str]:
         cands = []
         for name, st in stats.items():
             if name in {roles.get("wheels"), roles.get("notch")}:
+                continue
+            if _sensor_forbidden(name, st["type"]):
                 continue
             typ = _norm_type(st["type"])
             if "MultiArray" in typ:

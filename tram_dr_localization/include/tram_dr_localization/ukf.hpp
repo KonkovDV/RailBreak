@@ -48,11 +48,15 @@ struct UkfEstimate {
   bool s_unbounded{false};           // slip latch: b_s / PL not a metre quantity
   bool zupt_forced{false};           // F-10: ZUPT from ω-only while |v̂|≥0.35
   bool sca_current{true};            // false on predict-only: last_sca_ is stale
+  // RB08-01/02: forced ZUPT-at-speed or a rejected frame lost an unknown path.
+  // Recovered v̂ is not recovered ŝ. Cleared only on reset().
+  bool path_integrity_latched{false};
 };
 
 struct UkfParams {
-  // Luo–Moroz sufficient PSD: α≥1/√(1+β)=1/√3≈0.577 at β=2.
-  // Necessary W_c^(0)≥0 at κ_UT=0, β=2: α≥√(2−√3)≈0.518. Code uses 0.58.
+  // Sufficient nonnegative-weight policy at κ_UT=0, β=2: α≥√(2−√3)≈0.518.
+  // That is not necessary for PSD (RB08-12). Luo–Moroz sufficient PSD:
+  // α≥1/√(1+β)=1/√3≈0.577 at β=2. Code uses 0.58.
   double alpha{0.58};
   double beta{2.0};
   double kappa_ut{0.0};        // Julier kappa, not creepage
@@ -142,7 +146,8 @@ class Ukf {
   double missed_path_m() const;
   UkfEstimate snapshot() const;
 
-  static constexpr int kFreezeWin = 25;
+  // ≥0.5 s of 5 ms samples (RB08-11). Old 25 was a tick cap, not elapsed time.
+  static constexpr int kFreezeWin = 128;
 
   UkfParams cfg_{};
   double x_[kStateDim]{};
@@ -162,6 +167,7 @@ class Ukf {
   int n_huber_capped_{0};
   int n_frozen_{0};
   double omega_hist_[kNWheels][kFreezeWin]{};
+  double hist_dt_[kFreezeWin]{};
   int hist_i_{0};
   int hist_fill_{0};
   bool frozen_[kNWheels]{};
@@ -177,6 +183,9 @@ class Ukf {
   Confidence confidence_s_{Confidence::kUninitialized};
   double f_trac_filt_{0.0};
   bool have_f_trac_filt_{false};
+  double f_chan_a_filt_{0.0};
+  bool have_f_chan_a_filt_{false};
+  bool path_integrity_latched_{false};
   bool standstill_hold_{false};
   double kappa_hold_acc_{0.0};
   double notch_missing_s_{0.0};

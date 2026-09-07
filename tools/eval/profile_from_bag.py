@@ -133,9 +133,14 @@ def extract_profile(
         if rec is None:
             continue
         n_dec += 1
-        x = float(rec.get("s", 0.0))
-        y = float(rec.get("y", 0.0))
-        z = float(rec.get("z", 0.0))
+        try:
+            x = float(rec.get("s", 0.0))
+            y = float(rec.get("y", 0.0))
+            z = float(rec.get("z", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(x) or not math.isfinite(y) or not math.isfinite(z):
+            continue
         if prev is None:
             prev = (x, y, z)
             rows.append({"s_m": 0.0, "z_m": z, "i_est": 0.0})
@@ -145,6 +150,8 @@ def extract_profile(
             continue
         s_cum += ds
         i_est = (z - prev[2]) / ds
+        if not math.isfinite(i_est):
+            continue
         rows.append({"s_m": round(s_cum, 3), "z_m": z, "i_est": i_est})
         prev = (x, y, z)
 
