@@ -1,0 +1,37 @@
+/**:
+  ros__parameters:
+    # 71-911ЕМ «Львёнок-Москва». Bo-Bo, все 4 оси моторные; trailer-оси нет.
+    # Беспилот маршрута 10 (Щукинская — ул. Кулакова) с 03.09.2025 — программа ЦБТ.
+    # «Автономный ход» (накопитель, без КС, маршрут 90 / пр. Сахарова) — другая машина.
+    #
+    # D1 (страницы открыты 04.09.2026). В фильтр число НЕ ставим: разброс, не РЭ.
+    # tare_kg: TBD
+    #   22 т — infobox ru.wikipedia.org/wiki/71-911 (семейство 71-911, не ЕМ-03)
+    #   ≤24 т — каталожная копия https://draw.razfill.ru/poezda/poezda-rossii/tramvai-rossii/k-pkts-tram/71-911
+    #           (eltroll2.ru/tram/71_911EM.php — таймаут, таблица в выдаче есть)
+    #   25.2 т — https://transphoto.org/page/671/  (71-911ЕМ-03 «Львёнок-Москва», 2021, 40 ед.)
+    # motor_kw_x_n: 4×72 — transphoto.org/page/671/ и та же каталожная копия. a_trac_max не выводить.
+    # wheel_dia_new_mm / worn_mm: 620 / 580 — только каталожная копия; r0 не задаём
+    #   (0.31 м ≠ twin Combino 0.35). identify_coast.py по bag.
+    # battery_present_on_driverless: unknown
+    #   ЕМ-03: суперконденсаторы НЭ-001, автоход 1000 м (transphoto/page/671/).
+    #   mos.ru/news/item/144719073/: заводской вагон как обычный; лидары/камеры/радары — ЦПР.
+    # Официальный лист ПК ТС https://pk-ts.org/produkciya/l-venok/ : длина 16700±100,
+    # ширина 2500±50, 40 мест, 101–161 пассажиров. Тары, кВт, Ø в таблице нет.
+    # transport.gov.ru/.../71-911em-lvenok — ссылка непроверена.
+    # Клип массы [15, 40] т покрывает 22–25.2 т. mass_kg / wheel_radius_m не заданы.
+    # v_max беспилотника 60 км/ч (mos.ru); паспортная конструкционная 75 км/ч.
+    # brake_nonadhesive_frac = 0, пока payload не покажет магниторельс.
+    vehicle_profile: lvenok_moscow
+    n_wheels: 4
+    axle_role: [0, 0, 0, 0]
+    sca_pair_lr: false
+    mass_min_kg: 15000.0
+    mass_max_kg: 40000.0
+    # Impulse on log m after ZUPT only if |s−stop|≤stop_gate_m (route_10.yaml).
+    # Switch wait on the bridge is not a passenger exchange.
+    mass_door_kg: 12000.0
+    brake_nonadhesive_frac: 0.0
+    # Twin r0=0.35 remains in estimator.yaml until identify_coast writes Ø.
+    # Do not claim OK on s with an uncalibrated scale (mismatch_r0 theorem).
+    r0_uncalibrated: true
