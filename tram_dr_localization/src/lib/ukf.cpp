@@ -1005,7 +1005,7 @@ void Ukf::apply_mass_prior() {
     }
     const double cross =
         prior::gauss_markov_cross(la::at(P_, kStateDim, i, kMass), phi);
-    la::at(P_, kStateDim, i, kMass) = cross;
+    la::at(P_, kStateDim, kMass, i) = cross;
     la::at(P_, kStateDim, kMass, i) = cross;
   }
   la::at(P_, kStateDim, kMass, kMass) = prior::gauss_markov_variance(
@@ -1291,12 +1291,16 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
     } else {
       update_wheels(omega, n);
       maybe_zupt(omega, n, u_use);
-      apply_mass_prior();
       if (n_omega_used_ > 0) accumulate_path_disagree(u_use, dt_s);
     }
   } else {
     maybe_zupt(nullptr, 0, u_use);  // invalidate a hold; missing data is not departure
   }
+  // This is a process transition, not wheel information. Run exactly once
+  // per initialized step, including silence, all-invalid and rest packets.
+  // fill_q already disables log-mass random walk while this prior is active.
+  // Keep it inside the atomic health check; rejected steps roll it back too.
+  apply_mass_prior();
   bool healthy = chol_fail_ == previous.chol_fail_;
   for (double value : x_) healthy = healthy && std::isfinite(value);
   for (double value : P_) healthy = healthy && std::isfinite(value);
