@@ -20,6 +20,10 @@ struct UkfEstimate {
   double nis{0.0};       // νᵀ S⁻¹ ν after wheel update; 0 if no update
   bool nis_valid{false};  // false on predict-only / chol fail
   double nis_cusum{0.0};  // CUSUM of NIS − (m + 0.5√m); diagnostic only
+  // Channels whose innovation hit the Huber cap this epoch. Without this the
+  // reported NIS is not interpretable: it saturates at huber_c², so ν=5 and
+  // ν=1e6 are indistinguishable. Agreement vs suppression, not a tuning aid.
+  int n_huber_capped{0};
   int n_frozen{0};        // axles with Var(ω)≈0 while others still move
   double over_m{0.0};     // PL_s = k_over √P_ss + b_s
   double under_m{0.0};    // k_sigma √P_ss
@@ -76,6 +80,15 @@ struct UkfParams {
   double a_kin_downhill{0.05};     // m/s² along-track; 0 = not accelerating under brake
   // Weak prior on log m. Caps P along the (δm, δk) kernel. 0 = off.
   double mass_prior_log_sigma{0.3};
+  // Reversion time constant of that prior, seconds. The prior is a fixed
+  // amount of information, so re-fusing it every second is not admissible:
+  // 1/P_N = 1/P_0 + N/R drives P to (Q+√(Q²+4QR))/2 = 8.61e-04, i.e. σ=0.0293
+  // (±822 kg) against a declared ±12500 kg load range. Treated instead as a
+  // Gauss–Markov process, φ=exp(−dt/τ), whose stationary variance is exactly
+  // mass_prior_log_sigma². τ is the stop-to-stop scale: mass steps at the
+  // doors and is near-constant on a leg. 0 = revert to the plain update.
+  // See docs/estimator-priors.md §1.
+  double mass_prior_tau_s{300.0};
   // F_bias random-walk rate (N/√s) when wheels agree. σ_5s ≈ rate√5.
   double q_fb_wheels_n{3000.0};
   double path_disagree_floor_mps{0.45};
@@ -124,6 +137,7 @@ class Ukf {
   void classify_axle_fault_vs_slip(int m);
   void step_channel_a(const Input& u, double dt_s);
   void accumulate_path_disagree(const Input& u, double dt_s);
+  // Uses last_dt_s_ as its dt, so the Gauss–Markov step needs no new argument.
   void apply_mass_prior();
   double missed_path_m() const;
   UkfEstimate snapshot() const;
@@ -145,6 +159,7 @@ class Ukf {
   double last_nis_{0.0};
   bool nis_valid_{false};
   double nis_cusum_{0.0};
+  int n_huber_capped_{0};
   int n_frozen_{0};
   double omega_hist_[kNWheels][kFreezeWin]{};
   int hist_i_{0};
