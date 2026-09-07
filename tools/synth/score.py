@@ -7,6 +7,7 @@ import csv
 import json
 import math
 import sys
+from bisect import bisect_left
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -67,11 +68,11 @@ def metrics(s_hat: list[float], v_hat: list[float], s_gt: list[float],
         "n": n,
         "n_gt": n_gt,
         "n_hat": min(len(s_hat), len(v_hat)),
-        "coverage": (n / n_gt) if n_gt else 0.0,
+        "coverage": (n / n_gt) if n_gt else float("nan"),
         "rmse_s": _rmse(s_hat[:n], s_gt[:n]),
         "rmse_v": _rmse(v_hat[:n], v_gt[:n]),
-        "env_s": ok / n if n else 0.0,
-        "env_v": vok / n if n else 0.0,
+        "env_s": ok / n if n else float("nan"),
+        "env_v": vok / n if n else float("nan"),
         "final_ds": abs(s_hat[n - 1] - s_gt[n - 1]) if n else float("nan"),
     }
 
@@ -104,6 +105,57 @@ def score_series(
     return out
 
 
+def _pair_ukf_gt_with_indices(
+    t_e: list[float],
+    s_e: list[float],
+    v_e: list[float],
+    p_e: list[float],
+    t_gt: list[float],
+    s_gt: list[float],
+    v_gt: list[float],
+    tol: float = 0.011,
+) -> tuple[list[float], list[float], list[float], list[float], list[float], list[int]]:
+    """Nearest finite GT, retaining original GT indices for coverage.
+
+    Inputs may be unordered. Equal-distance ties prefer the earlier timestamp;
+    duplicate timestamps use the first finite GT row. Reuse is allowed for
+    error metrics but must not count a GT row twice toward coverage.
+    """
+    if not math.isfinite(tol) or tol < 0.0:
+        raise ValueError("GT pairing tolerance must be finite and nonnegative")
+    by_time: dict[float, int] = {}
+    for j in range(min(len(t_gt), len(s_gt), len(v_gt))):
+        if all(math.isfinite(x) for x in (t_gt[j], s_gt[j], v_gt[j])):
+            by_time.setdefault(t_gt[j], j)
+    times = sorted(by_time)
+    js: list[float] = []
+    jv: list[float] = []
+    jp: list[float] = []
+    gs: list[float] = []
+    gv: list[float] = []
+    indices: list[int] = []
+    n_e = min(len(t_e), len(s_e), len(v_e), len(p_e))
+    for i in range(n_e):
+        t = t_e[i]
+        if not all(math.isfinite(x) for x in (t, s_e[i], v_e[i])):
+            continue
+        pos = bisect_left(times, t)
+        candidates = times[max(0, pos - 1):pos + 1]
+        if not candidates:
+            continue
+        nearest = min(candidates, key=lambda tg: (abs(tg - t), tg))
+        if abs(nearest - t) > tol:
+            continue
+        j = by_time[nearest]
+        js.append(s_e[i])
+        jv.append(v_e[i])
+        jp.append(p_e[i])
+        gs.append(s_gt[j])
+        gv.append(v_gt[j])
+        indices.append(j)
+    return js, jv, jp, gs, gv, indices
+
+
 def _pair_ukf_gt(
     t_e: list[float],
     s_e: list[float],
@@ -114,34 +166,10 @@ def _pair_ukf_gt(
     v_gt: list[float],
     tol: float = 0.011,
 ) -> tuple[list[float], list[float], list[float], list[float], list[float]]:
-    """One time join of (s, v, P) against GT. Unmatched rows are dropped, not truncated."""
-    js: list[float] = []
-    jv: list[float] = []
-    jp: list[float] = []
-    gs: list[float] = []
-    gv: list[float] = []
-    j = 0
-    n_b = len(t_gt)
-    n_e = min(len(t_e), len(s_e), len(v_e), len(p_e))
-    for i in range(n_e):
-        t = t_e[i]
-        if not math.isfinite(t):
-            continue
-        while j + 1 < n_b and abs(t_gt[j + 1] - t) < abs(t_gt[j] - t):
-            j += 1
-        if n_b == 0 or abs(t_gt[j] - t) > tol:
-            continue
-        if j >= len(s_gt) or j >= len(v_gt):
-            continue
-        if not math.isfinite(s_e[i]) or not math.isfinite(v_e[i]):
-            continue
-        if not math.isfinite(s_gt[j]) or not math.isfinite(v_gt[j]):
-            continue
-        js.append(s_e[i])
-        jv.append(v_e[i])
-        jp.append(p_e[i])
-        gs.append(s_gt[j])
-        gv.append(v_gt[j])
+    """Compatibility wrapper returning the original five aligned arrays."""
+    js, jv, jp, gs, gv, _ = _pair_ukf_gt_with_indices(
+        t_e, s_e, v_e, p_e, t_gt, s_gt, v_gt, tol
+    )
     return js, jv, jp, gs, gv
 
 
@@ -170,17 +198,26 @@ def score_run(run_dir: Path) -> dict:
         s_e = [float(r["s"]) for r in est]
         v_e = [float(r["v"]) for r in est]
         p_e = [float(r["p_ss"]) if "p_ss" in r else float("nan") for r in est]
-        ukf_s, ukf_v, ukf_pss, s_gt_a, v_gt_a = _pair_ukf_gt(
+        ukf_s, ukf_v, ukf_pss, s_gt_a, v_gt_a, gt_indices = _pair_ukf_gt_with_indices(
             t_e, s_e, v_e, p_e, t_gt, s_gt, v_gt
         )
         out = {"scenario": run_dir.name}
         out.update(score_series(notch, brake, omega_rows, s_gt, v_gt, DT, None, None))
-        if ukf_s:
-            out["ukf"] = metrics(ukf_s, ukf_v, s_gt_a, v_gt_a)
-            out["ukf"]["nees_s"] = mean_nees(
-                [ukf_s[i] - s_gt_a[i] for i in range(len(ukf_s))],
-                ukf_pss,
-            )
+        # Keep an empty/unmatched estimator file visible. Denominators are
+        # original record counts, not the lengths of the post-join arrays.
+        block = metrics(ukf_s, ukf_v, s_gt_a, v_gt_a)
+        n_gt_matched = len(set(gt_indices))
+        block.update({
+            "n_gt": len(raw),
+            "n_hat": len(est),
+            "n_gt_matched": n_gt_matched,
+            "coverage": n_gt_matched / len(raw),
+            "estimate_coverage": len(ukf_s) / len(est) if est else float("nan"),
+        })
+        block["nees_s"] = mean_nees(
+            [ukf_s[i] - s_gt_a[i] for i in range(len(ukf_s))], ukf_pss
+        )
+        out["ukf"] = block
         return out
     out = {"scenario": run_dir.name}
     out.update(score_series(notch, brake, omega_rows, s_gt, v_gt, DT, None, None))
@@ -188,15 +225,24 @@ def score_run(run_dir: Path) -> dict:
 
 
 def _fmt(block: dict) -> str:
+    def number(value: float, spec: str, suffix: str = "") -> str:
+        return format(value, spec) + suffix if math.isfinite(value) else "N/A"
+
     line = (
-        f"rmse_s={block['rmse_s']:.2f} m  rmse_v={block['rmse_v']:.3f} m/s  "
-        f"env_s={100 * block['env_s']:.1f}%  env_v={100 * block['env_v']:.1f}%  "
-        f"|ds|_end={block['final_ds']:.2f} m"
+        f"rmse_s={number(block['rmse_s'], '.2f', ' m')}  "
+        f"rmse_v={number(block['rmse_v'], '.3f', ' m/s')}  "
+        f"env_s={number(100 * block['env_s'], '.1f', '%')}  "
+        f"env_v={number(100 * block['env_v'], '.1f', '%')}  "
+        f"|ds|_end={number(block['final_ds'], '.2f', ' m')}"
     )
-    if "coverage" in block and math.isfinite(block["coverage"]) and block["coverage"] < 0.999:
-        line += f"  coverage={100 * block['coverage']:.1f}%"
-    if "nees_s" in block and math.isfinite(block["nees_s"]):
-        line += f"  nees_s={block['nees_s']:.3g}"
+    if "coverage" in block:
+        coverage = block["coverage"]
+        if not math.isfinite(coverage) or coverage < 0.999:
+            line += f"  coverage={number(100 * coverage, '.1f', '%')}"
+    if "estimate_coverage" in block:
+        line += f"  estimate_coverage={number(100 * block['estimate_coverage'], '.1f', '%')}"
+    if "nees_s" in block:
+        line += f"  nees_s={number(block['nees_s'], '.3g')}"
     return line
 
 
