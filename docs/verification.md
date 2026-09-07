@@ -51,11 +51,12 @@ executable. Добавление нового теста в CMake больше �
 
 Baseline: `91e20a74f0b526fc782b4eb7ddfd3afff73d575b`.
 Численная порция: `ec5f5cd28174e191cb8f3ac39e191bd300d1d08e`.
-Физическая порция: `dde3bc7d6594c4a5378348940271170ac7017561`.
+Физическая C++ порция: `dde3bc7d6594c4a5378348940271170ac7017561`.
 Исправленное расписание prior с устранёнными ошибками переноса файла:
 `5bd39a41aeadcabb80b057fe908fa49cdbe51f44`.
 HMI без экспозиции: `e36358a669d098f37f7de07930d0723021e82a11`.
 Scorer coverage/join: `0827dcdd564df226c7f9a4eeeb8e8eae36e73666`.
+Python physics: `faa4faebd0b3116f7584b8716d971cbf6cdf97e4`.
 
 | Проверка | До | После | Где |
 | --- | --- | --- | --- |
@@ -64,13 +65,22 @@ Scorer coverage/join: `0827dcdd564df226c7f9a4eeeb8e8eae36e73666`.
 | Prior scheduling | CI cpp/asan failure на test-only commit `6327295` | CI cpp/asan success на `5bd39a4` | Полный UKF, assertions не ослаблены |
 | HMI exposure | 10 tests, 7 failures | 10 tests, 0 failures | Python 3.13, затем Python CI |
 | Scorer exposure/join | 13 tests, 17 failures/subtests | 13 tests, 0 failures | Python 3.13, затем Python CI |
+| Python physics | 13 tests, 17 failures/subtests | 13 tests, 0 failures | Python 3.13, затем Python CI |
 
 Failure — проваленная проверка, **не** обязательно отдельный дефект.
 Python subtests позволяют получить несколько failures в одном методе.
 Численный тест включает независимый long-double LDL, матрицы размерности
 1…16, нулевые/неопределённые/плохо обусловленные случаи, healthy no-op,
-нечисловые входы и beta до DBL_MAX. Физический тест проверяет оба направления
+нечисловые входы и beta до DBL_MAX. C++ plant-тест проверяет оба направления
 выбега и не блокирует разворот от внешних сил.
+
+Python physics-тесты отдельно проверяют None/пустой буфер/постоянную память,
+переменный dt, stop event в обоих направлениях, инерционную массу и внешние
+силы. В одном analytic witness контакт намеренно заменён линейной силой,
+а настоящий Newton solver сопоставлен с закрытой формой. Другие fixtures
+используют реальную нелинейную контактную функцию. Снижение числа вычислений
+силы с 85 до 6 в указанных линейных случаях — не замер WCET или точности
+вагона. Формулы, параметры witness и ограничения: [math.md](math.md), §8.
 
 Для prior фиксируются результат job и переход red→green; stdout с точным
 числом его проверок отдельно не извлечён. Нельзя выдавать предполагаемую
@@ -79,19 +89,24 @@ draft-ветке возникли дополнительные ошибки тр
 выявил и последующие commits устранили. Итоговый diff UKF относительно
 baseline — только перенос вызова prior и поясняющий комментарий.
 
-Все четыре job (cpp, asan, python, ros) подтверждены на `0827dcdd`:
-[PR run](https://github.com/KonkovDV/RailBreak/actions/runs/34155875188),
-[push run](https://github.com/KonkovDV/RailBreak/actions/runs/34155869318).
+Все четыре job (cpp, asan, python, ros) подтверждены на Python-fix `faa4faeb`
+и затем на docs-checkpoint `908ca160`:
+[PR run](https://github.com/KonkovDV/RailBreak/actions/runs/34158342493),
+[push run](https://github.com/KonkovDV/RailBreak/actions/runs/34158338834).
 Статусы более ранних commits не являются подтверждением последнего HEAD;
 после следующих изменений checks проверяются заново.
 
 Локальная среда аудита не имела CMake, ROS, Docker/colcon и пригодного
 ASan runtime. Локально запускались перечисленные C++ binaries, 23 Python
-контракта метрик и 6 фикстур структурного checker документации. Полный
-core/e2e, существующие Python suites, ROS и санитайзеры проверялись в CI.
+контракта метрик, 13 контрактов физики и 7 фикстур структурного checker
+документации (включая refs). Эти 7 фикстур проверяют сам checker, не реальное
+дерево репозитория. Полный core/e2e, существующие Python suites, ROS,
+санитайзеры и документация реального дерева проверялись в CI.
 Недоступность runtime не считается успешным sanitizer-прогоном.
-Локальные исходники/зависимости метрик сверены с Git blob hashes репозитория;
-UKF и GT-модель в регрессионных тестах метрик не подменялись.
+Локальные исходники/зависимости сверены с Git blob hashes репозитория.
+Тесты метрик создают небольшие записи и вызывают настоящие checker/scorer
+и их зависимости; UKF они не запускают. Намеренная подмена линейного контакта
+в physics witness описана отдельно и не выдаётся за физическую GT-валидацию.
 
 ## 4. Python и synthetic e2e
 
@@ -100,6 +115,7 @@ Python 3.11+, основным скриптам достаточно станд�
 ```bash
 python3 tools/eval/test_eval.py
 python3 tools/eval/test_metric_contracts.py
+python3 tools/eval/test_python_plant_contracts.py
 python3 tools/synth/test_generate.py
 python3 tools/eval/no_gnss_scan.py
 python3 tools/eval/test_docs.py
@@ -112,19 +128,22 @@ python3 tools/eval/test_eval.py ReplayCatchupTests
 CI выполняет эти команды. 23 metric tests покрывают HMI без экспозиции,
 исходные знаменатели coverage, повтор GT, неупорядоченные/нечисловые времена,
 пустые результаты, граничный tolerance и независимый brute-force join.
-Это не 23 новых сценария движения и не новая таблица точности вагона.
-Структурный docs checker проверяет восемь актуальных документов, относительные
-ссылки, некоторые пути исходников, code fences, версии и список CTest.
-Он не проверяет внешние URL, heading anchors, LaTeX или истинность текста.
+13 physics tests проверяют перечисленные выше выбранные контракты.
+Это не 36 новых сценариев движения и не новая таблица точности вагона.
+Структурный docs checker проверяет девять актуальных документов, включая
+refs.md: относительные ссылки, некоторые пути исходников, code fences,
+версии и список CTest. Он не проверяет внешние URL, heading anchors, LaTeX
+или истинность текста/библиографических утверждений.
 
 `mismatch_r0` является предусмотренным отрицательным контролем и исключением
 из общего fail gate e2e; зелёный job не означает HMI = 0 во всех сценариях.
 См. [checker.md](checker.md).
 
 [metrics.md](metrics.md) содержит **исторические** таблицы 0.0.10.
-Эта порция не переименовывает их в измерения изменённого ядра. Новая таблица
-должна включать сохранённый output, commit, seed, profile, join/coverage и
-метаданные платформы; одного запуска score без извлечённых чисел недостаточно.
+Эта порция не переименовывает их в измерения изменённого ядра/генератора.
+Новая таблица должна включать сохранённый output, commit, seed, profile,
+join/coverage и метаданные платформы; одного запуска score без извлечённых
+чисел недостаточно.
 
 ## 5. ROS CI и ручное воспроизведение
 
@@ -156,6 +175,8 @@ Dockerfile/Compose и launch прочитаны, но их runtime-провер�
 | Bag/метрики | Интерполяция, экстраполяция и coverage bag-пути; time-weighted exposure; strict JSON и malformed input |
 | Статистика | Нормированность NIS/NEES, false alarms, exposure, независимые поездки |
 | Физика | Полевые m/r0/тяга/Дэвис/уклон; статическое удержание, WSP и joint faults |
+| Python generator | Полная валидация входов, clipping/корни и coupled-ODE convergence; не весь solver domain покрыт fixtures |
+| Источники | Первоисточники, точные редакции стандартов и применимость к конкретному вагону; см. refs.md |
 | Производительность | WCET и latency на целевом контроллере, DDS/executor, HIL |
 | Safety | Независимый hazard analysis и действия потребителя, не только PL/HMI |
 

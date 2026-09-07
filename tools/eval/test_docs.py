@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 CURRENT_DOCS = (
     "README.md", "docs/architecture.md", "docs/brief.md", "docs/checker.md",
     "docs/estimator-priors.md", "docs/integrity-risk.md", "docs/math.md",
-    "docs/verification.md",
+    "docs/verification.md", "docs/refs.md",
 )
 
 
