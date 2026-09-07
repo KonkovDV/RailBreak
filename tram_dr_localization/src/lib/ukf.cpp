@@ -714,6 +714,7 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   // statistic uses the raw S. If the raw S will not invert there is no
   // statistic to report — say so instead of publishing the capped one.
   double Sinv_raw[kNWheels * kNWheels];
+  la::zero(Sinv_raw, m_live * m_live);
   double nis = 0.0;
   bool nis_ok = la::inv_spd(Pzz_raw, Sinv_raw, m_live);
   if (nis_ok) {
@@ -970,9 +971,13 @@ void Ukf::apply_mass_prior() {
   }
   la::at(P_, kStateDim, kMass, kMass) = prior::gauss_markov_variance(
       la::at(P_, kStateDim, kMass, kMass), phi, R);
-  if (!la::project_pd(P_, kStateDim)) {
-    ++chol_fail_;
-  }
+  // No project_pd here, deliberately. The block above is exactly
+  // A P Aᵀ + Q with A = diag(1,…,φ,…,1) and Q = diag(0,…,(1−φ²)R,…,0):
+  // a congruence transform of a PSD matrix by a real diagonal matrix plus a
+  // PSD diagonal is PSD, so there is nothing to repair. Calling it would
+  // also run a Jacobi eigendecomposition at 50 Hz and, worse, add a path
+  // where chol_fail_ moves — which predict_and_update treats as grounds to
+  // roll the step back and report LOST.
 }
 
 void Ukf::classify(const Input& u, std::size_t n) {
