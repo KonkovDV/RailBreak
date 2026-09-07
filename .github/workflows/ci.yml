@@ -26,6 +26,8 @@ jobs:
         run: python tools/eval/test_eval.py
       - name: metric exposure contracts
         run: python tools/eval/test_metric_contracts.py
+      - name: Python physics contracts
+        run: python tools/eval/test_python_plant_contracts.py
       - name: generator
         run: python tools/synth/test_generate.py
       - name: no GNSS in filter

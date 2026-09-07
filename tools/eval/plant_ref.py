@@ -83,13 +83,13 @@ class PlantParams:
     shear_mod_pa: float = SHEAR_MOD_PA
     # 'polach11' = Wear 2005 (11); 'tanh' = engineering cap (tests / rollback).
     creep_force: str = "polach11"
-    # Filter twin only. 0 = algebraic F=F* (C++ default). Generator ignores these.
+    # Shared drive PT1 for twin/generator with persistent memory; 0 = off.
     tau_drv_s: float = 0.0
     gamma_rot: float = 0.0
     brake_nonadhesive_frac: float = 0.0
     notch_as_accel: bool = False
     i_grade: float = 0.0
-    # |dF*/dt| ≤ m j_max. 0 = off (filter/synth twin). Not a PT1.
+    # |dF_cmd/dt| ≤ m j_max with persistent memory; 0 = off. Not body jerk.
     j_max_mps3: float = 0.0
     mass_min_kg: float = MASS_MIN_KG
     mass_max_kg: float = MASS_MAX_KG
@@ -225,8 +225,10 @@ def _implicit_wheel_omega(
         if abs(g) <= 1e-10:
             return max(-OMEGA_MAX, min(OMEGA_MAX, w)), F
         dw = 1e-6
-        dF = (force_at(w + dw) - F) / dw
-        gp = 1.0 + (dt / J) * (r * r) * dF
+        dF_domega = (force_at(w + dw) - F) / dw
+        # force_at already includes r*omega: this derivative is wrt omega,
+        # not slip velocity. The residual contributes one more lever arm r.
+        gp = 1.0 + (dt / J) * r * dF_domega
         if abs(gp) < 1e-12:
             break
         step = g / gp
@@ -283,12 +285,16 @@ def drive_force_cmd(
     m: float,
     f_trac_filt: list[float] | None,
 ) -> float:
-    """PT1 and/or jerk limiter on F*. Persistent f_trac_filt is [F_prev]."""
+    """PT1/force-slew limiter with persistent [F_prev], shared by both plants.
+
+    None selects algebraic F=F*. An empty list is a stateful cold start with
+    previous force zero; it must not be mistaken for absent memory.
+    """
     f_prev = f_trac_filt[0] if f_trac_filt else 0.0
     f_cmd = f_star
-    if p.tau_drv_s > 1e-12:
+    if f_trac_filt is not None and p.tau_drv_s > 1e-12:
         f_cmd = (p.tau_drv_s * f_prev + dt_s * f_star) / (p.tau_drv_s + dt_s)
-    if p.j_max_mps3 > 1e-12:
+    if f_trac_filt is not None and p.j_max_mps3 > 1e-12:
         df_max = max(m, 1000.0) * p.j_max_mps3 * dt_s
         f_cmd = max(f_prev - df_max, min(f_prev + df_max, f_cmd))
     if f_trac_filt is not None:
@@ -329,8 +335,19 @@ def plant_step(x: VehicleState, notch: float, brake: float, dt_s: float,
     f_grade = m * G * p.i_grade
     a = (f_contact - f_brake_rail - f_run - x.f_bias_n - f_grade) / m_dyn
     x.a_mps2 = a
-    x.s_m += x.v_mps * dt_s + 0.5 * a * dt_s * dt_s
-    x.v_mps += a * dt_s
+    v0 = x.v_mps
+    v1 = v0 + a * dt_s
+    dt_pos = dt_s
+    # Match the C++ filter-twin event, not a general static holding model.
+    # External bias/grade/residual drive must not enter passive-coast handling.
+    no_traction = abs(notch) < 0.05
+    braking = br > 1e-9
+    passive_coast = f_trac_cmd == 0.0 and x.f_bias_n == 0.0 and p.i_grade == 0.0
+    if no_traction and (braking or passive_coast) and v0 * v1 < 0.0 and abs(a) > 1e-18:
+        dt_pos = -v0 / a
+        v1 = 0.0
+    x.s_m += v0 * dt_pos + 0.5 * a * dt_pos * dt_pos
+    x.v_mps = v1
     x.m_eff_kg = min(p.mass_max_kg, max(p.mass_min_kg, x.m_eff_kg))
     x.k_trac = min(1.5, max(0.5, x.k_trac))
     x.mu_hat = min(0.5, max(0.05, x.mu_hat))
