@@ -23,10 +23,9 @@ constexpr double kMuMax = 0.5;
 constexpr double kMassMinKg = 20000.0;
 constexpr double kMassMaxKg = 70000.0;
 constexpr double kOmegaAbsMax = 80.0;
-// 0.0.8: TwistStamped is one channel; short packets pad NaN; map_notch
-// propagates nonfinite; replay catch-up holds the last command and covers
-// hour-scale gaps. docs/metrics.md is measured on this constant.
-constexpr const char* kModelVersion = "tramDR-0.0.8";
+// 0.0.9: Gauss–Markov mass prior; NIS against pre-Huber S; common-mode κ
+// vs channel A. docs/metrics.md is measured on this constant.
+constexpr const char* kModelVersion = "tramDR-0.0.9";
 
 enum StateIndex {
   kS = 0,

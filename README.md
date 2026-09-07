@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++17](https://img.shields.io/badge/Standard-C%2B%2B17-blue.svg)](https://en.cppreference.com/w/cpp/17)
 [![ROS 2 Humble](https://img.shields.io/badge/ROS_2-Humble-orange.svg)](https://docs.ros.org/en/humble/)
-[![core](https://img.shields.io/badge/core-tramDR--0.0.8-informational.svg)](CHANGELOG.md)
+[![core](https://img.shields.io/badge/core-tramDR--0.0.9-informational.svg)](CHANGELOG.md)
 
 Резервное счисление путевой координаты $s$ и продольной скорости $v$ трамвая
 по положению контроллера, команде тормоза и угловым скоростям осей.
@@ -17,9 +17,9 @@
 уверенность и объявляет деградацию.
 
 Ядро `libtram_dr` — C++17 без ROS. Пакет ROS 2 Humble: `tram_dr_localization`
-(версия `tramDR-0.0.8`). Сборка и тесты ядра — из `standalone/`: цели
+(версия `tramDR-0.0.9`). Сборка и тесты ядра — из `standalone/`: цели
 `test_core`, `test_integrity_contracts`, `test_ut_weights_psd`,
-`test_ut_weights_header`, `replay_ukf`.
+`test_ut_weights_header`, `test_prior_and_nis`, `replay_ukf`.
 
 ---
 
@@ -39,7 +39,7 @@
 
 | Документ | Что внутри |
 | :--- | :--- |
-| [`CHANGELOG.md`](CHANGELOG.md) | что изменилось в `tramDR-0.0.8`, каким контрактом закреплено, что осталось открытым |
+| [`CHANGELOG.md`](CHANGELOG.md) | что изменилось в `tramDR-0.0.9`, каким контрактом закреплено, что осталось открытым |
 | [`docs/verification.md`](docs/verification.md) | граница проверенного: что исполнялось численно, что прочитано построчно, что не запускалось вообще |
 | [`docs/review/external-redteam-2026-09-06.md`](docs/review/external-redteam-2026-09-06.md) | второй внешний проход: что перепроверено численно, что исправлено, что осталось |
 | [issue #3](https://github.com/KonkovDV/RailBreak/issues/3) | открытые находки с приоритетами и предложенными правками |
@@ -81,7 +81,7 @@ Job `ros` гейтит merge: `continue-on-error` снят, `source setup.bash` 
 | № | Критерий (п. 10.7) | Что есть в репозитории |
 | :-: | :--- | :--- |
 | 1 | Соответствие задаче | Модель привода $F(v)$, пакет ROS 2, в фильтре нет подписок на GNSS/IMU/лидар/камеры (`tools/eval/no_gnss_scan.py`). `/tram/fix` — проекция пути со статусом `STATUS_NO_FIX`. |
-| 2 | Работоспособность MVP | Ядро собирается без ROS; `ctest` — **четыре** цели (`test_core`, `test_integrity_contracts`, `test_ut_weights_psd`, `test_ut_weights_header`), скрипты `tools/eval` и `tools/synth`, Docker, `replay_ukf`. CI: [ci.yml](.github/workflows/ci.yml) — `python`, `cpp` (Release + e2e), `asan` (ASan/UBSan на **всех четырёх** целях) зелёные; `ros` (colcon + четыре ament-gtest сюиты) гейтит merge, `source setup.bash` без `set -u`. |
+| 2 | Работоспособность MVP | Ядро собирается без ROS; `ctest` — **пять** целей (`test_core`, `test_integrity_contracts`, `test_ut_weights_psd`, `test_ut_weights_header`, `test_prior_and_nis`), скрипты `tools/eval` и `tools/synth`, Docker, `replay_ukf`. CI: [ci.yml](.github/workflows/ci.yml) — `python`, `cpp` (Release + e2e), `asan` (ASan/UBSan на **всех пяти** целях) зелёные; `ros` (colcon + четыре ament-gtest сюиты) гейтит merge, `source setup.bash` без `set -u`. |
 | 3 | Техническая реализуемость | На машине этого прогона Release-медиана шага `replay_ukf` ≈ 10 мкс (не стенд заказчика). Состояние фиксированного размера $L=12$. GPU не требуется. |
 | 4 | Качество архитектуры | Ядро отделено от ROS. Вход: QoS `best_effort`; выход одометрии: `reliable`. Сторож 50 Гц. Чекер `check_envelope.py` не импортирует UKF. Контракт входа проверяется в ядре, а не только в узле (защита в глубину). Шкалы времени измерений и узла разделены (`F-17b`, см. ниже). |
 | 5 | Качество алгоритма | Scaled UKF, $\\alpha=0.58$: окно $W_c^{(0)}\\ge 0$ при $\\beta=2$ — $\\alpha\\in[0.5176,\\,1.9319]$, достаточное Luo–Moroz — $0.5774$. Запасы посчитаны точно: $+0.459\\,\\%$ над Luo–Moroz и $+12.047\\,\\%$ над истинной границей; совместный предикат $(\\alpha,\\beta,\\kappa)$ вынесен в `ut_weights.hpp` и закреплён двумя независимыми тестами. Кинематический $Q$ пары $(s,v)$ сверен с интегралом Ван Лоана (невязка $1.06\\cdot10^{-22}$). Huber на $S_{ii}$, крип по EN 15595, интегратор $D$. |
@@ -141,7 +141,7 @@ flowchart TD
 
 ---
 
-## Контракты целостности ядра (0.0.8)
+## Контракты целостности ядра (0.0.9)
 
 Шесть из них появились после триажа: до 0.0.7 фильтр мог принять чужое
 свидетельство за своё или оставить в состоянии результат неудачного шага.
@@ -516,7 +516,7 @@ $\\lvert s-s_{\\mathrm{stop}}\\rvert\\le 40$ м, если карта остан�
 ## Что измерено
 
 Организаторский rosbag2 ещё не выдан (окно кода 25–27.09.2026).
-Цифры ниже — **синтетический близнец**, seed 42, ядро `tramDR-0.0.8`. Канон:
+Цифры ниже — **синтетический близнец**, seed 42, ядро `tramDR-0.0.9`. Канон:
 [`docs/metrics.md`](docs/metrics.md). Архив 0.0.6:
 [`evidence/synth-2026-09-04/`](evidence/synth-2026-09-04/). Графики:
 [`evidence/plots-pitch/`](evidence/plots-pitch/) могут отставать на один пакет.
@@ -541,18 +541,18 @@ UKF здесь выигрывает статусом, не метрами.
 | `six_axle` | Витязь-М, 6 каналов | 0 | — |
 | `model_mismatch` | Дэвис ×1.3, тяга ×0.7 | 0 | — |
 | `mismatch_jerk` | рывок, ложный латч не должен сработать | 0 | — |
-| `slide_brake` | юз при тормозе, μ = 0.06 | 0 | 1.98 м |
-| `slip_accel` | пробуксовка | 0 | 0.11 м |
-| `snow_ice` | ступеньки μ, циклы WSP | 0 | 0.11 м |
-| `slide_on_grade` | юз + уклон 1:56 | 0 | 2.09 м |
-| `mismatch_jerk_slip` | рывок + юз | 0 | 0.07 м |
+| `slide_brake` | юз при тормозе, μ = 0.06 | 0 | 0.14 м |
+| `slip_accel` | пробуксовка | 0 | 0.03 м |
+| `snow_ice` | ступеньки μ, циклы WSP | 0 | 0.03 м |
+| `slide_on_grade` | юз + уклон 1:56 | 0 | 0.14 м |
+| `mismatch_jerk_slip` | рывок + юз | 0 | 0.39 м |
 | `diameter_wear` | износ, оси согласны | 0 | RMSE ≈ naive |
 | `mismatch_r0` | все диаметры ×0.88 | **0.515** | остаётся `OK` |
 | `all_encoders_dead` | NaN на всех $\\omega$ после 8 с | 0 | LOST в ядре |
 | `coast_grade_route10` | выбег, оценка 32 ‰, 50 с | 0 | $F_{\\mathrm{bias}}$ съел рампу |
-| `slide_on_grade_route10` | тормоз на спуске 32 ‰ | 0 | 1.98 м |
-| `slide_on_grade_route10_steep` | то же, 40 ‰ | 0 | 1.98 м |
-| `grade_traction_route10` | пробуксовка на подъёме | 0 | 0.11 м |
+| `slide_on_grade_route10` | тормоз на спуске 32 ‰ | 0 | 0.14 м |
+| `slide_on_grade_route10_steep` | то же, 40 ‰ | 0 | 0.14 м |
+| `grade_traction_route10` | пробуксовка на подъёме | 0 | 0.03 м |
 
 **22 из 23** сценариев в таблице — HMI-rate 0. Двадцать третий
 (`mismatch_r0`) оставлен как предел наблюдаемости. Канонное число для него —
@@ -583,7 +583,7 @@ python tools/eval/run_e2e.py --ukf standalone/build/replay_ukf
 python tools/synth/score.py
 ```
 
-`ctest` гоняет **четыре** цели:
+`ctest` гоняет **пять** целей:
 
 | Цель | Что проверяет |
 | :--- | :--- |
@@ -591,19 +591,20 @@ python tools/synth/score.py
 | `test_integrity_contracts` | 15 контрактов целостности |
 | `test_ut_weights_psd` | 25 проверок алгебры Scaled UT; собирается **без ядра и без его заголовков** |
 | `test_ut_weights_header` | сверка поставляемого `ut_weights.hpp` с той же алгеброй, сетка 28 000 точек |
+| `test_prior_and_nis` | Gauss–Markov априор массы и насыщение Huber-NIS; header-only |
 
-Последние две — независимые половины одной проверки: первая выводит окно
-$\\alpha$ с нуля, вторая сверяет с ним заголовок, который реально включается в
-сборку.
+Последние три — независимые половины одной проверки: первые две выводят окно
+$\\alpha$ с нуля и сверяют с ним заголовок; третья закрепляет F-34/F-35 без
+линковки ядра.
 
-Те же четыре цели под санитайзерами — как в CI-job `asan`:
+Те же пять целей под санитайзерами — как в CI-job `asan`:
 
 ```bash
 cmake -S standalone -B standalone/build-asan -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
 cmake --build standalone/build-asan \
   --target test_core test_integrity_contracts test_ut_weights_psd \
-           test_ut_weights_header --parallel
+           test_ut_weights_header test_prior_and_nis --parallel
 ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
   ./standalone/build-asan/test_integrity_contracts
 ```
@@ -653,7 +654,7 @@ python tools/eval/run_bag.py data/bags/run01 \
 | `tram_dr_localization/src/nodes/` | оценщик, адаптер топиков, проектор, монитор |
 | `tram_dr_localization/include/` | `lin_alg.hpp`, `ut_weights.hpp`, `plant.hpp`, `sca.hpp`, `ukf.hpp`, `types.hpp`, … |
 | `tram_dr_localization/config/` | `vehicle_lvenok_moscow.yaml` (default), Combino, Витязь, `route_10.yaml` |
-| `standalone/` | `replay_ukf`, `test_core`, `test_integrity_contracts`, `test_ut_weights_psd`, `test_ut_weights_header` |
+| `standalone/` | `replay_ukf`, `test_core`, `test_integrity_contracts`, `test_ut_weights_psd`, `test_ut_weights_header`, `test_prior_and_nis` |
 | `tools/eval/` | чекер, bag, `identify_*`, `no_gnss_scan.py` |
 | `tools/synth/` | генератор 19+4 сценариев |
 | `docs/` | канон [`brief.md`](docs/brief.md), модель, архитектура, метрики, питч, ссылки, [`verification.md`](docs/verification.md), [`review/`](docs/review/), [`audit-2026-09-06.md`](docs/audit-2026-09-06.md) |

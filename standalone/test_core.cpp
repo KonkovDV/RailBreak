@@ -685,6 +685,10 @@ int main() {
     expect(std::isfinite(e.x.v_mps), "huber slide v finite");
     expect(e.x.v_mps > 2.0, "huber slide does not collapse v to r omega");
     expect(e.b_s_m > 0.1, "b_s uses |v| Td");
+    // All-zero packet at speed is observe_rest_packet, not update_wheels, so
+    // n_huber_capped stays 0. DEGRADED must still fire (channel-A kappa).
+    expect(e.confidence != tram_dr::Confidence::kOk,
+           "locked slide is not silent OK after kappa_hold");
   }
   {
     const char* y =
@@ -981,6 +985,12 @@ int main() {
     }
     expect(e.chol_fail == 0, "mass prior 80 s chol");
     expect(e.x.m_eff_kg > 15000.0 && e.x.m_eff_kg < 50000.0, "mass stayed in clip");
+    // Stationary variance of the Gauss–Markov prior is R=0.09. The defective
+    // once-per-second fusion pinned P_mm at 8.61e-04 (σ=0.0293).
+    // τ=300 s: after 80 s the gap to R=0.09 has only shrunk by ~41%.
+    // Init P_mm=(2000/m0)²≈5e-3, so P≈0.04 — still ≫ the 8.61e-04 pin.
+    expect(e.p_mm > 0.02 && e.p_mm < 0.12, "mass prior growing toward R=0.09");
+    expect(e.p_mm > 10.0 * 8.61e-04, "mass prior is not the repeated-update pin");
   }
   {
     double lat = 0, lon = 0;

@@ -10,7 +10,7 @@
 Беспилот маршрута 10 ≠ автономный ход маршрута 90. Публичный парк в целом —
 71-931М «Витязь-М»; 6-осевой беспилот «Витязь-Москва» в тесте —
 `vehicle_vityaz_m.yaml` (тара 37 т). Клип массы twin/Витязь: $[20,70]$ т.
-Версия ядра: **`tramDR-0.0.8`**. Что изменилось относительно 0.0.7 и чем
+Версия ядра: **`tramDR-0.0.9`**. Что изменилось относительно 0.0.8 и чем
 закреплено — [`../CHANGELOG.md`](../CHANGELOG.md); граница проверенного
 (что исполнялось численно, а что только выведено) — [`verification.md`](verification.md).
 
@@ -491,7 +491,7 @@ $PL_s=k_{\mathrm{over}}\sqrt{P_{ss}}+b_s$ (`over_m`). Чекер детекти�
 | $a_{\mathrm{svc}}\leftrightarrow\hat\mu$, разрыв Дэвиса, уклоны, пол $\kappa$ | арифметика; числа приведены выше по тексту |
 | контракты стоянки, свежести, входа, атомарности, live-only $\omega$, $\omega$-only ZUPT | `standalone/test_integrity_contracts.cpp` |
 | фикстура `zupt off stop` после правки `F-12` | `ctest` Release, цель `test_core` |
-| e2e HMI/RMSE на ядре 0.0.8 | `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` |
+| e2e HMI/RMSE на ядре 0.0.9 | `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` |
 | поведение узлов ROS 2 | код узла исправлен (`F-17`); job `ros` гейтит, `source setup.bash` больше не под `set -u` |
 
 Открытые пункты: письменное согласие на публикацию (пп. 14.4–14.6) —

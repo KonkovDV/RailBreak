@@ -1,6 +1,6 @@
 # Архитектура
 
-Продукт: **tramDR** (`tramDR-0.0.8`). Пакет ROS 2 Humble: `tram_dr_localization`.
+Продукт: **tramDR** (`tramDR-0.0.9`). Пакет ROS 2 Humble: `tram_dr_localization`.
 Ядро `libtram_dr` — C++17 без `rclcpp` (сборка и тесты через `standalone/`).
 История изменений и открытые пункты — [`../CHANGELOG.md`](../CHANGELOG.md);
 граница проверенного — [`verification.md`](verification.md).
@@ -35,7 +35,7 @@ $a_{\max}$, $P_{\max}$, Ø Львёнка и Витязя **не** паспор�
 Лидар / NavSatFix / одометрия ЦБТ в bag — GT оффлайн (`identify_*`, чекер),
 никогда подписка оценщика.
 
-## Контракты ядра (0.0.8)
+## Контракты ядра (0.0.9)
 
 Это не «проверки на всякий случай», а граница ответственности между узлом и
 фильтром. Каждая строка закреплена тестом, а не комментарием.
@@ -61,9 +61,9 @@ ctest --test-dir standalone/build --output-on-failure
 ```
 
 Цели `standalone/`: `test_core`, `test_integrity_contracts`,
-`test_ut_weights_psd`, `test_ut_weights_header`, `replay_ukf`. Все четыре
-тестовые цели зарегистрированы в `ctest` и все четыре собираются под
-ASan/UBSan в CI. `-ffast-math` запрещён.
+`test_ut_weights_psd`, `test_ut_weights_header`, `test_prior_and_nis`,
+`replay_ukf`. Все пять тестовых целей зарегистрированы в `ctest` и все пять
+собираются под ASan/UBSan в CI. `-ffast-math` запрещён.
 
 ## Исполнение
 

@@ -550,9 +550,15 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   // Denominator floor 1 m/s: relative wheel slide κ=(v_wh−v)/v is degenerate near
   // standstill (a 0.14 m/s stop transient reads as 100% slide). Below the
   // floor, standstill logic (ZUPT) owns the estimate, not the slip detector.
-  const double r_par = v_wh - v_body;
-  const double kappa = r_par / std::max(std::fabs(v_body), 1.0);
-  relative_wheel_slide_ = kappa;
+  //
+  // Published κ is vs the UKF body. Common-mode latch is vs channel A: a
+  // Gauss–Markov mass prior keeps P_mm at 0.09 instead of the old pin
+  // 8.6e-04, so the wheel update can drag v̂ toward a locked axle and hide
+  // |v_wh−v̂|. Channel A is plant-only and is not updated by ω.
+  relative_wheel_slide_ = (v_wh - v_body) / std::max(std::fabs(v_body), 1.0);
+  const double v_ref = have_v_chan_a_ ? v_chan_a_ : v_body;
+  const double r_par = v_wh - v_ref;
+  const double kappa = r_par / std::max(std::fabs(v_ref), 1.0);
   const bool slide_large = std::fabs(kappa) > cfg_.kappa_cut;
   const bool coast_quiet = std::fabs(last_u_.notch) < 0.05 && last_u_.brake < 0.15;
   const bool traction = last_u_.notch > 0.05;

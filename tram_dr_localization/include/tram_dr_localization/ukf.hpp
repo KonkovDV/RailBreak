@@ -86,8 +86,8 @@ struct UkfParams {
   // (±822 kg) against a declared ±12500 kg load range. Treated instead as a
   // Gauss–Markov process, φ=exp(−dt/τ), whose stationary variance is exactly
   // mass_prior_log_sigma². τ is the stop-to-stop scale: mass steps at the
-  // doors and is near-constant on a leg. 0 = revert to the plain update.
-  // See docs/estimator-priors.md §1.
+  // doors and is near-constant on a leg. 0 = instant reversion (x=z, P=R),
+  // not the old once-per-second Kalman update. See docs/estimator-priors.md §1.
   double mass_prior_tau_s{300.0};
   // F_bias random-walk rate (N/√s) when wheels agree. σ_5s ≈ rate√5.
   double q_fb_wheels_n{3000.0};

@@ -3,7 +3,7 @@
 Файл отвечает на единственный вопрос, который обычно задаёт жюри и почти
 никогда не задаёт автор: **что здесь измерено, а что заявлено.**
 
-Состояние: 06.09.2026, ядро `tramDR-0.0.8`.
+Состояние: 07.09.2026, ядро `tramDR-0.0.9`.
 Открытые пункты — issue [#3](https://github.com/KonkovDV/RailBreak/issues/3).
 Что именно изменилось — [`../CHANGELOG.md`](../CHANGELOG.md).
 
@@ -38,7 +38,9 @@
 | Сборка `Dockerfile` / `docker compose` | **N** | не запускалась |
 | Секрет-скан репозитория | **N** | не выполнен |
 | Текст Положения хакатона (пп. 7.6 / 8.7 / 10.7 / 14.2.2) | **N** | файл Положения не открылся; нумерация взята из публичного описания и **подлежит сверке с подписанным PDF** до сдачи |
-| Пересчёт метрик на ядре 0.0.8 | **E** | `docs/metrics.md` снят на `tramDR-0.0.8`, seed 42; графики `evidence/plots-pitch/` пересобраны |
+| Пересчёт метрик на ядре 0.0.9 | **E** | `docs/metrics.md` снят на `tramDR-0.0.9`, seed 42; графики `evidence/plots-pitch/` пересобраны. `ctest` 5/5, `test_eval` 88/88, e2e HMI 0 на 17/18 |
+| Gauss–Markov априор массы и pre-Huber NIS (`F-34`/`F-35`) | **E** | `test_prior_and_nis`; `test_core` $P_{mm}$ после 80 с |
+| Common-mode $\kappa$ против канала A (`F-36`) | **E** | `test_core` locked slide не OK; e2e `slide_brake` 404 OK, HMI 0 |
 
 ## 3. Как повторить
 
@@ -53,7 +55,7 @@ cmake -S standalone -B standalone/build-asan -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
 cmake --build standalone/build-asan \
   --target test_core test_integrity_contracts test_ut_weights_psd \
-           test_ut_weights_header --parallel
+           test_ut_weights_header test_prior_and_nis --parallel
 ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
   ./standalone/build-asan/test_integrity_contracts
 

@@ -34,8 +34,8 @@ add_executable(test_ut_weights_psd test_ut_weights_psd.cpp)
 add_executable(test_ut_weights_header test_ut_weights_header.cpp)
 target_include_directories(test_ut_weights_header PRIVATE ${PKG}/include)
 
-# F-23 and F-24 witnesses: the Gauss-Markov (Ornstein-Uhlenbeck) stationary
-# prior that replaces the repeatedly refused mass pseudo-measurement, and the
+# F-34 and F-35 witnesses: the Gauss-Markov (Ornstein-Uhlenbeck) stationary
+# prior that replaces the repeatedly re-fused mass pseudo-measurement, and the
 # saturation of a NIS evaluated against a Huber-inflated S. Header-only like
 # the target above - it includes prior.hpp and links no core sources, so it
 # also runs under the sanitizers.

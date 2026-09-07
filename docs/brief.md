@@ -1,6 +1,6 @@
 # tramDR — канон: физика, наблюдаемость, целостность
 
-Продукт: **tramDR-0.0.8**. Пакет ROS 2 Humble: `tram_dr_localization`.
+Продукт: **tramDR-0.0.9**. Пакет ROS 2 Humble: `tram_dr_localization`.
 Ядро без ROS: C++17 `libtram_dr`. Репозиторий: [KonkovDV/RailBreak](https://github.com/KonkovDV/RailBreak).
 
 Четыре слоя фактов не смешиваются:
