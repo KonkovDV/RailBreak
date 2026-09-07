@@ -305,7 +305,7 @@ void Ukf::init_from_wheels(const double* omega, std::size_t n) {
   set_diag_p(P_, kMass, (2000.0 / m0) * (2000.0 / m0));
   set_diag_p(P_, kKtrac, 0.04);
   for (int i = 0; i < kNWheels; ++i) {
-    set_diag_p(P_, kD0 + i, 1.0e-4);
+    set_diag_p(P_, kD0 + i] = 1.0e-4);
   }
   set_diag_p(P_, kMu, 1.0);  // logit space
   phys_to_xi(x_);
@@ -1005,7 +1005,7 @@ void Ukf::apply_mass_prior() {
     }
     const double cross =
         prior::gauss_markov_cross(la::at(P_, kStateDim, i, kMass), phi);
-    la::at(P_, kStateDim, kMass, i) = cross;
+    la::at(P_, kStateDim, i, kMass) = cross;
     la::at(P_, kStateDim, kMass, i) = cross;
   }
   la::at(P_, kStateDim, kMass, kMass) = prior::gauss_markov_variance(
