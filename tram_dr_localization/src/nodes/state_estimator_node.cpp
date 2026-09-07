@@ -83,6 +83,11 @@ class StateEstimatorNode : public rclcpp::Node {
     cfg.slide_grade_lost_s = declare_parameter("slide_grade_lost_s", 0.4);
     cfg.a_kin_downhill = declare_parameter("a_kin_downhill", 0.05);
     cfg.mass_prior_log_sigma = declare_parameter("mass_prior_log_sigma", 0.3);
+    // F-23: the mass prior is a Gauss-Markov process, not a repeatedly fused
+    // pseudo-measurement, so its time constant is a real knob. Without this
+    // declaration it silently kept the 300 s default and could not be tuned
+    // from config/estimator.yaml like everything else here.
+    cfg.mass_prior_tau_s = declare_parameter("mass_prior_tau_s", 300.0);
     cfg.q_fb_wheels_n = declare_parameter("q_fb_wheels_n", 3000.0);
     cfg.stop_gate_m = declare_parameter("stop_gate_m", 40.0);
     cfg.r0_uncalibrated = declare_parameter("r0_uncalibrated", false);
@@ -101,6 +106,13 @@ class StateEstimatorNode : public rclcpp::Node {
       cfg.stop_s_m[static_cast<std::size_t>(cfg.n_stops++)] = s;
     }
     ukf_.set_params(cfg);
+    // Kept for diagnostics: a protection level published without the k that
+    // produced it has no stated confidence level.
+    k_sigma_ = cfg.k_sigma;
+    k_over_ = cfg.k_over;
+    huber_c_ = cfg.huber_c;
+    mass_prior_log_sigma_ = cfg.mass_prior_log_sigma;
+    mass_prior_tau_s_ = cfg.mass_prior_tau_s;
 
     tram_dr::PlantParams plant = tram_dr::default_plant_params();
     plant.r0_m = declare_parameter("wheel_radius_m", 0.35);
@@ -635,12 +647,65 @@ class StateEstimatorNode : public rclcpp::Node {
     st.values.push_back(kv("pl_s_m", e.s_unbounded ? "unbounded" : std::to_string(e.pl_s_m)));
     st.values.push_back(kv("pl_v_mps", std::to_string(e.pl_v_mps)));
     st.values.push_back(kv("al_s_m", std::to_string(e.al_s_m)));
+    push_integrity_inputs(st, e);
     st.values.push_back(kv("a_kin", std::to_string(e.a_kin_mps2)));
     st.values.push_back(kv("a_unphysical", e.a_unphysical ? "1" : "0"));
     push_time_hygiene(st);
     d.status.push_back(st);
     diag_->publish(d);
     input_fault_ = false;
+  }
+
+  // The terms a protection level is built from, so a reviewer can recompute
+  // it from the topic instead of trusting it.
+  //
+  // PL_s = k_over * sigma_s + b_s, and the integrity risk of that bound is
+  // set by k alone: 2.5 gives 1.24e-02 per epoch, 3.0 gives 2.70e-03, and
+  // about 6.0 is needed for the 2e-9/h order of a SIL-4 THR. Publishing PL
+  // while withholding k asks the reader to trust a bound whose confidence
+  // level is unstated. See docs/integrity-risk.md.
+  void push_integrity_inputs(diagnostic_msgs::msg::DiagnosticStatus& st,
+                             const tram_dr::UkfEstimate& e) const {
+    const double sigma_s = std::sqrt(std::max(e.p_ss, 0.0));
+    const double sigma_v = std::sqrt(std::max(e.p_vv, 0.0));
+    st.values.push_back(kv("k_sigma", std::to_string(k_sigma_)));
+    st.values.push_back(kv("k_over", std::to_string(k_over_)));
+    st.values.push_back(kv("sigma_s_m", std::to_string(sigma_s)));
+    st.values.push_back(kv("sigma_v_mps", std::to_string(sigma_v)));
+    st.values.push_back(kv(
+        "pl_al_ratio",
+        e.s_unbounded ? "unbounded"
+                      : std::to_string(e.pl_s_m / std::max(e.al_s_m, 1e-9))));
+
+    // F-23. p_mm is the variance of log m, so sigma_log_mass is directly the
+    // relative 1-sigma on mass and sigma_mass_kg is the same figure in
+    // kilograms. The repeated-fusion bug pinned this at 0.0293 (+-822 kg at
+    // 28 t) against a declared loading range of +-12500 kg, entirely from
+    // re-using one prior rather than from evidence. On the wire it is a
+    // number an operator can watch; buried in the covariance it was not.
+    const double sigma_log_m = std::sqrt(std::max(e.p_mm, 0.0));
+    st.values.push_back(kv("m_eff_kg", std::to_string(e.x.m_eff_kg)));
+    st.values.push_back(kv("p_mm", std::to_string(e.p_mm)));
+    st.values.push_back(kv("sigma_log_mass", std::to_string(sigma_log_m)));
+    st.values.push_back(kv(
+        "sigma_mass_kg", std::to_string(sigma_log_m * std::max(e.x.m_eff_kg, 0.0))));
+    st.values.push_back(kv("mass_prior_log_sigma", std::to_string(mass_prior_log_sigma_)));
+    st.values.push_back(kv("mass_prior_tau_s", std::to_string(mass_prior_tau_s_)));
+
+    // F-24. n_huber_capped separates "the axles agree" from "the axles were
+    // capped into agreeing". The reported nis is now the pre-inflation
+    // statistic, so a suppressed channel no longer hides inside a value
+    // saturated at huber_c^2.
+    st.values.push_back(kv("n_huber_capped", std::to_string(e.n_huber_capped)));
+    st.values.push_back(kv("huber_c", std::to_string(huber_c_)));
+
+    // The three states that absorb model error. If F_bias is drifting to
+    // explain an unmodelled grade, the mass and adhesion estimates are being
+    // poisoned to pay for it - which is only diagnosable with all three
+    // visible together.
+    st.values.push_back(kv("f_bias_n", std::to_string(e.x.f_bias_n)));
+    st.values.push_back(kv("k_trac", std::to_string(e.x.k_trac)));
+    st.values.push_back(kv("mu_hat", std::to_string(e.x.mu_hat)));
   }
 
   // Everything an operator needs to tell "the filter is fine" apart from
@@ -693,6 +758,13 @@ class StateEstimatorNode : public rclcpp::Node {
   bool twist_is_omega_{false};
   std::string vehicle_profile_{"combino_nf100"};
   bool last_step_used_wheels_{false};
+
+  // --- integrity reporting (published, never used in a decision) ---------
+  double k_sigma_{2.0};
+  double k_over_{2.5};
+  double huber_c_{3.0};
+  double mass_prior_log_sigma_{0.3};
+  double mass_prior_tau_s_{300.0};
 
   // --- time hygiene state (F-17b) ---------------------------------------
   double notch_stale_s_{0.25};
