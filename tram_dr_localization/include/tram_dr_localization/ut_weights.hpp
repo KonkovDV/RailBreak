@@ -80,7 +80,7 @@ inline bool weights_psd_ok(double alpha, double beta, double kappa, int L) {
   if (!std::isfinite(alpha) || !std::isfinite(beta) || !std::isfinite(kappa)) {
     return false;
   }
-  if (L <= 0 || beta < 0.0) {
+  if (L <= 0 || alpha <= 0.0 || beta < 0.0) {
     return false;
   }
   const Weights w = weights(alpha, beta, kappa, L);
@@ -101,21 +101,21 @@ inline bool alpha_window(double beta, double* lo, double* hi) {
   if (!lo || !hi || !std::isfinite(beta) || beta < 0.0) {
     return false;
   }
-  const double b = 2.0 + beta;
-  const double disc = b * b - 4.0;  // = beta * (beta + 4) >= 0 for beta >= 0
-  if (!(disc >= 0.0)) {
-    return false;
-  }
-  const double root = std::sqrt(disc);
-  *lo = std::sqrt(0.5 * (b - root));
-  *hi = std::sqrt(0.5 * (b + root));
+  // Solve alpha - 1/alpha = sqrt(beta) for the upper endpoint.
+  // The quadratic in alpha^2 subtracts nearly equal numbers for the lower
+  // endpoint and squares beta (overflow). This equivalent form does neither.
+  // Half each square root before adding; endpoints stay finite even at DBL_MAX.
+  const double upper = 0.5 * std::sqrt(beta) + 0.5 * std::sqrt(beta + 4.0);
+  const double lower = 1.0 / upper;  // the two positive roots are reciprocal
+  *lo = lower;
+  *hi = upper;
   return true;
 }
 
-// Luo-Moroz sufficient lower bound. For alpha in [1/sqrt(1+beta), 1] the
-// weight simplifies to W_c0 = beta / (1 + beta) >= 0, so admissibility holds
-// without solving the quadratic. Sufficient, not necessary: the true window
-// extends below this bound.
+// Sufficient lower bound at kappa=0 and beta>=0, with alpha also <=1.
+// At the LOWER ENDPOINT W_c0 = beta / (1 + beta); across the interval W_c0
+// is nonnegative, not constant. This is not a necessary PSD condition and
+// is not a one-sided admissibility test for arbitrary alpha or kappa.
 inline double sufficient_alpha_lower(double beta) {
   if (!std::isfinite(beta) || beta < 0.0) {
     return std::nan("");

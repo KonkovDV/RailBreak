@@ -42,6 +42,10 @@ target_include_directories(test_ut_weights_header PRIVATE ${PKG}/include)
 add_executable(test_prior_and_nis test_prior_and_nis.cpp)
 target_include_directories(test_prior_and_nis PRIVATE ${PKG}/include)
 
+# Numerical edge contracts, including an independent long-double LDL check.
+add_executable(test_numerical_edges test_numerical_edges.cpp)
+target_include_directories(test_numerical_edges PRIVATE ${PKG}/include)
+
 add_executable(replay_ukf replay_ukf.cpp ${TRAM_DR_CORE_SRC})
 target_include_directories(replay_ukf PRIVATE ${PKG}/include)
 
@@ -51,6 +55,7 @@ add_test(NAME test_integrity_contracts COMMAND test_integrity_contracts)
 add_test(NAME test_ut_weights_psd COMMAND test_ut_weights_psd)
 add_test(NAME test_ut_weights_header COMMAND test_ut_weights_header)
 add_test(NAME test_prior_and_nis COMMAND test_prior_and_nis)
+add_test(NAME test_numerical_edges COMMAND test_numerical_edges)
 
 if(MSVC)
   set(_tram_dr_warn /W4)
@@ -62,4 +67,5 @@ target_compile_options(test_integrity_contracts PRIVATE ${_tram_dr_warn})
 target_compile_options(test_ut_weights_psd PRIVATE ${_tram_dr_warn})
 target_compile_options(test_ut_weights_header PRIVATE ${_tram_dr_warn})
 target_compile_options(test_prior_and_nis PRIVATE ${_tram_dr_warn})
+target_compile_options(test_numerical_edges PRIVATE ${_tram_dr_warn})
 target_compile_options(replay_ukf PRIVATE ${_tram_dr_warn})

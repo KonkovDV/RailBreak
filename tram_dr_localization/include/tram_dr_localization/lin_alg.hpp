@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace tram_dr {
 namespace la {
@@ -183,7 +184,11 @@ inline void symmetrize(double* A, int n) {
 // leaves A byte-for-byte unchanged, when:
 //   * the arguments are invalid (null A, n out of range, non-positive floor);
 //   * any entry of A is NaN or +/-Inf on entry;
-//   * the Jacobi reconstruction produced a non-finite entry.
+//   * the Jacobi reconstruction produced a non-finite entry;
+//   * the reconstructed matrix could not be verified above the floor.
+// Repaired eigenvalues include a scale-aware rounding margin above the floor:
+// clipping exactly to it makes A - lam_floor*I singular, so a strict final
+// Cholesky would reject even the repair of a zero or diagonal matrix.
 //
 // A is deliberately NOT sanitized on failure. Overwriting a poisoned
 // covariance with a large finite diagonal - the obvious "fail safe" choice -
@@ -272,9 +277,25 @@ inline void symmetrize(double* A, int n) {
       residual_bound = std::max(residual_bound, row);
     }
   }
+  // Leave room for reconstruction roundoff. A value clipped exactly to
+  // lam_floor fails the strict chol(A - lam_floor I) contract below even
+  // for n=1. The margin scales with spectrum and dimension, not a fixed
+  // unit-dependent diagonal bump; already-healthy matrices returned above.
+  double spectral_scale = lam_floor;
+  for (int i = 0; i < n; ++i) {
+    spectral_scale = std::max(spectral_scale,
+                             std::fabs(at(A, n, i, i)) + residual_bound);
+  }
+  const double margin = 16.0 * n * std::numeric_limits<double>::epsilon() * spectral_scale;
+  const double repair_floor = std::nextafter(
+      lam_floor + margin, std::numeric_limits<double>::infinity());
+  if (!std::isfinite(repair_floor)) {
+    copy(orig, A, n * n);
+    return false;
+  }
   double lam[kCap];
   for (int i = 0; i < n; ++i) {
-    lam[i] = std::max(at(A, n, i, i) + residual_bound, lam_floor);
+    lam[i] = std::max(at(A, n, i, i) + residual_bound, repair_floor);
   }
   double tmp[kCap * kCap];
   for (int i = 0; i < n; ++i) {
