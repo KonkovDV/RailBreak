@@ -10,8 +10,10 @@
 | --- | --- | --- |
 | Julier 2002 (scaled UT); Luo & Moroz 2009 (PSD) | `ukf.cpp` $\alpha=0.58$ | необходимое $W_c^{(0)}\ge 0$ даёт окно $\alpha\in[0.517638,\,1.931852]$ при $\beta=2$ и **не зависит от $L$** ($\beta=1$: $[0.618034,\,1.618034]$; $\beta=0$: ровно $\{1\}$); достаточное $1/\sqrt{1+\beta}=0.577350$, выбранное 0.58 — запас $+0.459\,\%$ |
 | Arasaratnam & Haykin, IEEE TSP 2009 | `UkfParams.cubature` | 2L точек; по умолчанию выкл. |
-| Higham (PD) | `lin_alg.hpp` `project_pd` | Якоби + клип $\lambda$; это не square-root UKF. Измеренное возмущение до правки: $\max\lvert\Delta P\rvert=0.109701$ на плотной SPD $12\times12$, $2.39\cdot10^{-7}$ на реалистичной $P$ ($\mathrm{cond}\approx 2\cdot10^{10}$); после правки — no-op на PD-входе |
+| Higham (PD) | `lin_alg.hpp` `project_pd` | Якоби + клип $\lambda$; это не square-root UKF. Почему downdate здесь не нужен — [`estimator-priors.md`](estimator-priors.md) §3. Измеренное возмущение до правки: $\max\lvert\Delta P\rvert=0.109701$ на плотной SPD $12\times12$, $2.39\cdot10^{-7}$ на реалистичной $P$ ($\mathrm{cond}\approx 2\cdot10^{10}$); после правки — no-op на PD-входе |
+| Kulikova & Kulikov, IFAC 2020; обзор arXiv:2406.05188 | отсутствие SR-фильтра | «previously suggested Cholesky-based UKF implementations are, in fact, the *pseudo* square-root versions… the resulting downdated matrix might be not a positive definite matrix». Возражение про **downdate**; при всех $W_c>0$ downdate не возникает, поэтому обычный UKF защитим. https://ifatwww.et.uni-magdeburg.de/ifac2020/media/pdfs/0536.pdf |
 | Bar-Shalom, Li, Kirubarajan 2001 | `score.py` NEES | полосы консистентности; информативны на mismatch, не на twin |
+| Or, arXiv:2512.18508 (2025) | докладываемый `nis` | после гейта/капа невязка распределена как **усечённый** $\chi^2$, а не $\chi^2_m$ — общая форма находки F-24. https://arxiv.org/pdf/2512.18508 |
 | Willsky & Jones 1976; Isermann 2006 | детектор $\kappa$ | рамка parity / GLR; в коде — hold + знак остатка, не полный GLR |
 | Palmer & Nourani-Vatani, IROS 2018 | SCA inflate | inflate $R$, не hard-delete |
 | Malvezzi, Allotta, Rinchi, VSD 2011; Allotta et al. 2002 | питч | второй принцип в ATP-одометрии; калибровка на выбеге |
@@ -19,6 +21,8 @@
 | Hasberg, Hensel, Stiller 2012 | питч | path-constrained; 1D-многообразие |
 | Brocard et al. 2020 | после bag | карта как априори, не сенсор |
 | Kim et al. 2015 | питч (контраст) | slip/slide + adaptive sharing **с IMU**; tramDR — без IMU, потолок модели |
+| UNISIG SUBSET-041 v3.2.0 | `al_s_m` | $\mathrm{AL}_s = 5 + 0.05\,s$ — **ровно** конверт одометрии ETCS $\pm(5\,\text{м} + 5\,\%\cdot s)$; там же «shall evaluate a safe confidence interval» при неисправности. Допуск взят из документа, а не назначен. https://www.era.europa.eu/system/files/2023-01/sos3_index014_-_subset-041_v320.pdf |
+| ION, «Autonomous Integrity Monitoring Proposal for Critical Rail Applications» | `k_over`, `k_sigma` | THR SIL-4 $\le 2\cdot10^{-9}$/ч на систему сигнализации, доля на GNSS до $10^{-11}$/ч. Отсюда $k$ — **аллокация риска**, а не настройка: [`integrity-risk.md`](integrity-risk.md). https://www.ion.org/publications/abstract.cfm?articleID=12944 |
 | Combino NF100, ITSC 2020 | `vehicle_combino_nf100.yaml` | twin: тара 28 т, $a_{\mathrm{trac}}=1.3$; не московский вагон |
 | 71-911ЕМ Львёнок-Москва | `vehicle_lvenok_moscow.yaml` | Bo-Bo, все motor. $m_0$/Ø не в YAML: Википедия 22 т (семейство); каталог-копия ≤24 т / Ø 620 мм; TransPhoto ЕМ-03 25.2 т, 4×72 кВт. Клип [15, 40] т |
 | ПК ТС, лист «Львёнок» | https://pk-ts.org/produkciya/l-venok/ | офиц. таблица: 16700×2500 мм, 40 мест, 101–161 чел.; **тары, кВт, Ø нет** |
@@ -53,6 +57,9 @@
 | --- | --- |
 | [`../standalone/test_ut_weights_psd.cpp`](../standalone/test_ut_weights_psd.cpp) | 25 проверок алгебры весов scaled UT (строка Julier / Luo–Moroz); ядро не линкуется, поэтому тест независим от фильтра |
 | [`../standalone/test_integrity_contracts.cpp`](../standalone/test_integrity_contracts.cpp) | 15 контрактов целостности: свидетельство стоянки, свежесть во времени, контракт входа, атомарный откат |
+| [`../standalone/test_prior_and_nis.cpp`](../standalone/test_prior_and_nis.cpp) | F-23 и F-24 численно: неподвижная точка дефектной рекуррента (закрытая форма **и** итерация), точное тождество сжатия $P_{k+1}-R=\varphi^2(P_k-R)$, предел разрешения реверсии среднего, насыщение NIS на $c^2$ |
+| [`integrity-risk.md`](integrity-risk.md) | бюджет целостности: $k \leftrightarrow$ риск, происхождение AL, связующий перегон маршрута 10 |
+| [`estimator-priors.md`](estimator-priors.md) | алгебра F-23/F-24 и доказательство, почему обычный UKF здесь допустим |
 | [`verification.md`](verification.md) | что исполнялось численно, что выведено, что осталось руками |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | реестр находок `F-01`…`F-17` и их статус |
 | [`review/external-triage-2026-09-06.md`](review/external-triage-2026-09-06.md) | внешний триаж: исходные формулировки находок |
