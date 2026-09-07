@@ -97,13 +97,16 @@ bool load_csv(const char* path, std::vector<Row>& rows, bool legacy) {
   if (!std::getline(in, line)) {
     return false;
   }
+  if (!line.empty() && line.back() == '\r') {
+    line.pop_back();
+  }
   const std::vector<std::string> header = split_csv(line);
   int col_t = -1;
   int col_notch = -1;
   int col_brake = -1;
   std::vector<int> wcols;
   for (int i = 0; i < static_cast<int>(header.size()); ++i) {
-    const std::string& h = header[static_cast<std::size_t>(i)];
+    const std::string h = trim_csv(header[static_cast<std::size_t>(i)]);
     if (h == "t_s" || h == "t") {
       col_t = i;
     } else if (h == "notch") {
@@ -141,6 +144,9 @@ bool load_csv(const char* path, std::vector<Row>& rows, bool legacy) {
     col_brake = -1;
   }
   while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
     if (line.empty()) {
       continue;
     }

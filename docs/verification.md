@@ -4,8 +4,8 @@
 никогда не задаёт автор: **что здесь измерено, а что заявлено.**
 
 Состояние: 07.09.2026, ядро `tramDR-0.0.10`.
-Открытые пункты — issue [#3](https://github.com/KonkovDV/RailBreak/issues/3).
-Что именно изменилось — [`../CHANGELOG.md`](../CHANGELOG.md).
+Открытое руками: пп. 14.4–14.6, bag организатора 25.09, сверка PDF Положения.
+Что изменилось — [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ## 1. Три уровня доверия
 
@@ -34,11 +34,11 @@
 | Атомарный откат в `predict_and_update` | **R** | снимок `const Ukf previous = *this` → проверка конечности → `la::chol(P_, …, 1e-12)` → при отказе `*this = previous; ++chol_fail_; return reject()` |
 | Фикстура `zupt off stop` (`F-12`) | **E** | `ctest` Release, цель `test_core` |
 | Четыре узла ROS 2 (`state_estimator`, `topic_adapter`, `map_projector`, `fault_monitor`) | **E** | job `ros` зелёный: [run 34057677488](https://github.com/KonkovDV/RailBreak/actions/runs/34057677488) (`colcon build` + ament gtest) |
-| `tools/eval/test_eval.py`, `tools/synth/test_generate.py` | **E** | локально 07.09.2026: `test_eval` **98/98** (в т.ч. `RT10-01` duplicate-stamp); `test_generate` 21 |
+| `tools/eval/test_eval.py`, `tools/synth/test_generate.py` | **E** | 07.09.2026: `test_eval` (в т.ч. duplicate-stamp и CRLF CSV); `test_generate` 21 |
 | Сборка `Dockerfile` / `docker compose` | **N** | не запускалась |
 | Секрет-скан репозитория | **N** | не выполнен |
 | Текст Положения хакатона (пп. 7.6 / 8.7 / 10.7 / 14.2.2) | **N** | файл Положения не открылся; нумерация взята из публичного описания и **подлежит сверке с подписанным PDF** до сдачи |
-| Пересчёт метрик на ядре 0.0.10 | **E** | `docs/metrics.md` снят на `tramDR-0.0.10`, seed 42; графики `evidence/plots-pitch/` пересобраны. e2e HMI 0 на 17/18. После `RT10-01` e2e не переснимали: synth монотонен |
+| Пересчёт метрик на ядре 0.0.10 | **E** | `docs/metrics.md` снят на `tramDR-0.0.10`, seed 42; графики `evidence/plots-pitch/` с того же прогона. e2e HMI 0 на 17/18 близнеца. `RT10-05` чинит разбор CSV, не фильтр |
 | Red Team 07.09.2026 (`RT10-*`) | **R** + **E** | [`docs/review/redteam-2026-09-07.md`](review/redteam-2026-09-07.md); `RT10-01` закрыт тестом duplicate-stamp |
 | Gauss–Markov априор массы и pre-Huber NIS (`F-34`/`F-35`) | **E** | `test_prior_and_nis`; `test_core` $P_{mm}$ после 80 с |
 | Common-mode $\kappa$ против канала A (`F-36`) | **E** | `test_core` locked slide не OK; e2e `slide_brake` 404 OK, HMI 0 |
@@ -131,7 +131,7 @@ $Q_{vv}=q_v\Delta t$. Это точная дискретизация Ван Ло
 
 Всё в §4 — синтетика и алгебра. Ни одно число не снято с вагона, с записи
 организатора и со стенда заказчика. Медиана шага `replay_ukf` $\approx10$ мкс
-измерена на машине этого прогона, а не на целевом контроллере. Конверт $5$ м $+5$ %
+снята на машине разработчика, не на целевом контроллере. Конверт $5$ м $+5$ %
 — калибровочная линия против GT, не пункт сертификации.
 
 ## 5. Что осталось сделать руками

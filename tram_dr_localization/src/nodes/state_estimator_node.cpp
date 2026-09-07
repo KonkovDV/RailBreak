@@ -785,7 +785,7 @@ class StateEstimatorNode : public rclcpp::Node {
   double dt_max_s_{0.20};
   double stamp_regression_tol_s_{0.001};
   double stamp_skew_warn_s_{5.0};
-  int max_catchup_steps_{100};
+  int max_catchup_steps_{18000};
   // Measurement-timebase anchor: only ever differenced against header stamps.
   std::optional<rclcpp::Time> last_meas_stamp_;
   // Node-clock anchor: only ever differenced against now().

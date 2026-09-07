@@ -23,39 +23,28 @@
 
 ---
 
-## Состояние решения на 06.09.2026
+## Состояние на 07.09.2026
 
-Ядро прошло **два** внешних прохода в режиме Red Team / WhiteHat.
+Сдаваемое ядро — `tramDR-0.0.10`.
 
-* Первый проход — 17 находок (`F-01…F-17`), 12 закрыто.
-* Второй проход ([PR #4](https://github.com/KonkovDV/RailBreak/pull/4),
-  06.09.2026) перепроверил алгебру и физику независимо, закрыл `F-09`,
-  `F-17`, `F-17b` и `F-20`, подтвердил, что `F-11` и `F-14` уже закрыты на
-  `main`, и открыл семь новых пунктов (`A…G`). После слияния на `main`
-  дописана вторая половина `F-08` (`validate_ukf` вызывает `weights_psd_ok`)
-  и вызовы `project_pd` учитывают `bool`.
-
-Если вы жюри — четыре документа стоит открыть раньше остальных:
+Если вы жюри — эти четыре файла раньше остальных:
 
 | Документ | Что внутри |
 | :--- | :--- |
-| [`CHANGELOG.md`](CHANGELOG.md) | что изменилось в `tramDR-0.0.10`, каким контрактом закреплено, что осталось открытым |
-| [`docs/verification.md`](docs/verification.md) | граница проверенного: что исполнялось численно, что прочитано построчно, что не запускалось вообще |
-| [`docs/review/external-redteam-2026-09-06.md`](docs/review/external-redteam-2026-09-06.md) | второй внешний проход: что перепроверено численно, что исправлено, что осталось |
-| [`docs/review/redteam-2026-09-07.md`](docs/review/redteam-2026-09-07.md) | Red Team непрокоммиченного 0.0.10 (RB08 + `RT10-01`); триаж — [`docs/review/triage-2026-09-07.md`](docs/review/triage-2026-09-07.md) |
-| [issue #3](https://github.com/KonkovDV/RailBreak/issues/3) | открытые находки с приоритетами и предложенными правками |
+| [`CHANGELOG.md`](CHANGELOG.md) | что изменилось, каким контрактом закреплено, что осталось открытым |
+| [`docs/verification.md`](docs/verification.md) | граница проверенного: исполнено численно / прочитано / не запускалось |
+| [`docs/brief.md`](docs/brief.md) | канон физики, наблюдаемости и целостности |
+| [`docs/metrics.md`](docs/metrics.md) | HMI-rate и RMSE, seed 42, ядро 0.0.10 |
 
-Формулировка «ошибок нет» здесь сознательно не используется: у резервного
-контура позиционирования проверяемый предмет — не отсутствие дефектов, а
-**частота опасного необнаруженного отказа** (HMI-rate: система рапортует `OK`,
-а ошибка пути уже вышла за предел безопасности) плюс явный перечень того, что
-осталось непроверенным. Оба списка ведутся в репозитории, а не в презентации.
+Протоколы внешних проходов — [`docs/review/`](docs/review/). Реестр находок ведётся в CHANGELOG, не в презентации.
 
-**Состояние CI на этой ветке.** `python`, `cpp`, `asan` — зелёные локально.
-Job `ros` гейтит merge: `continue-on-error` снят, `source setup.bash` больше
-не выполняется под `set -u` (ament оставляет `AMENT_TRACE_SETUP_FILES`
-незаданым). Первый лог на GitHub — следующий push. См.
-[`ci.yml`](.github/workflows/ci.yml).
+Формулировка «ошибок нет» сознательно не используется: у резервного контура
+проверяемый предмет — **частота опасного необнаруженного отказа** (HMI-rate:
+система рапортует `OK`, а ошибка пути уже вышла за предел) плюс явный перечень
+того, что осталось непроверенным.
+
+CI: [ci.yml](.github/workflows/ci.yml) — jobs `python`, `cpp` (Release + e2e),
+`asan` (пять целей под ASan/UBSan), `ros` (`colcon build` + четыре ament-gtest).
 
 ---
 
@@ -82,9 +71,9 @@ Job `ros` гейтит merge: `continue-on-error` снят, `source setup.bash` 
 | № | Критерий (п. 10.7) | Что есть в репозитории |
 | :-: | :--- | :--- |
 | 1 | Соответствие задаче | Модель привода $F(v)$, пакет ROS 2, в фильтре нет подписок на GNSS/IMU/лидар/камеры (`tools/eval/no_gnss_scan.py`). `/tram/fix` — проекция пути со статусом `STATUS_NO_FIX`. |
-| 2 | Работоспособность MVP | Ядро собирается без ROS; `ctest` — **пять** целей (`test_core`, `test_integrity_contracts`, `test_ut_weights_psd`, `test_ut_weights_header`, `test_prior_and_nis`), скрипты `tools/eval` и `tools/synth`, Docker, `replay_ukf`. CI: [ci.yml](.github/workflows/ci.yml) — `python`, `cpp` (Release + e2e), `asan` (ASan/UBSan на **всех пяти** целях) зелёные; `ros` (colcon + четыре ament-gtest сюиты) гейтит merge, `source setup.bash` без `set -u`. |
-| 3 | Техническая реализуемость | На машине этого прогона Release-медиана шага `replay_ukf` ≈ 10 мкс (не стенд заказчика). Состояние фиксированного размера $L=12$. GPU не требуется. |
-| 4 | Качество архитектуры | Ядро отделено от ROS. Вход: QoS `best_effort`; выход одометрии: `reliable`. Сторож 50 Гц. Чекер `check_envelope.py` не импортирует UKF. Контракт входа проверяется в ядре, а не только в узле (защита в глубину). Шкалы времени измерений и узла разделены (`F-17b`, см. ниже). |
+| 2 | Работоспособность MVP | Ядро собирается без ROS; `ctest` — **пять** целей (`test_core`, `test_integrity_contracts`, `test_ut_weights_psd`, `test_ut_weights_header`, `test_prior_and_nis`), скрипты `tools/eval` и `tools/synth`, Docker, `replay_ukf`. CI: [ci.yml](.github/workflows/ci.yml) — `python`, `cpp` (Release + e2e), `asan`, `ros` (colcon + ament gtest). |
+| 3 | Техническая реализуемость | Release-медиана шага `replay_ukf` порядка 10 мкс (не стенд заказчика). Состояние фиксированного размера $L=12$. GPU не требуется. |
+| 4 | Качество архитектуры | Ядро отделено от ROS. Вход: QoS `best_effort`; выход одометрии: `reliable`. Сторож 50 Гц. Чекер `check_envelope.py` не импортирует UKF. Контракт входа проверяется в ядре, а не только в узле. Шкалы времени измерений и узла разделены. |
 | 5 | Качество алгоритма | Scaled UKF, $\\alpha=0.58$: окно $W_c^{(0)}\\ge 0$ при $\\beta=2$ — $\\alpha\\in[0.5176,\\,1.9319]$, достаточное Luo–Moroz — $0.5774$. Запасы посчитаны точно: $+0.459\\,\\%$ над Luo–Moroz и $+12.047\\,\\%$ над истинной границей; совместный предикат $(\\alpha,\\beta,\\kappa)$ вынесен в `ut_weights.hpp` и закреплён двумя независимыми тестами. Кинематический $Q$ пары $(s,v)$ сверен с интегралом Ван Лоана (невязка $1.06\\cdot10^{-22}$). Huber на $S_{ii}$, крип по EN 15595, интегратор $D$. |
 | 6 | Применимость для Москвы | Default launch: 71-911ЕМ «Львёнок-Москва», маршрут № 10, `sca_pair_lr=false` (оси, не IRW). Уклон моста **не** зашит в ноду: сила уходит в $F_{\\mathrm{bias}}$. |
 | 7 | Потенциал внедрения | Утилиты `identify_*` калибруют Дэвиса, ручку и рывок по записи. Готовность к подключению как отдельный топик — не внедрение в автопилот ЦБТ. |
@@ -209,7 +198,7 @@ Fallback в `predict()` после отказа Холецкого убран (`
 | `dt_max_s` | 0.20 с | выше — разрыв, а не шаг |
 | `stamp_regression_tol_s` | 0.001 с | допуск на непорядок меток |
 | `stamp_skew_warn_s` | 5.0 с | порог предупреждения о перекосе шкал |
-| `max_catchup_steps` | 100 | потолок догоняющих шагов после разрыва |
+| `max_catchup_steps` | 18000 | потолок догоняющих шагов (1 ч при `dt_max_s`) |
 
 И тринадцать новых ключей в `/tram/diagnostics`, чтобы перекос было видно
 снаружи, а не только в падении точности: `timebase`, `stamp_skew_s`,
@@ -221,10 +210,6 @@ Fallback в `predict()` после отказа Холецкого убран (`
 > узел с `use_sim_time:=true`. Без этого `stamp_skew_s` покажет разрыв шкал —
 > и это правильное поведение, а не поломка: раньше та же ситуация молча
 > давала «нормальный» $\\Delta t$ и тихо испорченную оценку.
-
-Оговорка о границе проверенного: узлы ROS в CI **не собираются** (`F-19`
-открыт, job `ros` не проходит), поэтому этот слой проверен чтением и
-контрактами ядра, но не исполнением в конвейере.
 
 ---
 
@@ -370,9 +355,8 @@ $W_c^{(0)}=2+\\beta-\\alpha^2-1/\\alpha^2$.
 Границы окна при $\\beta=2$ — **взаимно обратные**:
 $\\sqrt{2-\\sqrt3}\\cdot\\sqrt{2+\\sqrt3}=\\sqrt{4-3}=1$. Поэтому второй запас
 равен в точности $0.58\\sqrt{2+\\sqrt3}-1=0.1204739584953\\ldots$ Тождество
-проверяется тестом **раньше** десятичного литерала — именно потому, что
-один раз опечатка в этом литерале уже уронила CI этой ветки, и отличить
-«неверное число» от «неверного окна» без такой проверки было нельзя.
+проверяется тестом **раньше** десятичного литерала, чтобы опечатка в числе
+не маскировалась под «неверное окно».
 
 Практический вывод: **менять $\\beta$ без пересчёта $\\alpha$ нельзя.**
 Штатное $\\alpha=0.58$ допустимо при $\\beta=2$, но при $\\beta=1$ и $\\beta=0$
@@ -520,7 +504,7 @@ $\\lvert s-s_{\\mathrm{stop}}\\rvert\\le 40$ м, если карта остан�
 Цифры ниже — **синтетический близнец**, seed 42, ядро `tramDR-0.0.10`. Канон:
 [`docs/metrics.md`](docs/metrics.md). Архив 0.0.6:
 [`evidence/synth-2026-09-04/`](evidence/synth-2026-09-04/). Графики:
-[`evidence/plots-pitch/`](evidence/plots-pitch/) могут отставать на один пакет.
+[`evidence/plots-pitch/`](evidence/plots-pitch/) сняты с того же прогона 0.0.10.
 
 HMI-rate — доля кадров со статусом `OK`, где
 $\\lvert s_{\\mathrm{est}}-s_{\\mathrm{gt}}\\rvert>5+0.05\\,\\lvert s_{\\mathrm{gt}}\\rvert$
@@ -581,6 +565,7 @@ python tools/synth/test_generate.py
 python tools/eval/test_eval.py
 python tools/eval/no_gnss_scan.py
 python tools/eval/run_e2e.py --ukf standalone/build/replay_ukf
+# Windows: standalone/build/Release/replay_ukf.exe
 python tools/synth/score.py
 ```
 
@@ -610,8 +595,7 @@ ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
   ./standalone/build-asan/test_integrity_contracts
 ```
 
-Сборка пакета ROS 2 и четыре сюиты `ament_add_gtest` в CI **пока не
-проходят** (job `ros`, `F-19` открыт). Локально:
+Сборка пакета ROS 2 и четыре сюиты `ament_add_gtest` — job `ros` в CI:
 
 ```bash
 mkdir -p /ws/src && cp -a tram_dr_localization /ws/src/
@@ -653,7 +637,7 @@ python tools/eval/run_bag.py data/bags/run01 \
 | :--- | :--- |
 | `tram_dr_localization/src/lib/` | `plant`, `sca`, `ukf`, `modes`, `map` |
 | `tram_dr_localization/src/nodes/` | оценщик, адаптер топиков, проектор, монитор |
-| `tram_dr_localization/include/` | `lin_alg.hpp`, `ut_weights.hpp`, `plant.hpp`, `sca.hpp`, `ukf.hpp`, `types.hpp`, … |
+| `tram_dr_localization/include/` | `lin_alg.hpp`, `timebase.hpp`, `ut_weights.hpp`, `plant.hpp`, `sca.hpp`, `ukf.hpp`, `types.hpp`, … |
 | `tram_dr_localization/config/` | `vehicle_lvenok_moscow.yaml` (default), Combino, Витязь, `route_10.yaml` |
 | `standalone/` | `replay_ukf`, `test_core`, `test_integrity_contracts`, `test_ut_weights_psd`, `test_ut_weights_header`, `test_prior_and_nis` |
 | `tools/eval/` | чекер, bag, `identify_*`, `no_gnss_scan.py` |

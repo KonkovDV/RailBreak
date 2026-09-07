@@ -1,5 +1,7 @@
 # Evidence
 
-Текущий пакет: `synth-2026-09-04/` (`pack_sha256=20cead0dc7bb748f…` в `meta.json`).
-18 сценариев. Таблица: [`../docs/metrics.md`](../docs/metrics.md).
-Графики всех сценариев: [`plots-pitch/`](plots-pitch/).
+Канон цифр — [`docs/metrics.md`](../docs/metrics.md) (ядро `tramDR-0.0.10`, seed 42).
+Графики питча: [`plots-pitch/`](plots-pitch/).
+
+`synth-2026-09-04/` — архив пакета **0.0.6** (`pack_sha256` в `meta.json`).
+Не подставлять его числа вместо текущей таблицы.

@@ -402,7 +402,7 @@ def write_run(name: str, dest: Path, noise_sigma: float = 0.0,
     fields = ["t_s", "notch", "brake", *wkeys, "gt_s", "gt_v"]
     csv_path = dest / "run.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
+        w = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
         w.writeheader()
         w.writerows(rows)
     gt_path = dest / "gt.jsonl"
@@ -422,7 +422,7 @@ def write_run(name: str, dest: Path, noise_sigma: float = 0.0,
     filt = dest / "filter.csv"
     filt_fields = ["t_s", "notch", "brake", *wkeys]
     with filt.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=filt_fields)
+        w = csv.DictWriter(f, fieldnames=filt_fields, lineterminator="\n")
         w.writeheader()
         for row in rows:
             w.writerow({k: row[k] for k in filt_fields})

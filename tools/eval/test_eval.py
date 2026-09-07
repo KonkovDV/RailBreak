@@ -1123,6 +1123,41 @@ class ReplayCatchupTests(unittest.TestCase):
             self.assertAlmostEqual(recs[0]["t"], 0.0, places=9)
             self.assertAlmostEqual(recs[1]["t"], 0.02, places=9)
 
+    def test_crlf_csv_keeps_all_four_wheels(self) -> None:
+        import json
+        import subprocess
+
+        exe = self._replay_ukf()
+        if exe is None:
+            self.skipTest("replay_ukf not built")
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "filter.csv"
+            out_path = Path(tmp) / "out.jsonl"
+            # Python csv.excel writes \r\n even on Linux. An untrimmed last
+            # header "w3\\r" used to drop the fourth axle → incomplete packet
+            # → DEGRADED on every frame (CI e2e on 0.0.10).
+            csv_path.write_bytes(
+                b"t_s,notch,brake,w0,w1,w2,w3\r\n"
+                b"0.00,0.4,0,10,10,10,10\r\n"
+                b"0.02,0.4,0,10,10,10,10\r\n"
+            )
+            r = subprocess.run(
+                [str(exe), str(csv_path), str(out_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            recs = [
+                json.loads(line)
+                for line in out_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(recs), 2)
+            self.assertEqual(recs[0]["n_wheels"], 4)
+            self.assertEqual(recs[1]["n_wheels"], 4)
+            self.assertNotEqual(recs[-1]["confidence"], "LOST")
+
     def test_epoch_timestamps_round_trip(self) -> None:
         import json
         import subprocess

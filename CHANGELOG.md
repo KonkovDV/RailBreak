@@ -11,7 +11,7 @@
 * Граница проверенного (исполнено / прочитано / не запускалось): [`docs/verification.md`](docs/verification.md).
 * Протокол внешнего триажа: [`docs/review/external-triage-2026-09-06.md`](docs/review/external-triage-2026-09-06.md).
 * Протокол внешнего Red Team прохода: [`docs/review/external-redteam-2026-09-06.md`](docs/review/external-redteam-2026-09-06.md).
-* Red Team непрокоммиченного 0.0.10: [`docs/review/redteam-2026-09-07.md`](docs/review/redteam-2026-09-07.md), триаж [`docs/review/triage-2026-09-07.md`](docs/review/triage-2026-09-07.md).
+* Red Team 0.0.10: [`docs/review/redteam-2026-09-07.md`](docs/review/redteam-2026-09-07.md), триаж [`docs/review/triage-2026-09-07.md`](docs/review/triage-2026-09-07.md).
 * Самопроверка ветки исправлений: [`docs/audit-2026-09-06.md`](docs/audit-2026-09-06.md).
 
 ---
@@ -57,8 +57,9 @@
 | `RB08-32` | PoseStamped без выдуманного $v=0$ (`v` is `None`) | `test_eval` | — |
 | `F-13c` | `docs/metrics.md` и `evidence/plots-pitch/` на 0.0.10. HMI 0 на 17/18; `mismatch_r0` **0.515**. `slide_brake` missed path **0.14 м**; в конце 24 кадра LOST (генератор RB08-15) | `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` | bag организатора 25.09 |
 | `RT10-01` | `replay_ukf`: дубликат/регресс штампа не выдумывает $0.001\,\mathrm{s}$; хвост catch-up применяется как есть. Нода: leftover после catch-up не отбрасывается; catch-up — `while (dt>dt_max)`, не `floor` с нулевым хвостом | `test_eval` `test_duplicate_stamp_does_not_invent_dt`; чтение `step_filter` | ROS leftover не в `ctest` |
+| `RT10-05` | Заголовок CSV с CRLF (диалект Python `csv.excel` на Linux) обрезал последнюю ось (`w3` + CR). Неполный пакет → все кадры `DEGRADED`; e2e job `cpp` красный при тех же Windows-метриках | `test_eval` `test_crlf_csv_keeps_all_four_wheels`; `generate.py` пишет LF | — |
 
-Не закрыто кодом: пп. 14.4–14.6, bag организатора. F-01 не ослабляли: 0.32 с нулей на выбеге не ZUPT и не path-latch. `kModelVersion` после `RT10-01` **не** поднимали: synth seed 42 идёт с монотонным $0.02\,\mathrm{s}$, поведение фильтра не менялось.
+Не закрыто кодом: пп. 14.4–14.6, bag организатора. F-01 не ослабляли: 0.32 с нулей на выбеге не ZUPT и не path-latch. `kModelVersion` после `RT10-01`/`RT10-05` не поднимали: это разбор времени/CSV, не модель.
 
 ---
 

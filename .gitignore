@@ -33,6 +33,11 @@ htmlcov/
 data/bags/*
 !data/bags/README.md
 
-# Local notes
+# Local notes and build leftovers
 local/
 audit/
+*.obj
+*.exe
+*.pdb
+*.ilk
+standalone/build-asan/
