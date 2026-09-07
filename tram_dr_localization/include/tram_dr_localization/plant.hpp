@@ -50,13 +50,16 @@ PlantDeriv plant_forces(const State& x, const Input& u, const PlantParams& p);
 PlantDeriv plant_forces(const State& x, const Input& u, const PlantParams& p,
                         double f_trac_cmd);
 
-// Semi-implicit Euler on s, v. Parameters (mass, d_i, …) are unchanged here;
+// Constant-acceleration step: s += v*dt + a*dt^2/2, v += a*dt.
+// Parameters (mass, d_i, …) are unchanged here;
 // UKF process noise is applied on the covariance, not as a random draw.
 // f_trac_filt: in/out lagged/rate-limited F* when tau_drv_s>0 or j_max>0.
 // nullptr (3-arg overload) is algebraic F=F* this step: PT1 memory is not
 // applied and then discarded (RB08-14). clip_params: false on UKF sigma
 // points (bounds are the log/logit bijection).
-// Passive brake (no traction) must not reverse v; Euler overshoot stops at 0.
+// Passive brake (no traction), and pure coast without drive/grade/bias, stop
+// at a zero-crossing event instead of numerically reversing. This is not a
+// static-friction or brake-holding model; the low-speed dead zone remains.
 void plant_step(State& x, const Input& u, double dt_s);
 void plant_step(State& x, const Input& u, double dt_s, const PlantParams& p);
 void plant_step(State& x, const Input& u, double dt_s, const PlantParams& p,

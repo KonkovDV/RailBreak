@@ -46,6 +46,10 @@ target_include_directories(test_prior_and_nis PRIVATE ${PKG}/include)
 add_executable(test_numerical_edges test_numerical_edges.cpp)
 target_include_directories(test_numerical_edges PRIVATE ${PKG}/include)
 
+# SI force laws, drive-state contract and passive zero-crossing events.
+add_executable(test_plant_contracts test_plant_contracts.cpp ${PKG}/src/lib/plant.cpp)
+target_include_directories(test_plant_contracts PRIVATE ${PKG}/include)
+
 add_executable(replay_ukf replay_ukf.cpp ${TRAM_DR_CORE_SRC})
 target_include_directories(replay_ukf PRIVATE ${PKG}/include)
 
@@ -56,6 +60,7 @@ add_test(NAME test_ut_weights_psd COMMAND test_ut_weights_psd)
 add_test(NAME test_ut_weights_header COMMAND test_ut_weights_header)
 add_test(NAME test_prior_and_nis COMMAND test_prior_and_nis)
 add_test(NAME test_numerical_edges COMMAND test_numerical_edges)
+add_test(NAME test_plant_contracts COMMAND test_plant_contracts)
 
 if(MSVC)
   set(_tram_dr_warn /W4)
@@ -68,4 +73,5 @@ target_compile_options(test_ut_weights_psd PRIVATE ${_tram_dr_warn})
 target_compile_options(test_ut_weights_header PRIVATE ${_tram_dr_warn})
 target_compile_options(test_prior_and_nis PRIVATE ${_tram_dr_warn})
 target_compile_options(test_numerical_edges PRIVATE ${_tram_dr_warn})
+target_compile_options(test_plant_contracts PRIVATE ${_tram_dr_warn})
 target_compile_options(replay_ukf PRIVATE ${_tram_dr_warn})

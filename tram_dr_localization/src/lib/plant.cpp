@@ -85,10 +85,10 @@ void plant_step(State& x, const Input& u, double dt_s, const PlantParams& p,
   }
   const double f_prev = (f_trac_filt != nullptr) ? *f_trac_filt : 0.0;
   double f_cmd = f_star;
-  if (p.tau_drv_s > 1e-12) {
+  if (f_trac_filt != nullptr && p.tau_drv_s > 1e-12) {
     f_cmd = (p.tau_drv_s * f_prev + dt_s * f_star) / (p.tau_drv_s + dt_s);
   }
-  if (p.j_max_mps3 > 1e-12) {
+  if (f_trac_filt != nullptr && p.j_max_mps3 > 1e-12) {
     const double m = std::max(x.m_eff_kg, 1000.0);
     const double df_max = m * p.j_max_mps3 * dt_s;
     f_cmd = std::clamp(f_cmd, f_prev - df_max, f_prev + df_max);
@@ -102,11 +102,15 @@ void plant_step(State& x, const Input& u, double dt_s, const PlantParams& p,
   x.a_mps2 = d.a_mps2;
   x.s_m = s0 + v0 * dt_s + 0.5 * d.a_mps2 * dt_s * dt_s;
   x.v_mps = v0 + d.a_mps2 * dt_s;
-  // RB08-13: constant-a Euler can cross zero and increase kinetic energy.
-  // Passive brake (no traction) must not reverse the car.
+  // Constant-a integration must not turn passive resistance into propulsion
+  // after a zero crossing. Preserve the existing passive-brake stop, and also
+  // handle pure coast. The pure-coast extension excludes grade, bias and
+  // residual drive force; the pre-existing brake-stop heuristic is unchanged.
   const bool no_traction = std::fabs(commanded_notch(u)) < 0.05;
   const bool braking = commanded_brake(u) > 1e-9;
-  if (no_traction && braking && v0 * x.v_mps < 0.0 && std::fabs(d.a_mps2) > 1e-18) {
+  const bool passive_coast = f_cmd == 0.0 && x.f_bias_n == 0.0 && p.i_grade == 0.0;
+  if (no_traction && (braking || passive_coast) && v0 * x.v_mps < 0.0 &&
+      std::fabs(d.a_mps2) > 1e-18) {
     const double t_stop = -v0 / d.a_mps2;
     if (t_stop > 0.0 && t_stop <= dt_s) {
       x.s_m = s0 + v0 * t_stop + 0.5 * d.a_mps2 * t_stop * t_stop;
