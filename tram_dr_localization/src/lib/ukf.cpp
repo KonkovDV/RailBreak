@@ -1,6 +1,7 @@
 #include "tram_dr_localization/ukf.hpp"
 
 #include "tram_dr_localization/lin_alg.hpp"
+#include "tram_dr_localization/prior.hpp"
 #include "tram_dr_localization/ut_weights.hpp"
 
 #include <algorithm>
@@ -20,8 +21,8 @@ void validate_ukf(const UkfParams& p) {
        p.p_ss_init, p.k_sigma, p.k_over, p.freeze_s, p.kappa_hold_s, p.k_lost,
        p.notch_lost_s, p.mass_door_kg, p.q_v, p.zupt_hold_s, p.stop_gate_m,
        p.huber_c, p.slide_grade_lost_s, p.a_kin_downhill, p.mass_prior_log_sigma,
-       p.q_fb_wheels_n, p.path_disagree_floor_mps, p.path_disagree_rel,
-       p.path_disagree_tau_s, p.age_degraded_s, p.age_lost_s,
+       p.mass_prior_tau_s, p.q_fb_wheels_n, p.path_disagree_floor_mps,
+       p.path_disagree_rel, p.path_disagree_tau_s, p.age_degraded_s, p.age_lost_s,
        p.zupt_omega_only_s, static_cast<double>(p.n_wheels)}) {
     if (!std::isfinite(v)) throw std::invalid_argument("nonfinite UKF parameter");
   }
@@ -42,7 +43,8 @@ void validate_ukf(const UkfParams& p) {
       p.kappa_hold_s < 0 || p.k_lost <= 0 || p.notch_lost_s < 0 ||
       p.mass_door_kg < 0 || p.q_v < 0 || p.zupt_hold_s < 0 ||
       p.stop_gate_m < 0 || p.huber_c < 0 || p.slide_grade_lost_s < 0 ||
-      p.mass_prior_log_sigma < 0 || p.q_fb_wheels_n < 0 ||
+      p.mass_prior_log_sigma < 0 || p.mass_prior_tau_s < 0 ||
+      p.q_fb_wheels_n < 0 ||
       p.path_disagree_floor_mps < 0 || p.path_disagree_rel < 0 ||
       p.path_disagree_tau_s < 0 || p.age_degraded_s < 0 ||
       p.age_lost_s < p.age_degraded_s || p.encoder_pulses_per_rev < 0 ||
@@ -107,6 +109,12 @@ UtWeights make_ut(const UkfParams& p) {
 
 int n_sigma(const UkfParams& p) { return p.cubature ? (2 * kStateDim) : kSigma; }
 
+// True when the mass prior runs as a Gauss-Markov process rather than a
+// repeatedly fused pseudo-measurement.
+bool mass_prior_is_markov(const UkfParams& cfg) {
+  return cfg.mass_prior_log_sigma > 1e-9;
+}
+
 void fill_q(double* q, double dt_s, const PlantParams& plant, const Input& u,
             bool standstill, const ScaResult& sca, const UkfParams& cfg) {
   la::zero(q, kStateDim);
@@ -125,7 +133,13 @@ void fill_q(double* q, double dt_s, const PlantParams& plant, const Input& u,
   }
   q[kFbias] = qfb * dt_s;
   const double m0 = std::max(plant.m0_kg, 1.0);
-  q[kMass] = (80.0 / m0) * (80.0 / m0) * dt_s;
+  // F-23: while the Gauss-Markov prior is active it injects (1−φ²)R itself,
+  // which IS the process noise of log m. Adding a random walk here would
+  // count the same noise twice and destroy the stationary variance the prior
+  // exists to enforce. See docs/estimator-priors.md §1.
+  q[kMass] = mass_prior_is_markov(cfg)
+                 ? 0.0
+                 : (80.0 / m0) * (80.0 / m0) * dt_s;
   q[kKtrac] = (1e-3) * (1e-3) * dt_s;
   for (int i = 0; i < kNWheels; ++i) {
     q[kD0 + i] = (1e-4) * (1e-4) * dt_s;
@@ -204,6 +218,7 @@ void Ukf::reset() {
   last_nis_ = 0.0;
   nis_valid_ = false;
   nis_cusum_ = 0.0;
+  n_huber_capped_ = 0;
   n_frozen_ = 0;
   v_prev_ = 0.0;
   have_v_prev_ = false;
@@ -471,6 +486,7 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   }
   nis_valid_ = false;
   last_nis_ = 0.0;
+  n_huber_capped_ = 0;
   int n_ok = 0;
   for (int i = 0; i < m; ++i) {
     if (std::isfinite(omega[i]) && std::fabs(omega[i]) <= kOmegaAbsMax) {
@@ -655,6 +671,14 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
   for (int j = 0; j < m_live; ++j) {
     innov[j] = omega[live[j]] - zhat[j];
   }
+  // F-24: keep the pre-inflation S. NIS evaluated against the robustified S
+  // is min(ν²/S, c²) and saturates at c², so ν=5 and ν=1e6 report the same
+  // number and the monitor is blinded by the mechanism that suppressed the
+  // fault. Robustify the gain, report the raw statistic.
+  // See docs/estimator-priors.md §2.
+  double Pzz_raw[kNWheels * kNWheels];
+  std::memcpy(Pzz_raw, Pzz,
+              sizeof(double) * static_cast<std::size_t>(m_live * m_live));
   // Huber/DCS: scale S_ii (already Pzz+R) by max(1, ν²/(c² S_ii)). Caps
   // the information of a locked wheel at full slide so it cannot drag v̂
   // after finite SCA inflate.
@@ -663,6 +687,9 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
     for (int j = 0; j < m_live; ++j) {
       const double sii = std::max(la::at(Pzz, m_live, j, j), 1e-12);
       const double scale = std::max(1.0, (innov[j] * innov[j]) / (c2 * sii));
+      if (scale > 1.0) {
+        ++n_huber_capped_;
+      }
       la::at(Pzz, m_live, j, j) *= scale;
     }
   }
@@ -682,15 +709,27 @@ void Ukf::update_wheels(const double* omega, std::size_t n) {
       K[i * m_live + j] = acc;
     }
   }
+  // The gain and the covariance update keep the inflated S, so K stays
+  // optimal with respect to the S it was formed from. Only the reported
+  // statistic uses the raw S. If the raw S will not invert there is no
+  // statistic to report — say so instead of publishing the capped one.
+  double Sinv_raw[kNWheels * kNWheels];
   double nis = 0.0;
-  for (int i = 0; i < m_live; ++i) {
-    for (int j = 0; j < m_live; ++j) {
-      nis += innov[i] * la::at(Sinv, m_live, i, j) * innov[j];
+  bool nis_ok = la::inv_spd(Pzz_raw, Sinv_raw, m_live);
+  if (nis_ok) {
+    for (int i = 0; i < m_live; ++i) {
+      for (int j = 0; j < m_live; ++j) {
+        nis += innov[i] * la::at(Sinv_raw, m_live, i, j) * innov[j];
+      }
     }
+    nis_ok = std::isfinite(nis);
   }
-  last_nis_ = nis;
-  nis_valid_ = std::isfinite(nis);
+  last_nis_ = nis_ok ? nis : 0.0;
+  nis_valid_ = nis_ok;
   if (nis_valid_) {
+    // Reference m + 0.5√m is intentionally below the textbook m + 0.5√(2m)
+    // (5.0 vs 5.414 at m=4): the more sensitive threshold is the fail-safe
+    // one for a monitor. Not adjusted along with the NIS fix.
     const double expected =
         static_cast<double>(m_live) + 0.5 * std::sqrt(static_cast<double>(m_live));
     nis_cusum_ = std::max(0.0, nis_cusum_ + last_nis_ - expected);
@@ -831,6 +870,7 @@ void Ukf::observe_rest_packet(const double* omega, std::size_t n, const Input& u
   // witness unreachable (the estimate would already look stopped).
   nis_valid_ = false;
   last_nis_ = 0.0;
+  n_huber_capped_ = 0;
   n_omega_used_ = static_cast<int>(n);
   encoder_outage_ = false;
   double phys[kStateDim];
@@ -901,33 +941,35 @@ void Ukf::apply_mass_prior() {
   if (cfg_.mass_prior_log_sigma <= 1e-9) {
     return;
   }
-  // σ=0.3 is a once-per-second prior, not a 50 Hz measurement. Applying it
-  // every tick pins log m to ~1 % of m0 (see F9).
-  mass_prior_acc_ += std::max(last_dt_s_, 0.0);
-  if (mass_prior_acc_ < 1.0) {
-    return;
-  }
-  mass_prior_acc_ = 0.0;
+  // F-23: a prior is a fixed amount of information, not a measurement
+  // stream. Re-fusing z = log(m0) through an ordinary Kalman update adds
+  // 1/R every time (1/P_N = 1/P_0 + N/R) and drove P to 8.61e-04, i.e.
+  // σ = 0.0293 on log m — ±822 kg against a ±12500 kg loading range, with
+  // no new information entering the filter. Propagate a first-order
+  // Gauss-Markov process instead: the mean still reverts to the prior, so
+  // log m cannot wander to the clip bounds to explain a force error, but
+  // the stationary variance is exactly R for every τ and every dt.
+  // See docs/estimator-priors.md §1.
   const double z = std::log(std::max(plant_.m0_kg, 1.0));
   const double R = cfg_.mass_prior_log_sigma * cfg_.mass_prior_log_sigma;
-  const double Pmm = la::at(P_, kStateDim, kMass, kMass);
-  const double S = Pmm + R;
-  if (!(S > 1e-18) || !std::isfinite(S)) {
-    return;
+  const double phi = prior::gauss_markov_phi(last_dt_s_, cfg_.mass_prior_tau_s);
+  if (!std::isfinite(phi) || phi >= 1.0) {
+    return;  // no reversion this step (non-positive dt); nothing to apply
   }
-  const double innov = z - x_[kMass];
-  double K[kStateDim];
+  x_[kMass] = prior::gauss_markov_mean(x_[kMass], z, phi);
+  // A state transition, not a measurement: off-diagonal terms of the
+  // reverting state carry a single factor of φ, the diagonal carries φ².
   for (int i = 0; i < kStateDim; ++i) {
-    K[i] = la::at(P_, kStateDim, i, kMass) / S;
-  }
-  for (int i = 0; i < kStateDim; ++i) {
-    x_[i] += K[i] * innov;
-  }
-  for (int i = 0; i < kStateDim; ++i) {
-    for (int j = 0; j < kStateDim; ++j) {
-      la::at(P_, kStateDim, i, j) -= K[i] * S * K[j];
+    if (i == kMass) {
+      continue;
     }
+    const double cross =
+        prior::gauss_markov_cross(la::at(P_, kStateDim, i, kMass), phi);
+    la::at(P_, kStateDim, i, kMass) = cross;
+    la::at(P_, kStateDim, kMass, i) = cross;
   }
+  la::at(P_, kStateDim, kMass, kMass) = prior::gauss_markov_variance(
+      la::at(P_, kStateDim, kMass, kMass), phi, R);
   if (!la::project_pd(P_, kStateDim)) {
     ++chol_fail_;
   }
@@ -1092,6 +1134,7 @@ UkfEstimate Ukf::snapshot() const {
   e.nis = last_nis_;
   e.nis_valid = nis_valid_;
   e.nis_cusum = nis_cusum_;
+  e.n_huber_capped = n_huber_capped_;
   e.n_frozen = n_frozen_;
   const double sig = std::sqrt(std::max(e.p_ss, 0.0));
   const double sig_v = std::sqrt(std::max(e.p_vv, 0.0));
@@ -1135,6 +1178,7 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
     n_omega_used_ = 0;
     nis_valid_ = false;
     last_nis_ = 0.0;
+    n_huber_capped_ = 0;
     auto e = snapshot();
     e.confidence = e.confidence_v = e.confidence_s = Confidence::kLost;
     return e;
@@ -1158,6 +1202,7 @@ UkfEstimate Ukf::predict_and_update(const Input& u, const double* omega, std::si
   n_omega_used_ = 0;
   nis_valid_ = false;
   last_nis_ = 0.0;
+  n_huber_capped_ = 0;
   last_u_ = u_use;
   last_dt_s_ = dt_s;
   if (n > 0 && omega != nullptr && wheels_at_rest(omega, n) && u_use.notch_valid &&
