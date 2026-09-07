@@ -23,8 +23,8 @@ constexpr double kMuMax = 0.5;
 constexpr double kMassMinKg = 20000.0;
 constexpr double kMassMaxKg = 70000.0;
 constexpr double kOmegaAbsMax = 80.0;
-// 0.0.10: audit pack RB08-01…32. docs/metrics.md remesured seed 42.
-constexpr const char* kModelVersion = "tramDR-0.0.10";
+// 0.0.11: numerical/plant contracts and time-driven mass prior (PR #5).
+constexpr const char* kModelVersion = "tramDR-0.0.11";
 
 enum StateIndex {
   kS = 0,
