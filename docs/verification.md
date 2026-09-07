@@ -1,143 +1,150 @@
-# Граница проверенного
+# Проверки и граница доказанного
 
-Файл отвечает на единственный вопрос, который обычно задаёт жюри и почти
-никогда не задаёт автор: **что здесь измерено, а что заявлено.**
+Редакция аудита PR #5, 07.09.2026. «Тест прошёл» означает выполнение
+конкретного набора проверок на конкретной версии, а не проверку всех
+режимов вагона или сертификацию. Актуальные статусы последнего commit
+смотрите в [PR #5](https://github.com/KonkovDV/RailBreak/pull/5).
 
-Состояние: 07.09.2026, ядро `tramDR-0.0.10`.
-Открытое руками: пп. 14.4–14.6, bag организатора 25.09, сверка PDF Положения.
-Что изменилось — [`../CHANGELOG.md`](../CHANGELOG.md).
+## 1. Воспроизводимая сборка без ROS
 
-## 1. Три уровня доверия
-
-| Уровень | Значение |
-| :-: | :--- |
-| **E** | *executed* — исполнено численно, результат воспроизводим командой ниже |
-| **R** | *reviewed* — прочитано построчно, вывод логический, машина его не подтверждала |
-| **N** | *not run* — не запускалось; причина указана |
-
-Правило: ни одно утверждение уровня **R** не подаётся как измерение, ни один
-пункт **N** не подаётся как проверенный. Формулировка «ошибок нет» в этом
-репозитории не используется — используется «вот что проверено и как».
-
-## 2. Матрица проверки
-
-| Что | Уровень | Результат |
-| :--- | :-: | :--- |
-| Алгебра весов Scaled UT: $\lambda$, $W_m^{(0)}$, $W_c^{(0)}$, $W_i$, суммы, окна $\alpha$ по $\beta$ | **E** | независимый стенд + `standalone/test_ut_weights_psd.cpp`: 28 проверок, exit 0 |
-| Дискретизация $Q$ пары $(s,v)$ против интеграла Ван Лоана | **E** | невязка $1.06\cdot10^{-22}$ при $\Delta t=0.02$ с |
-| `la::chol` на нефинитном входе | **E** | до `F-05`: возвращала `true`; после: отказ |
-| `la::inv_spd` на NaN-матрице | **E** | до `F-06`: «успех»; после: отказ |
-| `la::project_pd` на положительно определённом входе | **E** | до `F-07`: $\max\lvert\Delta P\rvert=0.109701219537$ (плотная SPD $12\times12$), внедиагональ $1.4788\to1.2444$, $\lambda_{\min}$ $19.9926\to19.997$; реалистичная ковариация ($\mathrm{cond}\approx2\cdot10^{10}$): $2.39\cdot10^{-7}$ абс., $3.5\cdot10^{-13}$ отн. по Фробениусу; после: ровно 0 |
-| Физические перекрёстные проверки: $a_{\mathrm{svc}}\leftrightarrow\hat\mu$, мёртвая зона Дэвиса, уклоны, пол $\kappa$ | **E** | §4 |
-| `validate_ukf`: $\alpha>0$, $c=\alpha^2(L+\kappa)>0$, конечность, границы, `age_lost_s ≥ age_degraded_s`, `n_stops ≤ kMaxStops`, и **совместно** $W_c^{(0)}\ge0$ через `ut::weights_psd_ok` (кроме cubature) | **E** | `F-08` закрыт: `test_integrity_contracts` отвергает `(0.58, 0)` и `(0.58, 1)` |
-| `project_pd` при NaN | **E** | `F-09` закрыт: возвращает `false`, матрица без изменений; `ukf.cpp` откатывает шаг |
-| Атомарный откат в `predict_and_update` | **R** | снимок `const Ukf previous = *this` → проверка конечности → `la::chol(P_, …, 1e-12)` → при отказе `*this = previous; ++chol_fail_; return reject()` |
-| Фикстура `zupt off stop` (`F-12`) | **E** | `ctest` Release, цель `test_core` |
-| Четыре узла ROS 2 (`state_estimator`, `topic_adapter`, `map_projector`, `fault_monitor`) | **E** | job `ros` зелёный: [run 34057677488](https://github.com/KonkovDV/RailBreak/actions/runs/34057677488) (`colcon build` + ament gtest) |
-| `tools/eval/test_eval.py`, `tools/synth/test_generate.py` | **E** | 07.09.2026: `test_eval` (в т.ч. duplicate-stamp и CRLF CSV); `test_generate` 21 |
-| Сборка `Dockerfile` / `docker compose` | **N** | не запускалась |
-| Секрет-скан репозитория | **N** | не выполнен |
-| Текст Положения хакатона (пп. 7.6 / 8.7 / 10.7 / 14.2.2) | **N** | файл Положения не открылся; нумерация взята из публичного описания и **подлежит сверке с подписанным PDF** до сдачи |
-| Пересчёт метрик на ядре 0.0.10 | **E** | `docs/metrics.md` снят на `tramDR-0.0.10`, seed 42; графики `evidence/plots-pitch/` с того же прогона. e2e HMI 0 на 17/18 близнеца. `RT10-05` чинит разбор CSV, не фильтр |
-| Red Team 07.09.2026 (`RT10-*`) | **R** + **E** | [`docs/review/redteam-2026-09-07.md`](review/redteam-2026-09-07.md); `RT10-01` закрыт тестом duplicate-stamp |
-| Gauss–Markov априор массы и pre-Huber NIS (`F-34`/`F-35`) | **E** | `test_prior_and_nis`; `test_core` $P_{mm}$ после 80 с |
-| Common-mode $\kappa$ против канала A (`F-36`) | **E** | `test_core` locked slide не OK; e2e `slide_brake` 404 OK, HMI 0 |
-
-## 3. Как повторить
+Из корня репозитория; нужны CMake ≥ 3.16 и компилятор C++17:
 
 ```bash
-# контракты ядра и алгебра UT
 cmake -S standalone -B standalone/build -DCMAKE_BUILD_TYPE=Release
 cmake --build standalone/build --parallel
 ctest --test-dir standalone/build --output-on-failure
-
-# те же цели под санитайзерами (то, что делает CI-job asan)
-cmake -S standalone -B standalone/build-asan -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-cmake --build standalone/build-asan \
-  --target test_core test_integrity_contracts test_ut_weights_psd \
-           test_ut_weights_header test_prior_and_nis --parallel
-ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
-  ./standalone/build-asan/test_integrity_contracts
-
-# метрики целиком (закрывает F-13b)
-python tools/synth/generate.py --out synth/runs
-python tools/eval/run_e2e.py --ukf standalone/build/Release/replay_ukf
-# Linux CI: standalone/build/replay_ukf
-python tools/synth/score.py --runs synth/runs
 ```
 
-`test_ut_weights_psd` намеренно не линкует исходники ядра и не включает его
-заголовки: это внешняя проверка алгебры, а не тавтология против `ukf.cpp`.
+| CTest target | Проверяемая область |
+| --- | --- |
+| `test_core` | Сквозное поведение UKF, режимы и сценарии ядра |
+| `test_integrity_contracts` | Вход/время, freshness, ZUPT, per-channel confidence, latch и численный отказ |
+| `test_ut_weights_psd` | Независимая алгебра scaled UT без заголовков ядра |
+| `test_ut_weights_header` | Сопоставление поставляемого UT helper с формулами |
+| `test_prior_and_nis` | Формулы mass prior и эффект насыщения post-Huber NIS |
+| `test_numerical_edges` | PSD repair/floor, atomic failure, крайние UT параметры |
+| `test_plant_contracts` | SI-силы, память привода, событие остановки при выбеге |
+| `test_prior_scheduling` | Процесс массы внутри UKF при silence, NaN и rest |
 
-## 4. Числа
+Всего восемь зарегистрированных наборов, а не восемь отдельных assertions.
+`replay_ukf` — дополнительный executable, не отдельный CTest target.
+Новые regression-тесты используют явные проверки и выполняются при NDEBUG.
 
-### 4.1 Веса Scaled UT
+## 2. Санитайзеры
 
-$\lambda=\alpha^2(L+\kappa_{\mathrm{UT}})-L$,
-$W_m^{(0)}=\lambda/(L+\lambda)$,
-$W_c^{(0)}=W_m^{(0)}+1-\alpha^2+\beta$,
-$W_i=1/[2(L+\lambda)]$.
+```bash
+cmake -S standalone -B standalone/build-asan \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+cmake --build standalone/build-asan --parallel
+ASAN_OPTIONS=detect_leaks=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+ctest --test-dir standalone/build-asan --output-on-failure
+```
 
-При $\alpha=0.58$, $L=12$, $\beta=2$, $\kappa_{\mathrm{UT}}=0$:
+Нужны поддерживаемый компилятор и runtime ASan/UBSan. CI теперь собирает
+все targets и запускает CTest, а не вручную перечисленные старые пять
+executable. Добавление нового теста в CMake больше не должно молча исключать
+его из санитайзеров. ASan/UBSan не заменяют model validation или race testing.
 
-| Величина | Значение |
-| :--- | ---: |
-| $\lambda$ | $-7.963200$ |
-| $W_m^{(0)}$ | $-1.972652$ |
-| $W_c^{(0)}$ | $+0.690948$ |
-| $W_i$ ($i=1\ldots24$) | $0.123860$ |
-| $\sum_i W_m^{(i)}$ | $1.000000$ |
-| $\sum_i W_c^{(i)}$ | $3.663600$ |
+## 3. Фактические regression-свидетельства этой порции
 
-$\sum W_c=1+(1-\alpha^2+\beta)$ и при $\beta\ne\alpha^2-1$ **не равна единице**
-по построению: это не ошибка нормировки, а свойство scaled UT.
+Baseline: `91e20a74f0b526fc782b4eb7ddfd3afff73d575b`.
+Численная порция: `ec5f5cd28174e191cb8f3ac39e191bd300d1d08e`.
+Физическая порция: `dde3bc7d6594c4a5378348940271170ac7017561`.
+Исправленное расписание prior с устранёнными ошибками переноса файла:
+`5bd39a41aeadcabb80b057fe908fa49cdbe51f44`.
 
-### 4.2 Окно допустимых $\alpha$ (политика $W_c^{(0)}\ge0$, $\kappa_{\mathrm{UT}}=0$)
+| Проверка | До | После | Где |
+| --- | --- | --- | --- |
+| Numerical edges | 119 checks, 76 failures | 119 checks, 0 failures | GCC 11.5, C++17, Release/NDEBUG |
+| Plant contracts | 29 checks, 7 failures | 29 checks, 0 failures | GCC 11.5, Release; повторено в Debug |
+| Prior scheduling | CI cpp/asan failure на test-only commit `6327295` | CI cpp/asan success на `5bd39a4` | Полный UKF, assertions не ослаблены |
 
-При $\kappa_{\mathrm{UT}}=0$ имеем $W_c^{(0)}=2+\beta-\alpha^2-1/\alpha^2$,
-откуда окно **не зависит от $L$**:
+76 и 7 — количества проваленных проверок, **не** число разных дефектов.
+Численный тест включает независимый long-double LDL, матрицы размерности
+1…16, нулевые/неопределённые/плохо обусловленные случаи, healthy no-op,
+нечисловые входы и beta до DBL_MAX. Физический тест проверяет оба направления
+выбега и не блокирует разворот от внешних сил.
 
-| $\beta$ | Окно $\alpha$ | $W_c^{(0)}$ при $\alpha=0.58$ |
-| :-: | :--- | ---: |
-| 2 | $[0.517638,\;1.931852]$ | $+0.690948$ |
-| 1 | $[0.618034,\;1.618034]$ | $-0.309052$ |
-| 0 | ровно $\{1\}$ | $-1.309052$ |
+Для prior фиксируются результат job и переход red→green; stdout с точным
+числом его проверок отдельно не извлечён. Нельзя выдавать предполагаемую
+строку лога за наблюдавшийся результат. При переносе полного UKF-файла в
+draft-ветке возникли дополнительные ошибки транскрипции; diff review их
+выявил и последующие commits устранили. Итоговый diff UKF относительно
+baseline — только перенос вызова prior и поясняющий комментарий.
 
-Достаточное условие PSD (Luo–Moroz): $\alpha\ge1/\sqrt{1+\beta}=0.577350$ при
-$\beta=2$. Запас выбранного $\alpha=0.58$ — **+0.459 %**. Запас маленький и
-это сознательно: он ровно поэтому проверяется тестом, а не комментарием.
-Следствие для конфигурации: смена $\beta$ без пересчёта $\alpha$ ломает
-положительность $W_c^{(0)}$; `validate_ukf` это отвергает (`F-08`).
+Подтверждённый C++/ASan/Python run для `5bd39a4`:
+[GitHub Actions](https://github.com/KonkovDV/RailBreak/actions/runs/34153221667).
+Статусы более ранних commits не являются подтверждением последнего HEAD.
+Окончательный ROS и остальные checks должны проверяться на последнем
+commit PR, включая изменения версии/документации.
 
-### 4.3 Процессный шум пары $(s,v)$
+Локальная среда аудита не имела CMake, ROS, Docker/colcon и пригодного
+ASan runtime. Поэтому локально запускались только перечисленные независимые
+C++ binaries; полный core/e2e и санитайзеры проверялись в CI. Недоступность
+runtime не считается успешным sanitizer-прогоном.
 
-Код считает $Q_{ss}=q_v\Delta t^3/3$, $Q_{sv}=q_v\Delta t^2/2$,
-$Q_{vv}=q_v\Delta t$. Это точная дискретизация Ван Лоана для белого
-ускорения интенсивности $q_v$: сравнение с матричной экспонентой даёт
-невязку $1.06\cdot10^{-22}$ при $\Delta t=0.02$ с, то есть согласие на
-уровне машинной точности. Отдельного фиктивного $q_s$ нет.
+## 4. Python и synthetic e2e
 
-### 4.4 Физика: перекрёстные проверки
+Python 3.11+, основным скриптам достаточно стандартной библиотеки:
 
-| Проверка | Число | Вывод |
-| :--- | :--- | :--- |
-| Служебное замедление $a_{\mathrm{svc}}=1.2$ м/с² требует | $\hat\mu\ge1.2/9.81=0.1223$ | на загрязнённой плёнке ($\mu=0.06$) потолок адгезии $0.589$ м/с²: команда служебного тормоза физически недостижима, и кулоновский клип в `plant` обязан связывать. Сценарии юза — не «поломка модели», а её корректная работа |
-| Разрыв Дэвиса на границе мёртвой зоны $v_\varepsilon=0.1$ м/с | $v=0.09\Rightarrow0$ Н; $v=0.11\Rightarrow804.5$ Н | скачок $804.5$ Н при 28 т = $0.029$ м/с²: артефакт модели, а не физика. На стоянке им владеет ZUPT, поэтому он не виден в метриках; при ползучем движении $0.05\ldots0.15$ м/с он существует и здесь заявлен явно |
-| Уклон $\to$ ускорение, $g\lvert i\rvert$ | 25 ‰ → $0.2453$; 32 ‰ → $0.3139$; 40 ‰ → $0.3924$ м/с² | оценка Строгинского спуска (25–40 ‰) даёт вклад в $F_{\mathrm{bias}}$ порядка $0.25\ldots0.39\,m$ Н; при 22 т это $5.4\ldots8.6$ кН, что покрывается режимным $q_{\mathrm{fb}}=3000$ Н/$\sqrt{\mathrm{s}}$ за $\sim3\ldots8$ с. Отсюда `coast_grade_route10` остаётся `OK` |
-| Пол $1$ м/с в $\kappa$: расхождение $0.5$ м/с при $v=0.14$ м/с | с полом $\kappa=0.5$; без пола $\kappa=3.57$ | без пола стояночный хвост даёт 357 % «скольжения» — латч сработал бы на каждой остановке. Пол обязателен; ортогональное свидетельство стоянки — `zupt_omega_only_s` (`F-10`) |
+```bash
+python3 tools/eval/test_eval.py
+python3 tools/synth/test_generate.py
+python3 tools/eval/no_gnss_scan.py
+python3 tools/synth/generate.py --out synth/runs
+python3 tools/eval/run_e2e.py --ukf standalone/build/replay_ukf
+python3 tools/synth/score.py --runs synth/runs
+python3 tools/eval/test_eval.py ReplayCatchupTests
+```
 
-### 4.5 Чего эти числа не доказывают
+CI выполняет эти команды. `mismatch_r0` является предусмотренным
+отрицательным контролем и исключением из общего fail gate e2e; зелёный job
+не означает HMI = 0 во всех сценариях. См. [checker.md](checker.md).
 
-Всё в §4 — синтетика и алгебра. Ни одно число не снято с вагона, с записи
-организатора и со стенда заказчика. Медиана шага `replay_ukf` $\approx10$ мкс
-снята на машине разработчика, не на целевом контроллере. Конверт $5$ м $+5$ %
-— калибровочная линия против GT, не пункт сертификации.
+[metrics.md](metrics.md) содержит **исторические** таблицы 0.0.10.
+Эта порция не переименовывает их в измерения изменённого ядра. Новая таблица
+должна включать сохранённый output, commit, seed, profile, join/coverage и
+метаданные платформы; одного запуска score без извлечённых чисел недостаточно.
 
-## 5. Что осталось сделать руками
+## 5. ROS CI и ручное воспроизведение
 
-1. Сверка нумерации пунктов Положения с подписанным PDF.
-2. Отправить письмо из [`NOTICE`](../NOTICE) на `fund@ftim.ru` и
-   `info@mttech.moscow` (пп. 14.4–14.6) и сохранить ответ.
-3. 25.09: положить bag в [`data/bags/`](../data/bags/README.md), прогнать
-   `inspect_bag.py` / `run_bag.py`.
+CI использует `ros:humble-ros-base`, rosdep, colcon build и ament gtests
+`test_types`, `test_plant`, `test_sca`, `test_ukf`; компилируются все четыре
+ноды. В настроенной ROS 2 Humble среде:
+
+```bash
+source /opt/ros/humble/setup.bash
+colcon build --packages-select tram_dr_localization \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+source install/setup.bash
+colcon test --packages-select tram_dr_localization \
+  --event-handlers console_direct+
+colcon test-result --all --verbose
+```
+
+Сборка нод и library gtests **не** равны запуску реального ROS-графа.
+Dockerfile/Compose и launch прочитаны, но их runtime-проверка на локальном
+стенде этого аудита не выполнялась.
+
+## 6. Открытая матрица испытаний
+
+| Область | Следующая проверка / ограничение |
+| --- | --- |
+| Multirate | Время датчика против filter dt; ring/freeze/omega-dot/hold/quantization |
+| ROS input | NaN brake, stale flags, параметры, очень малые dt и накопление времени |
+| ROS output | Quaternion, frames, неоцениваемые covariance, согласование diagnostics |
+| Checker/score | Нулевой знаменатель, исходный coverage, reuse GT и join tolerances |
+| Статистика | Нормированность NIS/NEES, false alarms, exposure, независимые поездки |
+| Физика | Полевые m/r0/тяга/Дэвис/уклон; статическое удержание, WSP и joint faults |
+| Производительность | WCET и latency на целевом контроллере, DDS/executor, HIL |
+| Safety | Независимый hazard analysis и действия потребителя, не только PL/HMI |
+
+Не все исходники/режимы имеют индивидуальные regression-тесты. Реальные
+записи заказчика, его контроллер и HIL здесь недоступны. Нельзя формулировать
+результат как «всё протестировано» или «готово к эксплуатации».
+
+Исторические audit/review-файлы сохраняют происхождение находок; актуальные
+контракты — [math.md](math.md), [architecture.md](architecture.md),
+[estimator-priors.md](estimator-priors.md), [integrity-risk.md](integrity-risk.md).

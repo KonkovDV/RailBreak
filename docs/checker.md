@@ -1,79 +1,85 @@
-# Чекер конверта
+# Независимый checker и правила интерпретации
 
-`tools/eval/check_envelope.py` не импортирует UKF. Точка не принимается,
-если нет интервала, нет статуса доверия или GT пробивает конверт
-$\lvert \hat s - s_{\mathrm{gt}}\rvert > 5 + 0.05\lvert s_{\mathrm{gt}}\rvert$ при статусе OK.
-
-Класс `ENVELOPE_GT` — детектор hazardously-misleading (HMI): система сказала
-OK, пока ошибка уже выше alert limit. Главная метрика — **HMI-rate**
-(доля OK-записей с пробитием), не RMSE. Чекер печатает `HMI-rate=…` и
-`missed_path_until_degraded` (ошибка пути в момент первого DEGRADED).
-
-Если в записи есть GT, конверт проверяется **всегда**. `--require-gt` —
-«ошибка, если GT нет», а не «не смотреть GT». Без GT: `ENVELOPE_GT skipped: no GT`,
-конверт не считается пройденным.
-
-| Класс | Когда |
-| --- | --- |
-| `NO_ESTIMATE` | нет `/tram/state_estimate` и нет jsonl UKF |
-| `NO_COVARIANCE` | ковариация нулевая или NaN |
-| `NO_CONFIDENCE` | нет OK / DEGRADED / LOST / UNINITIALIZED |
-| `GNSS_IN_FILTER` | нода фильтра подписана на Fix / IMU / cloud (`no_gnss_scan.py`) |
-| `UNINITIALIZED` | нет колёс на старте или стартовая $P_{ss}$ |
-| `ENVELOPE_GT` | HMI: конверт пробит при OK (только если GT есть) |
-
-Коды выхода: `0` чисто, `2` грязно, `1` ошибка вызова.
-`mismatch_r0` даёт HMI намеренно (`run_e2e.py` не валит сборку).
-Каноническое число этого сценария — **0.515** (архивное 0.42 соответствует старому
-клипу генератора), см. [`metrics.md`](metrics.md).
-
-RMSE vs baseline — строка отчёта, не класс отказа.
-Конверт 5 м + 5% — калибровочная линия vs GT, не сертификат.
-
-`nav_msgs/Odometry` сам по себе не несёт статус. `bag_to_jsonl.py` берёт
-OK / DEGRADED / LOST из `/tram/diagnostics` (окно 50 мс).
-$P_{ss}\ge 5\cdot10^5$ остаётся `UNINITIALIZED`, даже если diag говорит OK.
-
-rosbag2 без ROS: sqlite3 + CDR; mcap — опциональный `pip install rosbags`.
-
-```
-tools/eval/check_envelope.py
-tools/eval/inspect_bag.py
-tools/eval/bag_to_jsonl.py
-tools/eval/run_bag.py
-tools/eval/run_e2e.py
-tools/eval/baselines.py
-tools/eval/no_gnss_scan.py
-tools/eval/identify_coast.py
-tools/eval/identify_notch.py
-tools/eval/identify_jerk.py
-```
-
-## Второй слой: контракт-тесты ядра
-
-Чекер выше отвечает на вопрос «врёт ли оценка относительно GT». Он **не**
-отвечает на вопрос «соблюдает ли ядро свои инварианты безопасности»: сценария,
-где колёса согласно лгут, в конверте могут выглядеть безукоризненно.
-Поэтому второй, независимый слой — пять целей `ctest`:
-
-| Цель | Что доказывает |
-| --- | --- |
-| `test_core` | сквозное поведение фильтра, режимы, ZUPT, стоянка после реального торможения |
-| `test_integrity_contracts` | контракты целостности: свидетельство стоянки, $\omega$-only ZUPT, live-only $z$, `s_unbounded`, свежесть во времени, контракт входа, атомарный откат, отказ `chol`/`inv_spd` на NaN |
-| `test_ut_weights_psd` | 28 проверок алгебры весов scaled UT; **ядро не линкуется** — тест нельзя «починить» правкой фильтра |
-| `test_ut_weights_header` | сверка поставляемого `ut_weights.hpp` с той же алгеброй |
-| `test_prior_and_nis` | неподвижная точка дефектного mass prior и насыщение Huber-NIS; header-only |
+`tools/eval/check_envelope.py` читает JSONL или rosbag2 и не импортирует UKF.
+Он проверяет структуру записи и ошибку пути относительно GT. Это не полный
+валидатор всех PL-полей, скорости, карты или безопасности движения.
 
 ```bash
-cmake -S standalone -B standalone/build -DCMAKE_BUILD_TYPE=Release
-cmake --build standalone/build --parallel
-ctest --test-dir standalone/build --output-on-failure
+python3 tools/eval/check_envelope.py run.jsonl --require-gt
 ```
 
-Коды выхода тестовых бинарей: `0` — все проверки пройдены, ненулевой —
-печатается имя провалившегося контракта. В CI все пять целей собираются ещё и
-под ASan/UBSan (`detect_leaks=1`, `halt_on_error=1`); до этого под санитайзерами шёл
-только `test_core` — это была находка `F-11`.
+Если GT есть, проверка с ним выполняется всегда. `--require-gt` требует
+наличия GT; без GT и без флага выводится `ENVELOPE_GT skipped: no GT`.
+Это **пропущенная проверка**, не пройденный конверт. rosbag2 sqlite3 читается
+offline; для mcap может потребоваться дополнительная зависимость `rosbags`.
 
-Граница доверия: фикстура `zupt off stop` после правки `F-12` прогоняется
-целью `test_core` (`ctest`). Подробно — [`verification.md`](verification.md).
+## Формат и join
+
+Оценки распознаются по topic `/tram/state_estimate`, `/tram/odometry`
+либо `kind: est`; GT — по `/gt/…` либо `kind: gt`.
+Принимаются пары имён t/t_s, s/s_m, v/v_mps, p_ss/pose_cov_0,
+p_vv/twist_cov_0; confidence либо status.
+
+GT сопоставляется по ближайшему времени в пределах **0.05 s**.
+Одна точка GT может использоваться несколько раз; это не one-to-one join.
+Нельзя считать все полученные пары независимыми испытаниями или смешивать
+эти результаты с другим tolerance без явного указания.
+
+## Фактические классы нарушений
+
+| Класс | Условие |
+| --- | --- |
+| `INVALID_GT` | Нет конечных времени/пути в GT |
+| `INVALID_STATE` | Нет конечных t, s или v в оценке |
+| `NO_COVARIANCE` | Отсутствует/нечисловая P_ss либо P_vv, или обе равны нулю |
+| `INVALID_COVARIANCE` | Отрицательная P_ss или P_vv |
+| `NO_CONFIDENCE` | Нет распознаваемого статуса |
+| `UNINITIALIZED` | Оценка явно не инициализирована |
+| `UNMATCHED_GT` | Есть GT-поток, но OK-кадр нельзя сопоставить/оценить |
+| `ENVELOPE_GT` | Matched OK и ошибка пути превышает GT-порог |
+| `NO_ESTIMATE` | Нет распознанных оценок |
+
+Статический `GNSS_IN_FILTER` относится к отдельному `no_gnss_scan.py`,
+не к `check_rows`. Правила преобразования Odometry/diagnostics и большой
+стартовой covariance реализованы также в bag adapter; их нельзя смешивать
+с собственными проверками checker.
+
+Коды CLI: 0 — нарушений этим checker не найдено; 2 — нарушения; 1 —
+предусмотренная ошибка вызова/отсутствия требуемого GT. Необработанные ошибки
+разбора требуют отдельного hardening. Сообщение `checker empty` означает
+пустой список hits, а не наличие исчерпывающих доказательств безопасности.
+
+## HMI-rate
+
+$$
+|\hat s-s_{gt}|>5+0.05|s_{gt}|
+$$
+
+при статусе OK даёт ENVELOPE_GT. HMI-rate — `n_hmi/n_ok`, где n_ok считается
+**среди matched OK с пригодным s**, а не среди всех исходных записей.
+`missed_path_until_degraded` — ошибка пути при первом сопоставленном DEGRADED,
+не доказанная максимальная ошибка до любой формы отказа (например, LOST).
+
+При нулевом n_ok текущий код печатает `HMI-rate=0.000000 (0/0)`.
+Для отчёта это **N/A: нет подходящей экспозиции**, а не успешное нулевое HMI.
+Нужно отдельно сообщать availability статуса OK, coverage исходного потока,
+число GT-сопоставлений и длительность. `score.py` требует дальнейшего аудита
+coverage до/после join. Код метрик в данной порции не изменён.
+
+`mismatch_r0` — ожидаемый synthetic negative control, для которого e2e
+не валит общую сборку. Историческое округлённое HMI 0.515 относится к
+прогону 0.0.10 в [metrics.md](metrics.md), не к любому новому HEAD.
+Наличие известного отрицательного контроля не делает соответствующий
+режим допустимым для эксплуатации.
+
+## Второй слой — regression-тесты ядра
+
+Checker может не обнаружить дефект, если сценарий не возбуждает его или
+модель GT разделяет ту же ошибку. Поэтому нужны отдельные алгебраические,
+физические и интеграционные тесты с независимыми reference-формулами.
+В CMake зарегистрированы **восемь** наборов; Release и ASan/UBSan запускают
+их через CTest. Полный список, команды и наблюдавшиеся результаты:
+[verification.md](verification.md).
+
+Ни этот checker, ни regression-тесты не устанавливают SIL/THR.
+Пределы интерпретации: [integrity-risk.md](integrity-risk.md).
