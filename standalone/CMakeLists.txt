@@ -34,6 +34,14 @@ add_executable(test_ut_weights_psd test_ut_weights_psd.cpp)
 add_executable(test_ut_weights_header test_ut_weights_header.cpp)
 target_include_directories(test_ut_weights_header PRIVATE ${PKG}/include)
 
+# F-23 and F-24 witnesses: the Gauss-Markov (Ornstein-Uhlenbeck) stationary
+# prior that replaces the repeatedly refused mass pseudo-measurement, and the
+# saturation of a NIS evaluated against a Huber-inflated S. Header-only like
+# the target above - it includes prior.hpp and links no core sources, so it
+# also runs under the sanitizers.
+add_executable(test_prior_and_nis test_prior_and_nis.cpp)
+target_include_directories(test_prior_and_nis PRIVATE ${PKG}/include)
+
 add_executable(replay_ukf replay_ukf.cpp ${TRAM_DR_CORE_SRC})
 target_include_directories(replay_ukf PRIVATE ${PKG}/include)
 
@@ -42,6 +50,7 @@ add_test(NAME test_core COMMAND test_core)
 add_test(NAME test_integrity_contracts COMMAND test_integrity_contracts)
 add_test(NAME test_ut_weights_psd COMMAND test_ut_weights_psd)
 add_test(NAME test_ut_weights_header COMMAND test_ut_weights_header)
+add_test(NAME test_prior_and_nis COMMAND test_prior_and_nis)
 
 if(MSVC)
   set(_tram_dr_warn /W4)
@@ -52,4 +61,5 @@ target_compile_options(test_core PRIVATE ${_tram_dr_warn})
 target_compile_options(test_integrity_contracts PRIVATE ${_tram_dr_warn})
 target_compile_options(test_ut_weights_psd PRIVATE ${_tram_dr_warn})
 target_compile_options(test_ut_weights_header PRIVATE ${_tram_dr_warn})
+target_compile_options(test_prior_and_nis PRIVATE ${_tram_dr_warn})
 target_compile_options(replay_ukf PRIVATE ${_tram_dr_warn})

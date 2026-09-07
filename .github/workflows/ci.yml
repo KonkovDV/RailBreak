@@ -71,7 +71,7 @@ jobs:
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           cmake --build standalone/build-asan \
             --target test_core test_integrity_contracts test_ut_weights_psd \
-                     test_ut_weights_header \
+                     test_ut_weights_header test_prior_and_nis \
             --parallel
           export ASAN_OPTIONS=detect_leaks=1
           export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
@@ -79,6 +79,7 @@ jobs:
           ./standalone/build-asan/test_integrity_contracts
           ./standalone/build-asan/test_ut_weights_psd
           ./standalone/build-asan/test_ut_weights_header
+          ./standalone/build-asan/test_prior_and_nis
 
   ros:
     # Compiles the four ROS nodes and runs ament gtests. Previously invisible
