@@ -42,7 +42,10 @@ logit с ограничениями. Ускорение — диагностик
 2. Соблюдение null-memory контракта PT1/jerk и остановка pure coast на нуле.
 3. Единое расписание mass prior при обычных колёсах, silence и rest.
 4. Три новых regression-набора, восемь CTest targets в Release и ASan/UBSan.
-5. Согласованное описание математики, runtime-контрактов и границ проверки.
+5. HMI=N/A без экспозиции, исходные знаменатели synthetic coverage и
+   устойчивое GT-сопоставление; 23 Python regression-теста.
+6. Согласованное описание математики, runtime-контрактов и границ проверки,
+   структурная проверка текущих документов/версий в CI.
 
 Поведение проверено в ограниченных synthetic/contract условиях. Метрики
 0.0.10 сохранены как исторические; автоматически приписывать их 0.0.11 нельзя.
@@ -52,10 +55,11 @@ logit с ограничениями. Ускорение — диагностик
 ## Ограничения и следующий уровень готовности
 
 Остаются multirate timing/freeze, ROS NaN/freshness/parameter validation,
-pose/quaternion/frame/covariance, GT join/coverage и нулевой знаменатель HMI.
-Нужны реальные профили и записи, runtime graph tests, независимые mismatch
-испытания, WCET на целевом контроллере и HIL. Пример route_10 не заменяет
-обследованную карту пути. PL/HMI и зелёный CI не устанавливают SIL/THR.
+pose/quaternion/frame/covariance, интерполяция/coverage bag-пути, time-weighted
+exposure и strict-JSON export. Нужны реальные профили и записи, runtime graph
+tests, независимые mismatch испытания, WCET на целевом контроллере и HIL.
+Пример route_10 не заменяет обследованную карту пути. PL/HMI и зелёный CI
+не устанавливают SIL/THR.
 
 Запуск и навигация: [README](../README.md).
 Формулы: [math.md](math.md), [estimator-priors.md](estimator-priors.md).
