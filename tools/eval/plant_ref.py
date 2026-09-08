@@ -223,7 +223,10 @@ def _implicit_wheel_omega(
         F = force_at(w)
         g = w - omega - (dt / J) * (torque - r * F)
         if abs(g) <= 1e-10:
-            return max(-OMEGA_MAX, min(OMEGA_MAX, w)), F
+            bounded_w = max(-OMEGA_MAX, min(OMEGA_MAX, w))
+            # The returned force must use the returned (possibly clipped) state.
+            # Clipping itself need not preserve the unconstrained BE residual.
+            return bounded_w, F if bounded_w == w else force_at(bounded_w)
         dw = 1e-6
         dF_domega = (force_at(w + dw) - F) / dw
         # force_at already includes r*omega: this derivative is wrt omega,
