@@ -1,9 +1,11 @@
 # Проверки и граница доказанного
 
-Редакция `tramDR-0.0.11` на `main`, 07.09.2026. «Тест прошёл» означает выполнение
+Редакция `tramDR-0.0.11`, 08.09.2026; новый baseline `main`:
+`38f65c1912ffc6ac4598f949f88af4e7e0cb6f8c`. «Тест прошёл» означает выполнение
 конкретного набора проверок на конкретной версии, а не проверку всех
-режимов вагона или сертификацию. Актуальный идентификатор — `kModelVersion`
-в `tram_dr_localization/include/tram_dr_localization/types.hpp`.
+режимов вагона или сертификацию. `kModelVersion` в
+`tram_dr_localization/include/tram_dr_localization/types.hpp` — версия модели,
+не уникальный идентификатор сборки: для evidence нужен также commit.
 
 ## 1. Воспроизводимая сборка без ROS
 
@@ -47,7 +49,7 @@ ctest --test-dir standalone/build-asan --output-on-failure
 executable. Добавление нового теста в CMake больше не должно молча исключать
 его из санитайзеров. ASan/UBSan не заменяют model validation или race testing.
 
-## 3. Фактические regression-свидетельства этой порции
+## 3. Исторические regression-свидетельства (07.09)
 
 Baseline: `91e20a74f0b526fc782b4eb7ddfd3afff73d575b`.
 Численная порция: `ec5f5cd28174e191cb8f3ac39e191bd300d1d08e`.
@@ -108,6 +110,18 @@ ASan runtime. Локально запускались перечисленные
 и их зависимости; UKF они не запускают. Намеренная подмена линейного контакта
 в physics witness описана отдельно и не выдаётся за физическую GT-валидацию.
 
+### Новый checkpoint (08.09)
+
+`82ebf744d6237c2eebf6a2074254a6ee288240b0` = новый baseline `38f65c1` +
+документальная OSINT-порция. Все четыре job успешны в обоих runs:
+[PR #6](https://github.com/KonkovDV/RailBreak/actions/runs/34199641322),
+[push](https://github.com/KonkovDV/RailBreak/actions/runs/34199455386).
+Это свежая проверка дерева после изменений владельца, не перенос зелёного
+статуса PR #5. CI по-прежнему не запускает полноценный ROS runtime graph.
+Локально повторены 13 physics + 23 metric tests. Состав HMI-таблиц проверен
+отдельно как арифметика документа; новая таблица RMSE не измерялась.
+Последующие commits требуют своих checks.
+
 ## 4. Python и synthetic e2e
 
 Python 3.11+, основным скриптам достаточно стандартной библиотеки:
@@ -139,10 +153,14 @@ refs.md: относительные ссылки, некоторые пути и
 из общего fail gate e2e; зелёный job не означает HMI = 0 во всех сценариях.
 См. [checker.md](checker.md).
 
-[metrics.md](metrics.md) пересчитан на `tramDR-0.0.11` (seed 42) после слияния
-в `main`. HMI 0 на 17/18; `mismatch_r0` канон **0.515**. На `slide_*`
-относительно 0.0.10 сдвинулись единицы кадров DEGRADED/LOST; RMSE в пределах
-округления прежней таблицы. Не продавать это как улучшение фильтра.
+[metrics.md](metrics.md) публикует числа для `tramDR-0.0.11` (seed 42).
+В основной HMI-таблице показан ноль у **18/19** сценариев; четыре отдельных
+route-сценария дают ноль, итого **22/23** в двух таблицах.
+`mismatch_r0` — **0.515**. Это пересчёт строк документа, не независимое
+подтверждение опубликованных траекторий. Ноль условной HMI при трёх
+OK-кадрах нельзя выдавать за подтверждение малой вероятности риска.
+На `slide_*` заявлены небольшие изменения DEGRADED/LOST относительно 0.0.10
+при RMSE в прежнем округлении; это не доказанное улучшение фильтра.
 
 ## 5. ROS CI и ручное воспроизведение
 
@@ -169,13 +187,14 @@ Dockerfile/Compose и launch прочитаны, но их runtime-провер�
 | Область | Следующая проверка / ограничение |
 | --- | --- |
 | Multirate | Время датчика против filter dt; ring/freeze/omega-dot/hold/quantization |
-| ROS input | NaN brake на границе ноды отвергается; нужны ament-тесты stale/reordered и leftover catch-up |
-| ROS output | Identity quaternion и $P=10^6$ на неоцениваемых осях; статус на diagnostics. Живой граф не в CI |
+| ROS input | В новом исходнике подтверждено отбрасывание NaN brake; нужны регрессии invalidation/recovery, stale/reordered и leftover catch-up |
+| ROS output | В исходнике подтверждены identity quaternion и $P=10^6$ на неоцениваемых осях; статус на diagnostics. Frame semantics/потребитель и живой граф не проверены |
 | Bag/метрики | Интерполяция, экстраполяция и coverage bag-пути; time-weighted exposure; strict JSON и malformed input |
 | Статистика | Нормированность NIS/NEES, false alarms, exposure, независимые поездки |
 | Физика | Полевые m/r0/тяга/Дэвис/уклон; статическое удержание, WSP и joint faults |
 | Python generator | Полная валидация входов, clipping/корни и coupled-ODE convergence; не весь solver domain покрыт fixtures |
-| Источники | Первоисточники, точные редакции стандартов и применимость к конкретному вагону; см. refs.md |
+| Источники | Выборочная проверка первоисточников выполнена; точный объём и непрочитанное — [OSINT/triage](review/osint-triage-2026-09-08.md), применимость к вагону остаётся открытой |
+| Презентация | Текст pitch синхронизируется отдельно; бинарный PPTX не извлечён и не прошёл содержательный/визуальный аудит |
 | Производительность | WCET и latency на целевом контроллере, DDS/executor, HIL |
 | Safety | Независимый hazard analysis и действия потребителя, не только PL/HMI |
 
