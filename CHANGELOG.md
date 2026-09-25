@@ -1,0 +1,400 @@
+# История версий ядра
+
+Версия ядра — константа `kModelVersion` в
+`tram_dr_localization/include/tram_dr_localization/types.hpp`; она же уходит
+в `/tram/diagnostics` ключом `model_version`.
+
+Формат записи: **что изменилось → чем проверено → что осталось открытым.**
+Запись без третьей графы считается неполной.
+
+* Реестр находок: issue [#3](https://github.com/KonkovDV/RailBreak/issues/3).
+* Граница проверенного (исполнено / прочитано / не запускалось): [`docs/verification.md`](docs/verification.md).
+* Протокол внешнего триажа: [`docs/review/external-triage.md`](docs/review/external-triage.md).
+* Протокол внешнего Red Team прохода: [`docs/review/external-redteam.md`](docs/review/external-redteam.md).
+* Red Team 0.0.10: [`docs/review/redteam-010.md`](docs/review/redteam-010.md), триаж [`docs/review/triage-010.md`](docs/review/triage-010.md).
+* OSINT: [`docs/review/osint-triage.md`](docs/review/osint-triage.md).
+* Контакт Python-twin: [`docs/review/contact-force.md`](docs/review/contact-force.md).
+* Самопроверка ветки исправлений: [`docs/audit-integrity.md`](docs/audit-integrity.md).
+* Red Team (фаза 0.11): [`docs/review/redteam-phase0.md`](docs/review/redteam-phase0.md), триаж [`docs/review/triage-phase0.md`](docs/review/triage-phase0.md).
+
+---
+
+## tramDR-0.0.11 + фаза 0 хакатона
+Поведение по умолчанию то же, что 0.0.11. Новые режимы выключены. Версия ядра
+не поднималась: синтетические таблицы seed 42 не пересчитывались в этом
+коммите как новое качество фильтра.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `H0-01` | `brake_source`: topic / notch / none; отрицательная ручка — диссипативный тормоз | `test_hackathon_phase0`, `test_types`, `test_ukf` | семантика их bag |
+| `H0-02` | Общий разбор параметров ноды и `replay_ukf --set/--params` | `test_hackathon_phase0` param table | ROS declare vs таблица при новом ключе |
+| `H0-03` | M2 rank-one prior радиуса, M3 interval monitor, SCA extremal | `test_hackathon_phase0`, `test_sca` | truncate/integrity на полевых юзах |
+| `H0-04` | Остаточный \(\phi^\top\theta\), ingest, inject, bench, identify | `tools/eval/test_hackathon_phase0.py`; e2e HMI `mismatch_r0`=0.514667 | подгонка на записи организатора; OLS Дэвиса на одном выбеге путает \(A\) и \(B\) |
+| `H0-05` | CKF в [refs.md](docs/refs.md): TAC 54(6), не TSP | `test_docs.py` | полный текст Arasaratnam |
+| `H0-06` | Каркасы TBD: numbers, вопросы, Q&A, ROS rehearsal | наличие файлов | Docker-репетиция на Humble |
+| `H0-07` | ZUPT: locked-wheel slide under `brake_source=notch` is not rest; ingest hold-last; residual YAML + \(Q_v\); Davis CI on a multi-speed generator | `test_hackathon_phase0` C++/Python; `test_plant_contracts` \(\mu\) clip | одна запись выбега по-прежнему плохо обусловлена; 0.11 Humble не запускался |
+| `H0-08` | T0 pipeline: csv→bag, time splits, physics QA, M6 gramian, M9 Stanford/\(\kappa_{ob}\), M10 `max` tick, runbook | `test_hackathon_t0.py`; `replay_ukf` stderr `max=` | Docker Humble launch; запись организатора |
+| `H0-09` | `ingest_bag`: unpack `iter_messages` as \((t_{ns},name,type,blob)\), \(t=t_{ns}10^{-9}\), payload `data`; GT columns survive roundtrip; empty notch is hold-last | `test_csv_to_bag_ingest_holds_notch` | неканонические имена топиков — через `inspect_bag` guess, не угадывание полей |
+| `H0-10` | T0: inspect bag → contract → splits → identify(train) → inject catalog on val only → M6/M9/M10; provenance SHA-256 + git | `test_hackathon_t0.py` (inspect, inject catalog, `gt_columns yes`) | Humble launch; test split unused until  |
+| `H0-12` | T0 v1: gated `identify_replay.yaml` → `replay_ukf --params`; Stanford after \(\kappa_{ob}\); M3 monitor; val inject on full recording; SVG | `test_hackathon_t0.py`; `to_replay_yaml` drops unphysical \(j_{max}\) | Humble; test unused |
+| `H0-13` | M4: `probe_model_mismatch` command-only 10 s forecast, residual YAML default-off; M7: (1+1)-ES on \(\log q_v\) val-only, never a default | `test_model_mismatch_horizon_improves`; `test_hackathon_t0` residual/openloop | CMA-ES 200 evals on organiser val ; M5/M11 off |
+| `H0-14` | M1 Davis probe: multi-speed coast CI covers Combino truth; M6 gramian by traction/coast/brake; Python/C++ residual grid lockstep | `test_multispeed_covers_truth`; `residual_python_grid`; `test_regimes_each_have_rank` | organiser bag may still have \(n_{coast}=0\); Docker Humble |
+| `H0-15` | M5 `r_adapt` and M11 `stop_update` default-off; bag QoS; adaptive block bootstrap; T0 timing/dropout SVG; parquet without pandas | `r_adapt_grows_on_mismatch`; `test_csv_to_bag` QoS; `test_hackathon_t0` | CMA-ES ; organiser bag  |
+| `H0-16` | Humble Docker rehearsal: `files:` + numeric rmw QoS; `live`/`replay --clock`; echo одного Odometry; `map_projector` больше не передаёт `{}` как descriptor | play clean; echo \(s=0.709\), `n_omega_used=4`, DEGRADED на том кадре; colcon без stderr; [redteam ](docs/review/redteam-phase0.md) | bag организатора; CMA-ES  |
+| `H0-17` | `clock_stall_s`: если ROS-время не сдвигается, возраст диагностики растёт по steady clock; в \(dt\) фильтра не входит | Humble echo: `clock_stall_s=6.46`, `wheels_fresh=0`, LOST на хвосте после bag; Python `test_hackathon_phase0` / `test_hackathon_t0` / `test_docs` | bag организатора; CMA-ES ; пп. 14.4–14.6 |
+| `H0-18` | CTest Release 9/9; тег `pre-hack-baseline` на `da17465`; `bench.py --odom-bag` скорит `/tram/state_estimate` тем же `score_method`, дубликаты замершего штампа не считает | `ctest -C Release`; `RosOdometryBenchTests`; rehearsal 60 кадров, RMSE\(_s=0.027\) м | bag организатора; CMA-ES ; пп. 14.4–14.6 |
+| `H0-19` | Третья зона тяги `v2_mps` (0 = прежняя гипербола); вход ноды `KeepLast(10)` | `test_plant_contracts` колено \(1/v^2\); Python twin тот же масштаб | \(r_0\) и \(\gamma\) Львёнка не выдуманы; bag  |
+
+---
+
+## tramDR-0.0.11
+Численные контракты covariance/UT, память привода, расписание априора массы,
+знаменатели HMI/coverage и Python-twin. Константа и `package.xml` подняты
+на ветке аудита **до** пересчёта seed 42; после слияния в `main` пакет
+пересчитан на том же seed. Не продавать сдвиг RMSE генератора как улучшение UKF.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `A11-01` | `project_pd`: клип $\lambda$ к `repair_floor = nextafter(\lambda_{\mathrm{floor}}+16n\varepsilon\sigma,+\infty)$, не ровно $\lambda_{\mathrm{floor}}$; успех по-прежнему chol$(A-\lambda_{\mathrm{floor}}I)$; false — побайтовый откат | `test_numerical_edges` | — |
+| `A11-02` | Окно scaled-UT $\alpha$ через reciprocal endpoints (без вычитания близких квадратов и переполнения $\beta^2$); $\alpha\le 0$ отвергается | `test_ut_weights_psd`, `test_ut_weights_header`, `test_numerical_edges` | Luo–Moroz достаточно, не необходимо для PSD |
+| `A11-03` | PT1/jerk только при `f_trac_filt != nullptr`. Чистый выбег (`f_cmd=f_bias=i=0`) тоже стоп на нуле, без численного разворота. Уклон/bias/остаточная тяга в эту ветвь не входят | `test_plant_contracts` | 3-arg overload остаётся алгебраическим (`RB08-14`) |
+| `A11-04` | `apply_mass_prior()` на каждом принятом инициализированном шаге (silence, все-NaN, rest/ZUPT), внутри health/rollback, не только в wheel-update | `test_prior_scheduling` | `fill_q` глушит log-mass RW, пока априор активен |
+| `A11-05` | Чекер: нет matched OK → `HMI-rate=N/A (0/0)`, не нулевой риск | `test_metric_contracts` | time-weighted exposure по-прежнему нет |
+| `A11-06` | `score.py`: nearest finite GT, исходные $n_{\mathrm{gt}}/n_{\mathrm{hat}}$, `n_gt_matched`, `estimate_coverage`; допуск стыковки 0.011 с | `test_metric_contracts` | чекер по-прежнему 0.05 с |
+| `A11-07` | Python Jacobian колеса $g_p=1+(dt/J)\,r\,\partial F/\partial\omega$ (сила уже по $\omega$, один $r$, не $r^2$). `None` = алгебра $F=F^*$; `[]` = холодный старт. Stop event как C++ twin | `test_python_plant_contracts` | генератор контакта — отдельная модель, не online UKF |
+| `A11-08` | Три C++ regression-набора; **8** CTest targets; ASan гоняет `ctest`, не список exe. `test_docs.py` в python-job | CI `python`/`cpp`/`asan`/`ros` на PR #5 | runtime ROS-граф не в CI |
+| `RT10-02` | Дубликат/skip штампа считает `stamp_skipped`, не `dt_floored`. Поведение фильтра то же | чтение `step_filter` | нода не в `ctest` |
+| `RT10-03` | `nav_msgs/Odometry`: identity quaternion; неоцениваемые оси $P=10^6$, не нули. Confidence по-прежнему на `/tram/diagnostics` | чтение `publish_state` | живой ROS-граф не в CI |
+| `A11-09` | `dt_max_s > 0.20` отвергается на старте ноды (потолок ядра) | чтение конструктора | freeze ring 128 при 1 ms не покрывает 0.5 с |
+| `RT08-07` | Python `_implicit_wheel_omega`: после клипа $\omega$ сила пересчитывается для возвращённого состояния, не старая $F$ | `test_contact_contracts` | online UKF не менялся; BE residual при насыщении ненулевой |
+| `RT08-01` | Убрано безусловное «кодом закрыто»; HACKATHON/README/pitch согласованы с открытой матрицей | OSINT-триаж | freeze/ROS graph/bag по-прежнему открыты |
+| `F-13c` | Таблицы `docs/metrics.md`: основная HMI=0 у **18/19**; с route — **22/23**. `mismatch_r0` **0.515**. Это арифметика опубликованных строк, не новый replay | подсчёт таблиц | bag организатора; PPTX сверять с `pitch.md` |
+
+Не закрыто человеком: пп. 14.4–14.6, bag организатора, текст PDF Положения. F-01 не ослабляли. `kModelVersion` после `RT08-07` не поднимали: ядро C++ не менялось.
+
+---
+
+## tramDR-0.0.10
+Пакет аудита `RB08-01`…`RB08-32` (снимок 0.0.8, не путать с `F-21`…`F-36`).
+Константа и `package.xml` подняты **после** пересчёта seed 42.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `RB08-01` | Forced ZUPT на $\lvert v\rvert\ge 0.35$ ставит `path_integrity_latched`; сброс только `reset()`. Восстановленные колёса не возвращают HMI-OK пути | `test_core` / `test_integrity_contracts` | не снимать защёлку таймером |
+| `RB08-02` | Отвергнутый кадр (dt/ручки/численный откат) тоже защёлкивает путь; $P_{ss}$ растёт на $( \max(\lvert v\rvert,1)\Delta t)^2$ | те же + reject `dt=\mathrm{NaN}` | скорость может стать OK отдельно |
+| `RB08-03` | `project_pd(false)` восстанавливает вход побайтно; успех — chol$(A-\lambda_{\mathrm{floor}})$ | `test_core`, `test_integrity_contracts` | — |
+| `RB08-04` | `stamped_interval`: якорь без выдуманного dt, OOO не двигает штамп, дубликат — skip, хвост catch-up не в пол | `test_core` timebase; узел `state_estimator_node` | ROS-нода не в `ctest` |
+| `RB08-05` | Публикация не сбрасывает `input_fault_`; LOST агрегата тянет split-каналы в LOST | чтение `publish_state` | — |
+| `RB08-06` | Старт `brake_valid=false`; тормоз стареет даже без ручки | чтение `resolve_input` | — |
+| `RB08-07` | Watchdog: heartbeat только `status.name=="tram_dr"`; `age_s<0` → STALE | чтение `fault_monitor_node` | — |
+| `RB08-08` | `project_s` отвергает неfinite $s$; проектор не публикует при сбое | `test_core` `project_s` NaN | — |
+| `RB08-09` | Vehicle YAML последним в launch адаптера и оценщика | `replay.launch.py` | — |
+| `RB08-10` | `NotchEncoding::{kAuto,kNormalized,kDiscrete}`; Int8/Int16 → discrete | `test_core` map_notch; `test_eval` | Combino auto без изменений |
+| `RB08-11` | `freeze_s` — прошедшее время, кольцо 128, минимум 5 отсчётов | `test_core` 5 мс × 30 ≠ freeze | — |
+| `RB08-12` | $W_c^{(0)}\ge 0$ — достаточная политика, не необходимое PSD | `test_ut_weights_psd` 28 проверок | — |
+| `RB08-13` | Passive brake не реверсирует $v$ (частичный dt до нуля) | `test_core` plant_step | — |
+| `RB08-14` | Канал A шагает `plant_step` с PT1-состоянием, не алгебраическим `plant_forces` | чтение `step_channel_a` | 3-arg overload остаётся алгебраическим |
+| `RB08-15` | Синтетический тормоз не крутит $\omega$ назад; WSP lock ≤0.4 с, затем dump | `test_generate` slide_brake $\omega\ge 0$, циклы $<0.55$ с | RMSE slide_* не сравнивать с 0.0.9 как «улучшение UKF» |
+| `RB08-16` | Квант энкодера: целые импульсы, $\omega=\Delta\theta/\Delta t$ | `test_generate` | — |
+| `RB08-17` | Чекер fail-closed: NaN/$P<0$ → `INVALID_*`, не HMI-rate 0 | `test_eval` CheckerTests | — |
+| `RB08-18` | Стыковка GT по времени (`PAIR_TOL_S=0.05`), два прохода, `UNMATCHED_GT` | `test_eval` time join | — |
+| `RB08-19` | E2E: пустой `synth/runs` rc=2; `EXPECTED_HMI` только если все hits — `ENVELOPE_GT` | `run_e2e.py` seed 42 | — |
+| `RB08-20` | bag→JSONL: ручка/тормоз stale 0.25 с; диагностик только `/tram/diagnostics` | `test_eval` | — |
+| `RB08-21` | `/gps/speed` не роль notch; notch score ≥3 | `test_eval` | — |
+| `RB08-22` | CDR: ident `00 01` (LE); усечение — ошибка, не короткий успех | `test_eval` roundtrip / BE reject | — |
+| `RB08-23` | Несколько `.db3` — merge по штампу; канон `/tram/wheel_odom` побеждает только если он **есть в bag** | `test_eval` customer names | — |
+| `RB08-24` | Score: один join $(t,s,v,P)$; поле `coverage`; NEES по выровненным тройкам | `score.py` / `test_eval` NEES | — |
+| `RB08-25` | Документы: «политика $W_c^{(0)}\ge 0$», freeze во времени | `docs/math.md`, `brief.md`, `refs.md` | — |
+| `RB08-26` | `stop_associate.py`: `import sys`; dwell до EOF | `test_eval` | — |
+| `RB08-27` | `replay_ukf` JSON: `max_digits10` | `test_eval` epoch round-trip | — |
+| `RB08-28` | CSV: точные `w0`…`w5`, нужны `t` и колёса; иначе `--legacy-csv` | чтение `load_csv` | — |
+| `RB08-29` | `identify_coast` / `profile_from_bag`: dt из $t$, конечный $r_0\in(0.15,0.60)$ | `test_eval` | — |
+| `RB08-30` | `pack_evidence` хеширует все файлы прогона; plot не копирует GT как UKF; CI cpp гоняет `ReplayCatchupTests` | CI yaml / `plot_run.py` | — |
+| `RB08-31` | `run_bag --vehicle` / `--require-gt` fail-closed | `test_eval` | — |
+| `RB08-32` | PoseStamped без выдуманного $v=0$ (`v` is `None`) | `test_eval` | — |
+| `F-13c` | `docs/metrics.md` и `evidence/plots-pitch/` на 0.0.10. HMI 0 на 17/18; `mismatch_r0` **0.515**. `slide_brake` missed path **0.14 м**; в конце 24 кадра LOST (генератор RB08-15) | `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` | bag организатора  |
+| `RT10-01` | `replay_ukf`: дубликат/регресс штампа не выдумывает $0.001\,\mathrm{s}$; хвост catch-up применяется как есть. Нода: leftover после catch-up не отбрасывается; catch-up — `while (dt>dt_max)`, не `floor` с нулевым хвостом | `test_eval` `test_duplicate_stamp_does_not_invent_dt`; чтение `step_filter` | ROS leftover не в `ctest` |
+| `RT10-05` | Заголовок CSV с CRLF (диалект Python `csv.excel` на Linux) обрезал последнюю ось (`w3` + CR). Неполный пакет → все кадры `DEGRADED`; e2e job `cpp` красный при тех же Windows-метриках | `test_eval` `test_crlf_csv_keeps_all_four_wheels`; `generate.py` пишет LF | — |
+
+Не закрыто кодом: пп. 14.4–14.6, bag организатора. F-01 не ослабляли: 0.32 с нулей на выбеге не ZUPT и не path-latch. `kModelVersion` после `RT10-01`/`RT10-05` не поднимали: это разбор времени/CSV, не модель.
+
+---
+
+## tramDR-0.0.9
+Алгоритм оценивания изменился относительно измеренного 0.0.8 (априор массы,
+NIS, детектор common-mode). Константа и `package.xml` подняты **после**
+пересчёта seed 42. В коммитах `ca0239e`/`ee7be70` те же правки были названы
+`F-23`/`F-24`; в реестре 0.0.7 эти номера уже заняты (`brake_valid` /
+`map_notch`). Здесь они `F-34` / `F-35`.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `F-34` | Повторное слияние $z=\log m_0$ раз в секунду прижимало $\sigma_{\log m}$ к $0.0293$ ($\pm822$ кг). Gauss–Markov, стационарная дисперсия ровно $R=0.09$; `q[kMass]=0`, пока априор активен. ROS-параметр `mass_prior_tau_s` | `test_prior_and_nis`; `test_core`: после 80 с $P_{mm}>0.02$, не $8.61\cdot10^{-4}$ | — |
+| `F-35` | NIS считался по Huber-$S$ и насыщался на $c^2=9$. Gain остаётся по инфлейченной $S$; статистика — по сырой. `n_huber_capped` на `/tram/diagnostics` | `test_prior_and_nis` | SCA по-прежнему съедает грубый выброс раньше Huber |
+| `F-36` | Честный $P_{mm}$ усиливал gain к колёсам: `slide_*` в CI давали 4 кадра HMI. Common-mode $\kappa$ — против канала A (plant без $\omega$), публикуемый $\kappa$ по-прежнему против $\hat v$ | `test_core` locked slide не OK; e2e `slide_brake` HMI 0, 404 OK | не переносить κ-латч на $\hat v$ |
+| `F-13c` | `docs/metrics.md` и `evidence/plots-pitch/` на 0.0.9. HMI 0 на 17/18; `mismatch_r0` **0.515**. `mismatch_jerk_slip` missed path **0.39 м** (было 0.04 м) | `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` | bag организатора  |
+
+Не закрыто кодом: пп. 14.4–14.6, bag организатора.
+
+---
+
+## tramDR-0.0.8
+Поведение фильтра и обвязки изменилось относительно измеренного 0.0.7
+(F-21…F-33). Константа и `package.xml` подняты **после** пересчёта seed 42.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `F-01` | Это **контракт**, не открытый баг: 0.32 с нулей на выбеге не ZUPT. Иначе снова ложный ноль скорости. Стоянка ≥2 с — `F-10` (`zupt_forced`, не молчаливый OK) | `test_core` / `test_integrity_contracts` | не ослаблять |
+| `F-26`…`F-31` | bag→CSV, `map_notch`, catch-up replay, rosdep, невалидная ручка | `test_eval` 88, `ctest` 4/4 | — |
+| `F-32` | TwistStamped — один канал + NaN, не $n$ копий $v$ (тот же класс, что F-26) | `test_eval` twist $w_{1..3}$ NaN | — |
+| `F-33` | catch-up replay/ноды до 1 ч (18000×0.20 с); разрыв 25 с интегрируется и измеряется | `test_eval` gap $>20$ с, $s>80$ м | дольше часа — fail closed |
+| `F-13c` | `docs/metrics.md` и `evidence/plots-pitch/` на 0.0.8. HMI 0 на 17/18; `mismatch_r0` **0.515**. Slip/slide деградирует раньше (F-21): `slide_brake` missed path 0.14 м | `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` | bag организатора  |
+| пп. 14.4–14.6 | текст письма в `NOTICE` | чтение | **отправить** на `fund@ftim.ru` / `info@mttech.moscow` |
+
+---
+
+## Red Team, проход 4
+Тот же класс: правдоподобный ноль вместо «нет данных», и статус `OK` на уже
+неверной оценке. Версия ядра не поднималась (`tramDR-0.0.7`).
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `F-26` | `pad_wheels` в bag→CSV больше не повторяет последний $\omega$ и не подставляет $0$ в пустой пакет. Адаптер публикует короткий JointState/MultiArray длиной `n_wheels` с NaN в хвосте | `test_eval`: empty/short → NaN; не $10,10,10,10$ | TwistStamped закрыт в `F-32` |
+| `F-27` | `map_notch` (C++ и Python) больше не превращает NaN/Inf в idle $0$ | `test_core`, `test_eval` | — |
+| `F-28` | `replay_ukf` на разрыве $t$ интегрирует **последнюю** известную команду, не ручку из будущего ряда | чтение `replay_ukf.cpp` | нет отдельного unit-теста catch-up (логика в `main`) |
+| `F-29` | хвост разрыва после catch-up зажимается в $0.20\,\mathrm{s}$ и ряд **измеряется** | чтение `replay_ukf.cpp` | потолок 1 ч закрыт в `F-33` |
+| `F-30` | job `ros` ставит `rosdep` + `ament_cmake_gtest` до `colcon` | [run 34057677488](https://github.com/KonkovDV/RailBreak/actions/runs/34057677488) зелёный | — |
+| `F-31` | пустая/мусорная клетка ручки и тормоза в CSV — `notch_valid=false` / `brake_valid=false`, не idle. Ядро сначала обнуляет невалидную команду, потом проверяет finite: NaN при `valid=false` — выбег, не reject | `test_integrity_contracts`; `test_eval` CSV | e2e пересчитан в 0.0.8 |
+
+Не закрыто кодом: пп. 14.4–14.6, bag организатора.
+
+---
+
+## Red Team, проход 3
+Новый разбор после `337d0af`. Искали тот же класс, что F-01 / F-17: статус `OK`
+при уже неверной оценке, либо правдоподобный ноль вместо «нет данных».
+Версия ядра не поднималась: контракт `tramDR-0.0.7`, поведение статуса ужесточено.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `F-21` | Mode Slip/Slide уже ставился при $\lvert v_{\mathrm{wh}}-\hat v\rvert>0.4$, но агрегат мог оставаться `OK`. Понижение статуса — только если SCA **не** инфлейтила никого (полный пакет согласных колёс против кузова). Заклиненные нули на ходу не идут в Kalman, в том числе под тягой. Одиночный freeze по-прежнему `OK` | `test_integrity_contracts`: 16 тиков нулей — не стоянка, $v>1$, не OK; `test_core`: one freeze stays OK | короткое заклинивание не ZUPT (`F-01`) |
+| `F-22` | `wheels_at_rest` / ZUPT требуют полный пакет (`n ≥ n_wheels`, по умолчанию 4). Узел дополняет короткий JointState/MultiArray до `n_wheels` значениями NaN | контракт «один нулевой энкодер не стоянка»; `test_ukf` | — |
+| `F-23` | `notch_valid=false` / `brake_valid=false` больше не оставляют последнюю команду в plant. `commanded_notch` / `commanded_brake` дают 0. Узел старит тормоз так же, как ручку (`brake_stale_s`) | plant + UKF: predict-only с мёртвой ручкой не держит тягу | нет отдельного `brake_lost_s` (тот же таймаут 2 с) |
+| `F-24` | Адаптер больше не публикует NaN-ручку как $0$. NaN brake/twist отбрасываются. `replay_ukf`: пустая/отсутствующая клетка $\omega$ — NaN, не $0$; разрыв $t$ не зажимается в 0.20 с | чтение адаптера и `replay_ukf.cpp` | NaN в `map_notch` закрыт в `F-27`; e2e не пересчитывался |
+| `F-25` | `map_projector` не публикует lat/lon первой остановки, пока не пришла одометрия | чтение узла | — |
+
+Не закрыто кодом: пп. 14.4–14.6, bag организатора, первый зелёный лог job `ros` на GitHub.
+
+---
+
+Закрыты пункты, которые PR #4 оставил открытыми (`A`, `B`–`G`, `F-10`,
+`F-13b`, `F-19`). Версия ядра **намеренно не поднималась**: это тот же
+`tramDR-0.0.7`, на котором теперь сняты метрики. Поднимать константу до
+пересчёта значило бы завести третью метку, на которой снова ничего не
+измерено; после пересчёта поднимать её только из‑за этих правок — плодить
+версии без смены контракта.
+
+Не закрыто и не может быть закрыто кодом: пп. 14.4–14.6 Положения
+(письменное согласие на публикацию) — действие человека, не патч.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `A` | `update_wheels` больше не подставляет $v/(d r_0)$ в мёртвые каналы. UT, $P_{zz}$, $K$ и инновация считаются только по живым осям; `note_omega` видит сырые $\omega$ | `test_ukf`: один NaN даёт `n_omega_used==3`; e2e | — |
+| `F-10` | Ортогональное свидетельство стоянки: $\omega\equiv 0$ дольше `zupt_omega_only_s=2.0` с при тихой ручке включает ZUPT даже при $\lvert\hat v\rvert\ge 0.35$. Если оценка ещё ехала — флаг `zupt_forced`, статус `DEGRADED`, не молчаливый OK | `test_integrity_contracts` / `test_ukf`: 16 тиков (0.32 с) по-прежнему не ZUPT; после $\ge 2.3$ с — стоянка, `zupt_forced`, не OK | короткое заклинивание на выбеге по-прежнему не стоянка (`F-01`) |
+| `B` | Fallback в `predict()` после отказа Холецкого удалён: нет шага среднего и нет $P+=Q+\mathrm{bump}$. Счётчик `chol_fail_++` и выход; атомарный откат в `predict_and_update` выбрасывает кадр целиком | чтение `ukf.cpp`; контракт атомарности | — |
+| `C` | После `set_sca` радиус SCA залочен. `set_plant` с другим $r_0$ бросает; с тем же — проходит. Вызов только `set_plant` по-прежнему синхронизирует `sca_p_.r0_m` (порядок узла `set_plant` затем `set_sca` жив) | `test_integrity_contracts`, `test_ukf` | — |
+| `D` | Без смены логики: `zupt_gate` по-прежнему требует `notch_valid`. Короткая тишина ручки на конечной — не стоянка, а `DEGRADED`→`LOST` по `notch_lost_s`. Fail-closed, теперь сказано в `brief` / `math` | документация | — |
+| `E` | Latch больше не публикует `over_m=1e6`. Флаг `s_unbounded`; `over_m=0`, $PL_s=\infty$ в C++. JSON `replay_ukf` пишет `null`, diagnostics — `"unbounded"` (не `inf`: ломает `json.loads`) | `test_integrity_contracts`, `test_ukf`; `replay_ukf.cpp` | — |
+| `F` | `sca_current = n_omega_used_>0`. Predict-only не латчит common-mode / split / slip-vs-slide по устаревшим `last_sca_` / `frozen_`; режим `SensorFault`, если это не стоянка | `test_integrity_contracts`, `test_ukf` | — |
+| `G` | Неиспользуемый `ament_lint_auto` убран из `package.xml`. Включать линтеры без копирайтов — красный ROS CI без выигрыша по ядру | `package.xml` | — |
+| `F-19` | Job `ros` больше не под `continue-on-error`. `source /opt/ros/.../setup.bash` выполняется с `set +u`: `AMENT_TRACE_SETUP_FILES` у ament не задан, и `set -u` убивал job до `colcon`. Копирование пакета в `/ws/src` без `\|\| true` | `.github/workflows/ci.yml` | первый зелёный прогон — следующий push; до него job гейтит, но ещё не видели лог |
+| `F-13b` | Таблицы `docs/metrics.md` пересчитаны на сдаваемом `tramDR-0.0.7` (seed 42): `generate.py` → `replay_ukf` → `run_e2e.py` → `score.py` | команды в `docs/verification.md` | пакет `evidence/synth-archive/` остаётся архивом 0.0.6 |
+
+---
+
+## Внешний Red Team проход — ([PR #4](https://github.com/KonkovDV/RailBreak/pull/4))
+
+Независимый внешний аудит: алгебра пересчитана **с нуля**, а не сверена; код
+прочитан с прицелом именно на **молчаливые** отказы.
+
+Алгебра репозитория подтверждена полностью — веса масштабированного UT, окна
+допустимости `alpha`, граница Луо–Мороза, `Q` по Ван Лоану, сопротивление
+Дэвиса, уклоны, `b_s`, тяговая огибающая, пол `kappa`. Ошибок не найдено.
+Все найденные дефекты лежат **на уровень выше** — в узле, который CI ни разу
+не компилировал.
+
+Версия ядра `kModelVersion` **намеренно оставлена** `tramDR-0.0.7`: константу
+проверяют standalone-тесты, а поднимать её без пересчёта метрик (`F-13b`)
+значило бы завести третью версию, на которой снова ничего не измерено.
+`package.xml` приведён к `0.0.7` — он расходился с константой (`F-20`).
+
+Полный протокол: [`docs/review/external-redteam.md`](docs/review/external-redteam.md).
+
+### Закрыто кодом в этой ветке
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `F-17b` | **P0.** `step_filter()` держал один `last_step_` и заполнял его то штампом `header.stamp`, то `now()`, после чего вычитал одну шкалу из другой. На bag-файле без `use_sim_time:=true` смещение — часы или годы, поэтому `dt` скакал между огромным плюсом и огромным минусом, а `std::clamp(dt, 0.005, 0.20)` превращал оба в правдоподобные 200 мс и 5 мс. Фильтр интегрировал примерно на порядок мимо реального времени — молча, со статусом OK. Тем же смешением были выключены **оба** сторожевых таймера свежести: при отрицательном смещении инвалидация notch за 0.25 с **не срабатывала никогда**, и мёртвый топик ручки читался как свежий | Шкалы разведены: `dt` — интервал между отсчётами датчика (шкала измерений), возраст — задержка доставки (часы узла); вычитание между шкалами исключено конструктивно. Такты предсказания от таймера копят израсходованное время в `consumed_since_meas_s_`, которое вычитает следующий штампованный кадр. `dt` теперь **валидируется, а не зажимается**: регрессия штампа отклоняет кадр, разрыв больше `dt_max_s` проходит серией предсказаний по `dt_max_s` (то есть `Q` копится за **истинное** время), пол снижен с 5 мс до 1 мс — старый пол заставлял любой источник быстрее 200 Гц интегрировать быстрее реального времени. Все счётчики уходят в `/tram/diagnostics`, любой отказ форсирует `LOST` | Узел не собран ревьюером (нет тулчейна). Первая в истории проекта сборка — новый job `ros`; смотреть на него, а не считать зелёным по умолчанию |
+| `F-17` | Гигиена входов узла: `apply_notch()` принимал NaN/Inf и всё равно ставил `notch_valid = true` — ядру сообщалось «положение ручки известно» вместе с NaN; обработчик тормоза полагался на `std::clamp(NaN, 0, 1)`, который **не** санирует (оба сравнения ложны, значение проходит насквозь); `apply_twist_vx()` синтезировал полный NaN-кадр колёс из битого twist, неотличимый от настоящего all-NaN кадра энкодеров, который ядро намеренно считает **данными** | Нефинитные значения отклоняются с инкрементом счётчиков `bad_notch` / `bad_brake` / `bad_wheels`; нефинитные каналы `omega` по-прежнему принимаются (так и задумано — SCA раздувает их, UKF уходит в `LOST`), но теперь считаются в `n_omega_nonfinite`, чтобы отличать мёртвый энкодер от честного нуля | То же: машинной проверки узла не было до этого PR |
+| `F-19` | CI собирал только `standalone/`. Ни один из четырёх ROS-узлов **никогда** не компилировался в CI, и четыре набора `ament_add_gtest` (`test_types`, `test_plant`, `test_sca`, `test_ukf`) **никогда** не запускались. Именно в узле живут вся валидация входов и вся работа со временем — поэтому весь класс дефектов, к которому относятся `F-17` и `F-17b`, был для CI невидим конструктивно. Это корневая причина, а не примечание | Новый job `ros`: `colcon build` на `ros:humble-ros-base` (дистрибутив совпадает с уже закреплённым в `Dockerfile`) + `colcon test` | — |
+| `F-09` | `la::project_pd` возвращала `void` и при нефинитном входе просто выходила, оставляя ковариацию вызывающей стороны отравленной без всякого сигнала | Возвращает `bool`: `false` при неверных аргументах, нефинитном входе и нефинитном результате реконструкции Якоби. Матрица при отказе **намеренно не санируется** — подстановка большой конечной диагонали заставила бы последующую проверку Cholesky у вызывающей стороны **пройти**, тихо превратив жёсткий NaN-отказ в правдоподобную оценку «максимальной неопределённости», которую монитор целостности не отличит от честной. Добавлена `la::all_finite()` для стороны вызывающего | Атрибут `[[nodiscard]]` пока не выставлен: `ukf.cpp` ещё игнорирует результат. Выставить вместе с правкой мест вызова |
+| `F-08` (часть 1 из 2) | `alpha`, `beta` и `kappa_ut` — три независимых ROS-параметра, но положительная определённость зависит от них **совместно**. При `kappa=0` величина `W_c0 = 2 + beta − alpha^2 − 1/alpha^2` не зависит от `L`, поэтому правка одной `beta` — при том что каждый параметр остаётся внутри своего задокументированного диапазона — молча уводит `W_c0` в минус, после чего `project_pd` починяет `P` каждый такт и фильтр работает на вымышленной неопределённости. Опасна именно починка: она убирает падение, которое обнаружило бы ошибку конфигурации | Новый header-only `ut_weights.hpp` — единственный источник истины для весов, совместного предиката допустимости и замкнутой формы окна. Новый `standalone/test_ut_weights_header.cpp` сверяет его с числами, выведенными руками, и **прибивает гвоздями сам сценарий**: `alpha = 0.58` допустима при `beta = 2`, но недопустима при `beta = 1` и `beta = 0`. `test_ut_weights_psd.cpp` не тронут и остаётся независимым свидетелем без включения заголовка — одну и ту же ошибку алгебры теперь надо совершить дважды в двух разных формах, чтобы CI прошёл | **Часть 2 не сделана:** `validate_ukf()` в `src/lib/ukf.cpp` должна вызывать `ut::weights_psd_ok(cfg.alpha, cfg.beta, cfg.kappa_ut, kStateDim)`. Защита на уровне узла её не заменяет: всё, что конструирует `Ukf` напрямую (`replay_ukf`, `test_core`, будущий узел), её обходит |
+| `F-20` | `package.xml` объявлял версию `0.0.6` при `kModelVersion = "tramDR-0.0.7"` — два разных ответа на вопрос «какая это версия» в одном пакете, ровно та неоднозначность, из-за которой `F-13b` тяжело обсуждать | Приведено к `0.0.7`; константа не тронута | Поднять обе синхронно после пересчёта метрик |
+| — | `test_ut_weights_header` добавлен в **явный** список целей job `asan` | — | Список целей там явный: любая новая цель требует правки этого job, иначе воспроизводится ровно тот пробел, из-за которого заводился `F-11` |
+
+### Найдено нового в PR #4 (закрыто в записи «Остатки Red Team» выше)
+
+| ID | Приоритет | Суть |
+| :-- | :-: | :--- |
+| `A` | P1 | `Ukf::update_wheels` подставляет в мёртвые каналы `phys[kV] / (d * plant_.r0_m)` — собственное предсказание модели — и **оставляет их в векторе измерений**. Это не no-op: `zhat[i]` — это UT-**среднее** нелинейной функции при `W_m0 = −1.973`, поэтому невязка не равна нулю, состояние подталкивается, а `P ← P − K Pzz Kᵀ` продолжает **сжимать ковариацию** по каналу, не несущему информации. Раздувание `R` ослабляет, но не убирает эффект. Итог — тихая переуверенность при затяжном отказе оси, то есть ровно то, что должен ловить контур целостности. Решение: сжимать вектор измерений до живых каналов |
+| `B` | P2 | Fallback после отказа Cholesky в `predict()` — мёртвый код: `predict_and_update` при `!healthy` делает `*this = previous`, выбрасывая и шаг среднего, и `P += Q + 1e-3*I`, и `project_pd`, которые fallback только что посчитал |
+| `C` | P2 | `set_sca` **бросает** при расхождении `r0_m`, а `set_plant` молча перетирает `sca_p_.r0_m` — поведение зависит от порядка вызовов. Узел вызывает `set_plant` первым, поэтому проверка не срабатывает никогда |
+| `D` | P3 | `zupt_gate` требует `notch_valid`: короткая тишина в топике ручки на конечной даёт `LOST` вместо распознанной стоянки. Fail-closed, но это заметное клиенту поведение — его надо описать, а не обнаруживать |
+| `E` | P3 | `missed_path_m()` возвращает `1.0e6` при латче, и это значение публикуется как `over_m`. Потребитель не отличит «миллион метров» от «не ограничено». Нужен явный флаг `s_unbounded` |
+| `F` | P3 | В `classify()` при `n == 0` переиспользуются устаревшие `last_sca_` / `frozen_`: на длинном отказе поосевая картина всё сильнее устаревает, выглядя актуальной |
+| `G` | P3 | `ament_lint_auto` объявлен в `package.xml`, но `CMakeLists.txt` не вызывает `ament_lint_auto_find_test_dependencies()` — линтеры не запускаются вообще |
+
+### Issue #3 устарел
+
+`F-11` и `F-14` **уже закрыты на `main`**: в `ci.yml` присутствует комментарий
+`# F-11: this job used to build test_core only…` и сборка трёх целей, а
+`docs/metrics.md` уже документирует канон `0.515` с явной пометкой `0.42`
+как архивного. Оставлять закрытые находки открытыми — мелочь, которая читается
+плохо: проверивший два пункта и нашедший оба исправленными обесценит весь
+остальной список, включая то, что открыто по-настоящему.
+
+### Худший случай PL/AL — число, которое стоит держать перед жюри
+
+Самый длинный межостановочный перегон маршрута 10 (Бурназяна $s=408.4$ →
+Исаковского, 33 $s=2794$) — `2385.6 м`, при `16.7 м/с` это `142.85 с`.
+
+В **необслуживаемом** режиме (потеряны все каналы энкодеров, работает только
+шум процесса): `sigma_s = sqrt(q_v * t^3 / 3) = 49.29 м`, откуда
+`PL_s = 2.5 * 49.29 + 0.835 = 124.05 м` против `AL_s = 5 + 0.05 * 2385.6 = 124.28 м`.
+
+Запас **по уровню** — **0.23 м (0.18 % от AL)**. $PL=AL$ на `2393.9 м`: запас
+**по длине** — **8.3 м (0.35 % перегона)**. Округлять оба в одно «0.3 %» нельзя.
+Это совпадение параметров, не проектный запас, и подавать это как «есть место»
+нельзя. Честная оговорка: это случай полной потери энкодеров, в котором оценка
+уже была бы объявлена `LOST` по `age_lost_s`, так что вагон защищает
+**объявление `LOST`, а не эта граница**; в номинальном режиме ошибка определяется
+масштабом радиуса колеса и проскальзыванием (1 % диаметра = 23.9 м на этом
+перегоне при `AL` 124 м) — запас около 5×.
+
+Оба числа надо **самим озвучить** на защите. Член жюри, посчитавший
+необслуживаемый случай сам и нашедший 0.18 %, прочитает это как незамеченный
+промах; тот же человек, увидев оба запаса уже в таблице вместе с аргументом
+про `LOST`, прочитает это как команду, знающую границы своего решения.
+
+### Риск, который перекрывает всю технику
+
+Репозиторий **публичный под MIT**, тогда как п. 14.2.2 Положения передаёт
+исключительные права по кейсу Фонду «ТИМ», пп. 14.4–14.6 запрещают публикацию
+без предварительного **письменного** согласия организатора, п. 15 объявляет
+материалы кейса конфиденциальными, а пп. 15.6 и 17.1 предусматривают
+**дисквалификацию**. Лицензия MIT безотзывна: перевод в private локализует
+утечку, но не отзывает уже выданные права и не убирает форки.
+
+Отдельно: `config/route_10.yaml` получен из OSM (**ODbL**, share-alike), что
+плохо совместимо с передачей исключительных прав третьему лицу; ROS 2 —
+Apache-2.0 и требует атрибуции.
+
+Порядок действий — §8 протокола. Первый пункт (private) стоит выполнить
+сегодня, второй (письменный запрос на `fund@ftim.ru` и `info@mttech.moscow`) —
+на этой неделе: срок загрузки решения ** 23:59 МСК**.
+
+---
+
+## После слияния PR #4
+Squash [`76063b76`](https://github.com/KonkovDV/RailBreak/commit/76063b76951d3f88c191bd37eb9d16e444ae7e11).
+Рабочие ветки сняты: на origin остаётся `main`.
+
+Дописаны две половины, которые PR #4 явно оставил открытыми, и синхронизирован
+канон документов (`brief` ещё открывался как 0.0.6). Версия ядра не поднималась:
+без пересчёта метрик (`F-13b`) это была бы третья метка, на которой снова ничего
+не измерено.
+
+| ID | Что изменилось | Чем проверено | Что осталось открытым |
+| :-- | :--- | :--- | :--- |
+| `F-08` (часть 2) | `validate_ukf()` вызывает `ut::weights_psd_ok(alpha, beta, kappa_ut, L)`. Режим cubature предикат не использует: его веса неотрицательны по построению | `test_integrity_contracts`: `(0.58, 0)` и `(0.58, 1)` бросают; штатные `(0.58, 2)` проходят; cubature с `beta=0` проходит | — |
+| `F-09` (вызовы) | Пять мест в `ukf.cpp` учитывают `bool`; отказ инкрементирует `chol_fail_` и не коммитит отремонтированную $P$. На заголовке — `[[nodiscard]]`. Матрица при `false` по-прежнему не санируется | те же контракты: PD-вход сохраняется, конечная индефинитная чинится, NaN-вход оставляет матрицу и возвращает `false` | — |
+| `F-12` | фикстура `zupt off stop` после смены ожидания | `ctest` на этой машине (Release) | — |
+| `F-17` / `F-17b` | уже в squash #4 | чтение узла + контракты ядра | job `ros` гейтит; `source setup.bash` больше не под `set -u` |
+
+Открытый реестр после этого коммита тогда: `F-10`, `F-13b`, `F-19`, плюс новые
+пункты `A…G` из протокола #4 (из них `A` — P1). Issue [#3](https://github.com/KonkovDV/RailBreak/issues/3).
+
+---
+
+## tramDR-0.0.7
+Внешний триаж ядра в режиме Red Team / WhiteHat: 17 находок `F-01…F-17`,
+12 закрыто, 5 открыто и отслеживается. Обе рабочие ветки сведены в `main`
+через pull request'ы, ничего не влито «мимо» ревью:
+
+| PR | Содержание | Squash-коммит |
+| --- | --- | --- |
+| [#2](https://github.com/KonkovDV/RailBreak/pull/2) | исправления `F-01…F-07` в ядре + `standalone/test_integrity_contracts.cpp` (15 контрактов) | `462b8eef` |
+| [#1](https://github.com/KonkovDV/RailBreak/pull/1) | `standalone/test_ut_weights_psd.cpp` (25 проверок алгебры UT) + отчёт внешнего триажа | `53caaad9` |
+
+Остальные коммиты `main`: `5d10c8fb` (`F-12`), `e2b0b140` (`F-13a`),
+`5a53e8b9` (цель `test_ut_weights_psd` в CMake и ctest).
+
+Ветка `audit/safety-contracts` **намеренно не слита**:
+её `test_safety_contracts.cpp` — строгое подмножество
+`test_integrity_contracts.cpp` (сверено построчно, все 15 контрактов
+совпадают), слияние дало бы дубль тестов и третью цель сборки.
+
+### Опасные отказы — закрыто кодом
+
+| ID | Дефект | Что стало | Чем закреплено |
+| :-- | :--- | :--- | :--- |
+| `F-01` | Стоянка выводилась из «нулевые $\omega$ + отпущенный тормоз»: заклиненные на выбеге колёса могли включить ZUPT и обнулить реальную скорость | Стоянка требует положительного свидетельства и выдержки `zupt_hold_s`; нулевые колёса сами по себе не стирают движущийся кузов | контракты `no zupt on sliding lock` (`test_core`), `coasting locked wheels are not ZUPT`, `false zero wheels cannot erase a moving body` (`test_integrity_contracts`) |
+| `F-02` | `classify` принимала собственный предыдущий вывод `mode_ == kStandstill` за вход — режим самоподтверждался (латч) | Режим выводится из свидетельств такта, а не из предыдущего режима | `test_integrity_contracts` |
+| `F-03` | Свежесть энкодеров считалась в тактах фильтра (25), а не во времени: при переменном $\Delta t$ окно `freeze_s` плыло | Окно свежести — во времени (`freeze_s` = 0.5 с) | `test_integrity_contracts` |
+| `F-04` | Нет контракта на $\Delta t$ и на конечность входов; шаг, породивший нефинитное состояние, оставался в фильтре | Проверка $\Delta t$ и конечности `notch`/`brake`/$\omega$; при отказе — **атомарный откат** всего шага (`const Ukf previous = *this` → восстановление), инкремент `chol_fail` | `test_integrity_contracts` |
+| `F-05` | `la::chol` возвращала `true` на матрице с NaN/Inf — разложение «успешно» на мусоре | Явная проверка конечности до разложения | численный стенд, см. `docs/verification.md` |
+| `F-06` | `la::inv_spd` рапортовала успех на NaN-матрице | То же | численный стенд |
+| `F-07` | `project_pd` перетирала внедиагональные элементы **уже** положительно определённой матрицы | Проектор — no-op на PD-входе; клип спектра только там, где он действительно нужен | численно: было $\max\lvert\Delta P\rvert = 0.1097$ на плотной SPD $12\times12$ (внедиагональ $1.4788\to1.2444$, ≈16 %), после — ровно 0 |
+| `F-12` | Фикстура `zupt off stop` в `standalone/test_core.cpp` ожидала ZUPT после 40 тиков $\omega=0$ при `brake=0`; это ожидание противоречило трём другим контрактам того же репозитория | Фикстура доводит вагон до **настоящей** остановки служебным тормозом (1500 тиков, $0.6\cdot1.2$ м/с²) и проверяет `kStandstill` **и** `!zupt_at_stop` | `ctest` Release: все standalone-цели, включая эту фикстуру |
+| `F-13a` | `kModelVersion` не поднимался после изменения поведения фильтра | `tramDR-0.0.7` | — |
+| `F-16` | Изменения лежали в ветках без PR | PR #1, PR #2, оба squash-слиты | — |
+
+### Инженерная гигиена — закрыто в этом же проходе
+
+| ID | Дефект | Что стало |
+| :-- | :--- | :--- |
+| `F-11` | CI-job `asan` собирал только `test_core` — контракты целостности и алгебра UT под санитайзеры не попадали | ASan+UBSan собирают и запускают все три цели: `test_core`, `test_integrity_contracts`, `test_ut_weights_psd` |
+| `F-14` | `docs/metrics.md` давал для `mismatch_r0` HMI-rate `0.42` в таблице и `0.515` в прозе ниже — два числа для одного сценария | Канон — `0.515` (пол контакта $d\ge0.85$); `0.42` помечено как архив пакета `evidence/synth-archive`, где генератор клипал $d$ к 0.90 |
+| `F-15` | Сообщение коммита `d322433` заявляло правки `lin_alg.hpp`, а его дифф трогает только `ukf.cpp`: правки алгебры пришли коммитом `9dc09b1` | Расхождение зафиксировано здесь; история не перезаписывалась |
+
+### Открыто после остатков Red Team
+
+Кодом закрыты `A`–`G`, `F-10`, `F-13b`, `F-19` (см. запись выше). Осталось то,
+что патчем не закрывается:
+
+| ID | Приоритет | Суть |
+| :-- | :-: | :--- |
+| пп. 14.4–14.6 | P0 | письменное согласие на публикацию (`NOTICE`, `fund@ftim.ru` / `info@mttech.moscow`); MIT уже выдана |
+| `F-19` (лог) | P1 | job `ros` гейтит и больше не падает на `set -u`; первый зелёный прогон — следующий push |
+| bag организатора | — | окно кода ; синтетика не заменяет запись |
+
+### Ключевые числа проверки
+
+Веса Scaled UT при $\alpha=0.58$, $L=12$, $\beta=2$, $\kappa_{\mathrm{UT}}=0$:
+$\lambda=-7.9632$, $W_m^{(0)}=-1.972652$, $W_c^{(0)}=+0.690948$,
+$W_i=0.123860$, $\sum W_m=1.0000$, $\sum W_c=3.6636$.
+Невязка $Q$ пары $(s,v)$ против интеграла Ван Лоана: $1.06\cdot10^{-22}$
+при $\Delta t=0.02$ с. Подробности и остальные числа — `docs/verification.md`.
+
+Внешний Red Team проход  пересчитал эти веса независимо и получил
+те же значения с точностью до `1e-12`: $\lambda=-7.9632$, $c=4.0368$,
+$W_m^{(0)}=-1659/841$, $W_i=625/5046$, $W_c^{(0)}=+0.690948394769$.
+
+---
+
+## tramDR-0.0.6 и ранее
+
+Записей не велось: этот файл начат в 0.0.7. Поведение 0.0.6 зафиксировано
+синтетическим пакетом `evidence/synth-archive/`
+(`pack_sha256=20cead0dc7bb748f…`) и таблицами `docs/metrics.md`, которые
+теперь явно помечены версией ядра, на которой сняты.

@@ -1,0 +1,22 @@
+# Remap organiser topics after `python tools/eval/inspect_bag.py <bagdir> --write-yaml …`.
+# enable=false: bag already on /tram/* — do not loop the adapter.
+# state_estimator keys: DDS type when /tram/* is Int8 / Int16 / Float64 / JointState / TwistStamped.
+topic_adapter:
+  ros__parameters:
+    enable: false
+    in_notch_topic: /cbt/controller_notch
+    in_brake_topic: /cbt/brake_cmd
+    in_wheels_topic: /cbt/wheel_speeds
+    in_notch_type: float32   # float32 | float64 | int8 | int16
+    in_notch_int8: false
+    in_wheels_type: float64_array  # float64_array | float32_array | joint_state | twist_stamped
+    twist_is_omega: false
+    notch_max_abs: 8.0
+    # n_wheels / wheel_radius_m come from the vehicle YAML (launch overlays it last).
+    n_wheels: 4
+    wheel_radius_m: 0.35
+state_estimator:
+  ros__parameters:
+    notch_type: float32          # float32 | float64 | int8 | int16
+    wheels_type: float64_array   # float64_array | float32_array | joint_state | twist_stamped
+    twist_is_omega: false

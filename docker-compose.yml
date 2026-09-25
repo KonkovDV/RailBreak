@@ -1,0 +1,16 @@
+# docker compose up --build
+# BAG: rosbag2 directory (./data → /data).
+#   docker compose run --rm -e BAG=/data/bags/run01 tram_dr
+services:
+  tram_dr:
+    build: .
+    working_dir: /ws
+    volumes:
+      - ./tram_dr_localization:/ws/src/tram_dr_localization
+      - ./tools:/opt/tram_dr/tools:ro
+      - ./data:/data
+    environment:
+      BAG: ${BAG:-}
+    command: bash -lc "set +u && source /opt/ros/humble/setup.bash && colcon build --symlink-install && source /ws/install/setup.bash && ros2 launch tram_dr_localization replay.launch.py bag:=$${BAG:-}"
+    stdin_open: true
+    tty: true

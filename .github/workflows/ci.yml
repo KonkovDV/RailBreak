@@ -1,0 +1,167 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: plant / checker
+        run: python tools/eval/test_eval.py
+      - name: hackathon phase-0 tools
+        run: python tools/eval/test_hackathon_phase0.py
+      - name: hackathon T0 dry-run tools
+        run: python tools/eval/test_hackathon_t0.py
+      - name: metric exposure contracts
+        run: python tools/eval/test_metric_contracts.py
+      - name: Python physics contracts
+        run: python tools/eval/test_python_plant_contracts.py
+      - name: contact equation and bounded-state contracts
+        run: python tools/eval/test_contact_contracts.py
+      - name: generator
+        run: python tools/synth/test_generate.py
+      - name: no GNSS in filter
+        run: python tools/eval/no_gnss_scan.py
+      - name: current documentation contracts
+        run: python tools/eval/test_docs.py
+
+  cpp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: cmake standalone core
+        run: |
+          cmake -S standalone -B standalone/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+          cmake --build standalone/build --parallel
+          ctest --test-dir standalone/build --output-on-failure
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: synth e2e (generate -> replay_ukf -> envelope -> score)
+        run: |
+          python tools/synth/generate.py --out synth/runs
+          python tools/eval/run_e2e.py --ukf standalone/build/replay_ukf
+          python tools/synth/score.py --runs synth/runs
+          python tools/eval/test_eval.py ReplayCatchupTests
+
+  asan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Discover the same registered tests as Release. An explicit executable
+      # list silently omitted newly added regression targets from sanitizers.
+      - name: sanitizers on all registered tests
+        run: |
+          cmake -S standalone -B standalone/build-asan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build standalone/build-asan --parallel
+          export ASAN_OPTIONS=detect_leaks=1
+          export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+          ctest --test-dir standalone/build-asan --output-on-failure
+
+  ros:
+    # Compiles the four ROS nodes and runs ament gtests. Previously invisible
+    # (F-19). The job used to die on `source setup.bash` under `set -u`
+    # (AMENT_TRACE_SETUP_FILES unbound). Do not wrap the source with nounset.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - name: container diagnostics
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "### ros job container diagnostics"
+            echo
+            echo '```'
+            echo "ROS_DISTRO = ${ROS_DISTRO:-<unset>}"
+            echo "whoami     = $(whoami 2>&1)"
+            echo "pwd        = $(pwd 2>&1)"
+            echo "workspace  = ${GITHUB_WORKSPACE:-<unset>}"
+            for tool in git c++ cmake colcon rosdep python3; do
+              printf '%-8s -> %s\n' "$tool" "$(command -v "$tool" 2>&1 || echo MISSING)"
+            done
+            echo
+            echo "-- os-release --"
+            cat /etc/os-release 2>&1 | head -4
+            echo
+            echo "-- ros setup --"
+            ls -la "/opt/ros/${ROS_DISTRO:-humble}/setup.bash" 2>&1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" 2>&1
+          exit 0
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: workspace
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p /ws/src
+          cp -a "$GITHUB_WORKSPACE/tram_dr_localization" /ws/src/tram_dr_localization
+          test -f /ws/src/tram_dr_localization/package.xml
+      - name: rosdep (message packages + gtest)
+        shell: bash
+        run: |
+          set -eo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3-rosdep python3-colcon-common-extensions \
+            ros-${ROS_DISTRO}-ament-cmake-gtest
+          rosdep init 2>/dev/null || true
+          rosdep update
+          rosdep install --from-paths /ws/src --ignore-src -y --rosdistro "$ROS_DISTRO"
+      - name: colcon build (core library + all four nodes)
+        shell: bash
+        run: |
+          set -eo pipefail
+          set +u
+          # shellcheck disable=SC1091
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          set -u
+          set -x
+          cd /ws
+          colcon build --packages-select tram_dr_localization \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+      - name: colcon test (test_types, test_plant, test_sca, test_ukf)
+        shell: bash
+        run: |
+          set -eo pipefail
+          set +u
+          # shellcheck disable=SC1091
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          source /ws/install/setup.bash
+          set -u
+          set -x
+          cd /ws
+          colcon test --packages-select tram_dr_localization \
+            --event-handlers console_direct+
+          colcon test-result --all --verbose

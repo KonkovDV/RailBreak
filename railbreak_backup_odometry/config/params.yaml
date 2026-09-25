@@ -1,0 +1,49 @@
+backup_odometry:
+  ros__parameters:
+    # Empty: share/railbreak_backup_odometry/assets
+    assets_dir: ""
+    # GNSS is read from the first fix for this many seconds, then unsubscribed.
+    gnss_init_window_s: 3.0
+    # No fix this long after the first input: publish relative odometry from the start point.
+    gnss_wait_s: 10.0
+    # Bogie field to m/s. Recordings are km/h (ratio to GNSS speed 3.6).
+    wheel_unit_scale: 0.2777777777777778
+    # /result/position axes. mgrs: UTM 37N minus the 100 km square corner
+    # (400000 E, 6100000 N), absolute, x east, y north. Organisers confirmed
+    # this frame. mkrs_start remains available.
+    output_frame: mgrs
+    mkrs_x_is_north: false
+    utm_zone: 37
+    mgrs_square_easting: 400000.0
+    mgrs_square_northing: 6100000.0
+    # Publish base_link, not the master antenna. tf: master is 9.873 m behind
+    # base_link and 3.0 m above it (organisers,  21:48).
+    output_offset_along_m: 9.873
+    output_offset_up_m: -3.0
+    # Rover-only start: the snap is the rover. Step back to the master along
+    # the ring, then the offset above reaches base_link. 9.873 + 2.563.
+    rover_baseline_m: 12.436
+    # No GNSS at the start. Leave unset (NaN): relative path. initial_lat_deg and
+    # initial_lon_deg snap to the ring; initial_s_m is an arc length in metres.
+    load_factor: 1.0
+    wheel_radius_m: 0.0
+    wheel_radius_nominal_m: 0.0
+    # Extra resistance on top of the table, acceleration form A + B v + C v^2.
+    # Zero: the identified table already contains it.
+    davis_a: 0.0
+    davis_b: 0.0
+    davis_c: 0.0
+    sigma_k0: 0.004
+    q_v: 0.05
+    q_s: 0.0001
+    q_k: 1.0e-9
+    q_ba: 1.0e-5
+    nis_gate: 16.0
+    fr_sigma_gate: 4.0
+    fr_floor: 0.3
+    zupt_v: 0.05
+    zupt_hold_s: 1.0
+    stop_gate: 3.0
+    diagnostics_every_n: 20
+    frame_id: map
+    child_frame_id: base_link
