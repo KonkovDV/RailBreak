@@ -74,7 +74,7 @@ class BackupOdometryNode : public rclcpp::Node {
     }
     frame_.x_is_north = declare_parameter("mkrs_x_is_north", false);
     frame_.zone = static_cast<int>(declare_parameter("utm_zone", 37));
-    frame_.e_off = declare_parameter("mgrs_square_easting", 400000.0);
+    frame_.e_off = declare_parameter("mgrs_square_easting", 300000.0);
     frame_.n_off = declare_parameter("mgrs_square_northing", 6100000.0);
     off_along_ = declare_parameter("output_offset_along_m", 9.873);
     off_up_ = declare_parameter("output_offset_up_m", -3.0);

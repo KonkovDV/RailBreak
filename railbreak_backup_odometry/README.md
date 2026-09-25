@@ -64,7 +64,7 @@ ros2 bag play data/<bag_id>
 | Топик | Тип | Содержимое |
 |---|---|---|
 | `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | `velocity`, м/с |
-| `/result/position` | `nav_msgs/Odometry` | MGRS, точка `base_link`: UTM 37N минус 400000 / 6100000, x восток, y север. Дуга — медиана master за 3 с, затем +9.873 м вдоль пути и −3 м по высоте. Если master пуст, дуга rover отступает на 12.436 м. `mkrs_start` — городская сетка от старта. `twist.twist.linear.x` — скорость, м/с |
+| `/result/position` | `nav_msgs/Odometry` | MGRS, точка `base_link` (ось первой тележки, касание колеса и рельса): UTM 37N минус 300000 / 6100000, x восток, y север. Дуга — медиана master за 3 с, затем +9.873 м вдоль пути и −3 м по высоте. tf: master (−9.873, 0, 3), rover (2.563, 0, 3). Если master пуст, дуга rover отступает на 12.436 м. `mkrs_start` — городская сетка от старта. `twist.twist.linear.x` — скорость, м/с |
 | `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, флаг проскальзывания, масштаб колеса, путь s, σ_s, число якорей, состояние GNSS, максимальное время колбэка |
 
 Каждое сообщение `/result/*` публикуется в колбэке входа и несёт его

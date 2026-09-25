@@ -77,7 +77,7 @@ def tmerc_wgs84(lat_deg, lon_deg, lon0_deg, k0):
 
 
 def to_frame(lat, lon, h, start, mode: str = "mkrs_start", zone: int = 37,
-             square=(400000.0, 6100000.0)):
+             square=(300000.0, 6100000.0)):
     """Same axes as the node's output_frame. start = (lat0, lon0, h0). x is east, y is north."""
     lat, lon, h = (np.asarray(v, float) for v in (lat, lon, h))
     lat0, lon0, h0 = start

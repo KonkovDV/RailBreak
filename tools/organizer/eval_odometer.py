@@ -3,6 +3,11 @@
 The estimate reads GNSS only in the first `--gnss-window` seconds after the
 first fix, to choose the branch (master->rover azimuth) and s0. Everything
 after that is bogie speed and notch.
+
+The default map is the arc-length ring exported into
+`railbreak_backup_odometry/assets` (`july27_arc.npz` + `model_arc`).
+`local/map/july27.npz` with `local/model` is an earlier centreline: the same
+val split then scores about 6.7 m along-track, not the published table.
 """
 
 from __future__ import annotations
@@ -271,8 +276,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--org", type=Path, default=Path("local/org"))
     ap.add_argument("--splits", type=Path, default=Path("local/splits.json"))
-    ap.add_argument("--map", type=Path, default=Path("local/map/july27.npz"))
-    ap.add_argument("--model", type=Path, default=Path("local/model"))
+    ap.add_argument("--map", type=Path, default=Path("local/map/july27_arc.npz"))
+    ap.add_argument("--model", type=Path, default=Path("local/model_arc"))
     ap.add_argument("--split", default="val")
     ap.add_argument("--gnss-window", type=float, default=3.0)
     ap.add_argument("--no-anchor", action="store_true")

@@ -628,7 +628,7 @@ enum class FrameMode { kMkrsStart, kMkrs, kMgrs, kGridStart, kEnu };
 struct OutputFrame {
   FrameMode mode = FrameMode::kMkrsStart;
   int zone = 37;
-  double e_off = 400000.0, n_off = 6100000.0;
+  double e_off = 300000.0, n_off = 6100000.0;
   bool x_is_north = false;  // false: x east, y north (ROS). true: Russian X north, Y east
   double lat0 = 0.0, lon0 = 0.0, h0 = 0.0;
   double e0 = 0.0, n0 = 0.0;

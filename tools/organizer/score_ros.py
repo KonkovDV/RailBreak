@@ -1,9 +1,10 @@
 """Score a recorded /result/* bag against base_link, not the master antenna.
 
-The organisers' tf: master is 9.873 m behind base_link, rover is
-2.563 m ahead, both 3.0 m up. base_link is the point 0.794 of the way from
-master to rover, then 3 m down. Default frame is absolute MGRS, matching
-the node. Pairs by header stamp, tolerance 0.05 s.
+The organisers' tf in base_link (first-bogie yaw axis, wheel-rail contact):
+master (−9.873, 0, 3), rover (2.563, 0, 3). base_link is the point 0.794 of
+the way from master to rover, then 3 m down. Bogie pitch 7.55 m is not this
+baseline. Default frame is absolute MGRS, matching the node. Pairs by header
+stamp, tolerance 0.05 s.
 """
 
 from __future__ import annotations
