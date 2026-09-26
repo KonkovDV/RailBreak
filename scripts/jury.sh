@@ -9,7 +9,7 @@ shift || true
 
 usage() {
   cat <<'EOF'
-scenarios: play smoke clock fast frame no-gnss no-assets arc record core
+scenarios: play smoke clock fast frame no-gnss no-assets arc record acceptance core
   --bag PATH    rosbag2 directory (metadata.yaml inside)
   --msgs PATH   tram_vehicle_msgs package
   --initial-s M arc length for scenario arc (default 0)
@@ -53,7 +53,7 @@ if [ "${SCENARIO}" = "core" ]; then
 fi
 
 case "${SCENARIO}" in
-  play|smoke|clock|fast|frame|no-gnss|no-assets|arc|record) ;;
+  play|smoke|clock|fast|frame|no-gnss|no-assets|arc|record|acceptance) ;;
   *) echo "unknown scenario: ${SCENARIO}" >&2; usage; exit 2 ;;
 esac
 
@@ -89,7 +89,7 @@ if command -v cygpath >/dev/null 2>&1; then
   OUT=$(cygpath -w "${OUT}")
 fi
 export RATE=1 CLOCK=0 OUTPUT_FRAME=mgrs ASSETS_DIR= TOPICS=
-export GNSS_WINDOW=3.0 GNSS_WAIT= INITIAL_S= DURATION= RECORD=0 SCORE=0 REQUIRE_POSITION=1 SCORE_MODE=acceptance
+export GNSS_WINDOW=3.0 GNSS_WAIT= INITIAL_S= DURATION= RECORD=0 SCORE=0 REQUIRE_POSITION=1 SCORE_MODE=acceptance FAIL_CLOSED=0
 
 case "${SCENARIO}" in
   play) ;;
@@ -108,8 +108,28 @@ case "${SCENARIO}" in
     TOPICS="/vehicle/front_bogie_velocity /vehicle/rear_bogie_velocity /vehicle/driver_position_cmd"
     ;;
   record) RECORD=1; SCORE=1; SCORE_MODE=acceptance ;;
+  acceptance) RECORD=1; SCORE=1; SCORE_MODE=acceptance; REQUIRE_POSITION=1; FAIL_CLOSED=1 ;;
 esac
 
-export RATE CLOCK OUTPUT_FRAME ASSETS_DIR TOPICS GNSS_WINDOW GNSS_WAIT INITIAL_S DURATION RECORD SCORE REQUIRE_POSITION SCORE_MODE
+export RATE CLOCK OUTPUT_FRAME ASSETS_DIR TOPICS GNSS_WINDOW GNSS_WAIT INITIAL_S DURATION RECORD SCORE REQUIRE_POSITION SCORE_MODE FAIL_CLOSED
 cd "${ROOT}"
+before=$(mktemp)
+trap 'rm -f "${before}"' EXIT
+if [ "${FAIL_CLOSED}" = "1" ]; then
+  python3 "${ROOT}/tools/organizer/jury_accept.py" --list-db3 "${ROOT}" > "${before}"
+fi
+set +e
 docker compose -f docker-compose.jury.yml run -T --rm --build jury
+status=$?
+set -e
+if [ "${FAIL_CLOSED}" = "1" ]; then
+  set +e
+  python3 "${ROOT}/tools/organizer/jury_accept.py" \
+    --diff-db3 "${before}" --git-root "${ROOT}" --allow "${OUT}"
+  db3_status=$?
+  set -e
+  if [ "${db3_status}" -ne 0 ]; then
+    status=1
+  fi
+fi
+exit "${status}"

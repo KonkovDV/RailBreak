@@ -3,7 +3,7 @@
 #   .\scripts\jury.ps1 core
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('play', 'smoke', 'clock', 'fast', 'frame', 'no-gnss', 'no-assets', 'arc', 'record', 'core')]
+    [ValidateSet('play', 'smoke', 'clock', 'fast', 'frame', 'no-gnss', 'no-assets', 'arc', 'record', 'acceptance', 'core')]
     [string]$Scenario = 'play',
     [string]$Bag = '',
     [string]$Msgs = '',
@@ -56,6 +56,7 @@ $env:RECORD = '0'
 $env:SCORE = '0'
 $env:REQUIRE_POSITION = '1'
 $env:SCORE_MODE = 'acceptance'
+$env:FAIL_CLOSED = '0'
 
 switch ($Scenario) {
     'smoke' { $env:DURATION = '25' }
@@ -73,12 +74,29 @@ switch ($Scenario) {
         $env:TOPICS = '/vehicle/front_bogie_velocity /vehicle/rear_bogie_velocity /vehicle/driver_position_cmd'
     }
     'record' { $env:RECORD = '1'; $env:SCORE = '1'; $env:SCORE_MODE = 'acceptance' }
+    'acceptance' {
+        $env:RECORD = '1'
+        $env:SCORE = '1'
+        $env:SCORE_MODE = 'acceptance'
+        $env:REQUIRE_POSITION = '1'
+        $env:FAIL_CLOSED = '1'
+    }
 }
 
 Push-Location $Root
 try {
+    $before = Join-Path ([System.IO.Path]::GetTempPath()) ("jury-db3-" + [guid]::NewGuid().ToString() + ".txt")
+    if ($env:FAIL_CLOSED -eq '1') {
+        python (Join-Path $Root 'tools/organizer/jury_accept.py') --list-db3 $Root | Set-Content -Encoding utf8 $before
+    }
     docker compose -f docker-compose.jury.yml run -T --rm --build jury
-    exit $LASTEXITCODE
+    $status = $LASTEXITCODE
+    if ($env:FAIL_CLOSED -eq '1') {
+        python (Join-Path $Root 'tools/organizer/jury_accept.py') --diff-db3 $before --git-root $Root --allow $env:OUT
+        if ($LASTEXITCODE -ne 0) { $status = 1 }
+        Remove-Item -Force $before -ErrorAction SilentlyContinue
+    }
+    exit $status
 } finally {
     Pop-Location
 }

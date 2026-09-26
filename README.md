@@ -30,7 +30,8 @@ scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_ve
 | `no-gnss` | в проигрыватель не попадают топики GNSS, выход относительный |
 | `no-assets` | каталог карты подменён, нода не падает |
 | `arc` | без GNSS, дуга старта `-InitialS` / `--initial-s` (по умолчанию 0) |
-| `record` | пишет `/result/*` в `jury_out/result` и вызывает `score_ros.py` в режиме acceptance: код скорера становится кодом сценария. `SCORE_MODE=exploratory` только предупреждает |
+| `record` | пишет `/result/*` в `jury_out/result` и вызывает `score_ros.py`. Интерактивный прогон: код скорера становится кодом сценария, остальные проверки мягкие. `SCORE_MODE=exploratory` только предупреждает |
+| `acceptance` | тот же прогон, но fail-closed: ненулевой код, если нода умерла, нет `/result/velocity`, нет `/result/position`, штамп регрессировал, частота уникальных штампов ниже 10 Гц, max gap выше 0.25 с, упал скорер, frame не `map`, child frame не `base_link`, `twist.linear.x` нет или NaN, GNSS не закрылся, или в дереве git появился новый `.db3` вне `jury_out` |
 | `core` | CMake и тест ядра, без Docker, без записи и без сообщений |
 
 Пример на Windows:

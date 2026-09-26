@@ -58,6 +58,8 @@ jobs:
         run: python tools/organizer/test_adhesion.py
       - name: jury position is required
         run: bash scripts/test_jury_position.sh
+      - name: jury acceptance is fail-closed
+        run: python tools/organizer/test_jury_accept.py
 
   cpp:
     runs-on: ubuntu-latest

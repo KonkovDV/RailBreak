@@ -127,6 +127,11 @@ play_status=$?
 set -e
 
 sleep 2
+node_alive=1
+if ! kill -0 "${node_pid}" 2>/dev/null; then
+  node_alive=0
+  echo "NODE DIED" >&2
+fi
 if [ "${RECORD:-0}" = "1" ]; then
   kill -INT "${rec_pid}" 2>/dev/null || true
   wait "${rec_pid}" 2>/dev/null || true
@@ -166,6 +171,22 @@ if [ "${SCORE:-0}" = "1" ]; then
     python3 /opt/tools/organizer/score_ros.py /out/result /bag --frame "${OUTPUT_FRAME:-mgrs}" || score_status=$?
   fi
   code=$(score_scenario_status "${SCORE_MODE:-acceptance}" "${score_status}")
+  if [ "${FAIL_CLOSED:-0}" = "1" ]; then
+    set +e
+    python3 /opt/tools/organizer/jury_accept.py \
+      --result /out/result \
+      --node-alive "${node_alive}" \
+      --scorer-status "${score_status}" \
+      --require-position "${REQUIRE_POSITION:-1}"
+    accept_status=$?
+    set -e
+    if [ "${accept_status}" -ne 0 ]; then
+      if [ "${score_status}" -ne 0 ]; then
+        exit "${score_status}"
+      fi
+      exit "${accept_status}"
+    fi
+  fi
   if [ "${code}" -ne 0 ]; then
     exit "${code}"
   fi

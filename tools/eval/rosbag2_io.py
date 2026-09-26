@@ -526,8 +526,8 @@ def _decode_message(msg_type: str, blob: bytes) -> dict[str, Any] | None:
     if t in {"nav_msgs/Odometry", "nav_msgs/msg/Odometry"}:
         sec = r.i32()
         nsec = r.u32()
-        _ = r.string()
-        _ = r.string()
+        frame = r.string()
+        child = r.string()
         x = r.f64()
         y = r.f64()
         z = r.f64()
@@ -542,6 +542,7 @@ def _decode_message(msg_type: str, blob: bytes) -> dict[str, Any] | None:
         tw0 = r.f64()
         return {
             "s": x, "y": y, "z": z, "v": vx, "p_ss": cov0, "p_vv": tw0,
+            "frame_id": frame, "child_frame_id": child,
             "stamp_s": float(sec) + float(nsec) * 1e-9,
         }
     if t in {

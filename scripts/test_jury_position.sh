@@ -87,4 +87,25 @@ if ! grep -q "SCORE_MODE = 'acceptance'" "${ROOT}/scripts/jury.ps1"; then
   echo "jury.ps1 record is not acceptance" >&2
   exit 1
 fi
+if ! grep -q 'acceptance)' "${ROOT}/scripts/jury.sh"; then
+  echo "jury.sh has no acceptance scenario" >&2
+  exit 1
+fi
+if ! grep -q "FAIL_CLOSED=1" "${ROOT}/scripts/jury.sh"; then
+  echo "jury.sh acceptance is not fail-closed" >&2
+  exit 1
+fi
+if ! grep -q "FAIL_CLOSED = '1'" "${ROOT}/scripts/jury.ps1"; then
+  echo "jury.ps1 acceptance is not fail-closed" >&2
+  exit 1
+fi
+if ! grep -q 'jury_accept.py' "${ROOT}/scripts/jury_inside.sh"; then
+  echo "the container does not run the fail-closed checks" >&2
+  exit 1
+fi
+record_line=$(grep -n "record)" "${ROOT}/scripts/jury.sh" | head -n 1)
+if printf '%s\n' "${record_line}" | grep -q 'FAIL_CLOSED'; then
+  echo "interactive record became fail-closed" >&2
+  exit 1
+fi
 echo ok
