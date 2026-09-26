@@ -15,10 +15,14 @@ from fault_campaign import (  # noqa: E402
     apply_streams,
     attack_mask,
     events_of,
+    heatmap_svg,
     offset_east,
     outside_window,
+    recovery_s,
     regress_events,
     reorder_events,
+    scale_grid,
+    to_record,
 )
 
 
@@ -137,6 +141,55 @@ class InjectorTests(unittest.TestCase):
         back, landed = regress_events(ev, 1.0)
         self.assertTrue(landed)
         self.assertLess(back[2][0], back[1][0])
+
+
+class ReportTests(unittest.TestCase):
+    def test_rest_of_run_record(self) -> None:
+        case = Case("grid_rear_scale_1.05_rest", "single", "scale", "rear", 1.05, 0.0)
+        summary = {
+            "n": 22, "n_started": 21, "n_applied": 21, "n_error": 0, "all_finite": True,
+            "along_rmse_med": 90.1, "v_rmse_med": 0.148, "slip_flag_frac": 0.19,
+            "detect_latency_med": None, "recovery_med": None, "during_max_med": 146.0,
+            "start_s_med": 180.2,
+        }
+        rec = to_record(case, summary, "abc123", "val:july27_arc.npz:deadbeef")
+        self.assertEqual(rec["fault"]["type"], "rear_scale")
+        self.assertEqual(rec["fault"]["magnitude"], 1.05)
+        self.assertEqual(rec["fault"]["duration_s"], "rest_of_run")
+        self.assertEqual(rec["metrics"]["along_rmse_m"], 90.1)
+        self.assertIsNone(rec["metrics"]["detection_latency_s"])
+        self.assertIsNone(rec["metrics"]["recovery_s"])
+        self.assertTrue(rec["pass"])
+        self.assertEqual(rec["n"], 21)
+        self.assertEqual(rec["commit"], "abc123")
+
+    def test_pass_fails_when_the_state_is_not_finite(self) -> None:
+        case = Case("rear_scale_p5", "single", "scale", "rear", 1.05, 0.0)
+        summary = {"n": 21, "n_started": 21, "n_applied": 21, "n_error": 0, "all_finite": False}
+        self.assertFalse(to_record(case, summary, "abc", "val")["pass"])
+
+    def test_recovery_before_the_window_ends_is_zero(self) -> None:
+        st = np.array([0.0, 1.0, 1.2, 2.5])
+        sf = np.array([True, True, False, False])
+        self.assertEqual(recovery_s(st, sf, 0, 3.0), 0.0)
+        self.assertAlmostEqual(recovery_s(st, sf, 0, 1.0), 0.2)
+
+    def test_scale_grid_and_heatmap(self) -> None:
+        grid = scale_grid("rear")
+        self.assertEqual(len(grid), len(set(c.id for c in grid)))
+        self.assertEqual(len(grid), 8 * 4)
+        records = []
+        for mag in (0.90, 1.10):
+            for dur, rate, rmse in ((5.0, 0.0, 2.0), ("rest_of_run", 1.0, 40.0)):
+                records.append({
+                    "fault": {"type": "rear_scale", "magnitude": mag, "duration_s": dur},
+                    "metrics": {"along_rmse_m": rmse, "detection_rate": rate},
+                })
+        svg = heatmap_svg(records)
+        self.assertIsNotNone(svg)
+        self.assertIn("масштаб", svg)
+        self.assertIn("весь рейс", svg)
+        self.assertIn("<line ", svg)
 
 
 if __name__ == "__main__":

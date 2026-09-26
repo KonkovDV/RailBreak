@@ -7,7 +7,12 @@
 Single-bogie attacks are applied once on the front bogie and once on the rear.
 Scale and bias hold from the moving instant to the end of the run. A frozen
 bogie, a zero, a NaN burst and a dropout are windows. The spike is one sample
-of +40 km/h, scored over the following 1 s. Delay shifts that bogie's stamps.
+of +40 km/h, scored over the following 1 s. Delay shifts that bogie's stamps. `--grid rear` is the magnitude-by-duration
+table for the heatmap: scale 0.90 … 1.10 and durations 5 s, 15 s, 30 s, and
+the rest of the run. `--report` writes one JSON record per cell and
+`fault_heatmap.svg`.
+
+  python tools/organizer/fault_campaign.py --grid rear --jobs 4 --out local/fault_grid.json --report docs/solution
 
 Both-bogie slide is −20 % for 8 s, spin is +20 % for 8 s, the shared freeze
 is 30 s. Simultaneous dropouts use the same durations as the single-bogie
@@ -29,7 +34,9 @@ The scored reference is always the clean master track.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -510,6 +517,23 @@ def dwell_s(front_t, front_u, s0: float, t0: float, stops: list, length: float) 
     return None
 
 
+def recovery_s(st, sf, i0: int, t_end: float) -> float | None:
+    """Seconds after the fault ends until this slip episode stays false for 1 s.
+
+    A later rise is another episode. A quiet start before the fault ends is 0.
+    """
+    quiet_since = None
+    for i in range(i0, len(st)):
+        if sf[i]:
+            quiet_since = None
+            continue
+        if quiet_since is None:
+            quiet_since = float(st[i])
+        if float(st[i]) - quiet_since >= 1.0 or i == len(st) - 1:
+            return max(0.0, quiet_since - t_end)
+    return None
+
+
 def _blank(bag: str, case: Case, applied: bool, started: bool, **extra) -> dict:
     row = {
         "bag": bag, "applied": applied, "started": started, "changes_filter": case.changes_filter,
@@ -543,21 +567,31 @@ def _score(prep, est, slip, t_on: float, dur: float, localized: bool) -> dict:
         if dur > 0.0:
             inside = (tm >= t_on) & (tm <= t_on + dur)
             after = (tm > t_on + dur) & (tm <= t_on + dur + 60.0)
-            t_hi = t_on + dur
         else:
             inside = tm >= t_on
             after = np.zeros(len(tm), dtype=bool)
-            t_hi = float(tm[-1]) if len(tm) else t_on
         out["along_during_max"] = float(np.max(np.abs(e[inside]))) if inside.any() else None
         out["along_after_max"] = float(np.max(np.abs(e[after]))) if after.any() else None
-        sel = (slip[0] >= t_on) & (slip[0] <= t_hi + (2.0 if dur > 0.0 else 0.0))
-        flags = slip[1][sel] if sel.any() else np.array([], dtype=bool)
-        out["slip_flag"] = bool(flags.any()) if len(flags) else False
+        # Published flag: the attack plus 2 s. A fault with no end uses that 2 s
+        # probe, not every later slip on the ride.
+        det_hi = t_on + dur + 2.0 if dur > 0.0 else t_on + 2.0
+        st, sf = slip
+        det = (st >= t_on) & (st <= det_hi) & sf
+        out["slip_flag"] = bool(det.any())
+        window = (st >= t_on) & (st <= det_hi)
+        flags = sf[window]
         if len(flags):
             rise = np.flatnonzero(flags[1:] & ~flags[:-1])
             out["slip_edges"] = int(len(rise) + (1 if flags[0] else 0))
         else:
             out["slip_edges"] = 0
+        if det.any():
+            i0 = int(np.flatnonzero(det)[0])
+            out["detect_latency_s"] = float(st[i0] - t_on)
+            out["recovery_s"] = recovery_s(st, sf, i0, t_on + dur) if dur > 0.0 else None
+        else:
+            out["detect_latency_s"] = None
+            out["recovery_s"] = None
     if prep["vel"] is not None:
         vt, sp = prep["vel"]
         vi = np.interp(vt, est["t"], est["v"], left=np.nan, right=np.nan)
@@ -701,7 +735,8 @@ def run_case(prep, case: Case) -> dict:
     if len(played["t"]) < 10:
         return _blank(bag, case, True, True, n_behind=played["n_behind"])
     row = _blank(bag, case, True, True, n_behind=played["n_behind"],
-                 s0_delta=float(init["s0"] - prep["s0"]))
+                 s0_delta=float(init["s0"] - prep["s0"]),
+                 start_s=float(t_on - float(prep["front"][0][0])))
     est = {"t": played["t"], "s": played["s"], "v": played["v"], "n_anchor": played["n_anchor"]}
     row.update(_score(prep, est, (played["slip_t"], played["slip"]), t_on, case.dur, case.localized))
     row["started"] = True
@@ -754,8 +789,7 @@ def _init(payload: dict) -> None:
     CTX["stops"] = json.loads((Path(payload["model"]) / "stops.json").read_text(encoding="utf-8"))
     CTX["org"] = payload["org"]
     CTX["window"] = payload["window"]
-    wanted = set(payload["ids"])
-    CTX["cases"] = [c for c in CASES if c.id in wanted]
+    CTX["cases"] = list(payload["cases"])
 
 
 def one_bag(name: str) -> list[dict]:
@@ -806,10 +840,13 @@ def summarize(case: Case, rows: list[dict]) -> dict:
         "during_max_med": _med([r.get("along_during_max") for r in used]),
         "after_max_med": _med([r.get("along_after_max") for r in used]),
         "slip_flag_frac": (float(np.mean(flags)) if flags else None),
+        "detect_latency_med": _med([r.get("detect_latency_s") for r in used]),
+        "recovery_med": _med([r.get("recovery_s") for r in used]),
         "slip_edges_med": _med([r.get("slip_edges") for r in used]),
         "n_behind_med": _med([r.get("n_behind") for r in used]),
         "n_anchor_med": _med([r.get("n_anchor") for r in used]),
         "s0_delta_med": _med([r.get("s0_delta") for r in used]),
+        "start_s_med": _med([r.get("start_s") for r in used]),
     }
 
 
@@ -827,6 +864,225 @@ def _selected(ids: list[str] | None, groups: list[str] | None) -> list[Case]:
     return out
 
 
+GRID_MAGNITUDES = (0.90, 0.95, 0.97, 0.99, 1.01, 1.03, 1.05, 1.10)
+GRID_DURATIONS = (5.0, 15.0, 30.0, 0.0)
+
+
+def scale_grid(which: str = "rear") -> list[Case]:
+    """Magnitude by duration for one bogie. Duration 0 runs to the end of the ride."""
+    out = []
+    for mag in GRID_MAGNITUDES:
+        for dur in GRID_DURATIONS:
+            tail = "rest" if dur <= 0.0 else f"{dur:g}s"
+            out.append(Case(
+                f"grid_{which}_scale_{mag:.2f}_{tail}", "single", "scale", which, mag, dur,
+            ))
+    return out
+
+
+def _num(value, digits: int = 4):
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(number):
+        return None
+    return round(number, digits)
+
+
+def head_commit(root: Path) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+
+
+def dataset_version(splits: Path, split: str, map_path: Path) -> str:
+    names = json.loads(Path(splits).read_text(encoding="utf-8"))[split]
+    digest = hashlib.sha256("\n".join(names).encode()).hexdigest()[:12]
+    return f"{split}:{Path(map_path).name}:{digest}"
+
+
+def to_record(case: Case, summary: dict, commit: str, dataset: str) -> dict:
+    """One jury record. pass means every applied bag started and stayed finite."""
+    started = int(summary.get("n_started") or 0)
+    applied = int(summary.get("n_applied") or 0)
+    passed = bool(summary.get("all_finite")) and started > 0 and started == applied and int(summary.get("n_error") or 0) == 0
+    return {
+        "commit": commit,
+        "dataset_version": dataset,
+        "fault": {
+            "type": f"{case.which}_{case.kind}" if case.which else case.kind,
+            "magnitude": case.value if case.value else None,
+            "start_s": _num(summary.get("start_s_med"), 3),
+            "duration_s": "rest_of_run" if case.dur <= 0.0 else case.dur,
+        },
+        "metrics": {
+            "along_rmse_m": _num(summary.get("along_rmse_med"), 3),
+            "speed_rmse_mps": _num(summary.get("v_rmse_med"), 4),
+            "detection_rate": _num(summary.get("slip_flag_frac"), 4),
+            "detection_latency_s": _num(summary.get("detect_latency_med"), 3),
+            "max_error_m": _num(summary.get("during_max_med"), 3),
+            "recovery_s": _num(summary.get("recovery_med"), 3),
+        },
+        "pass": passed,
+        "pass_rule": "every applied bag started and the state stayed finite",
+        "n": started,
+    }
+
+
+def _isolines(grid: np.ndarray, level: float) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Segments in index space. grid[row, col] sits on the cell centre."""
+    ny, nx = grid.shape
+    segs = []
+    for y in range(ny - 1):
+        for x in range(nx - 1):
+            corners = [grid[y, x], grid[y, x + 1], grid[y + 1, x + 1], grid[y + 1, x]]
+            if not np.all(np.isfinite(corners)):
+                continue
+            pts = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+            hits = []
+            for i in range(4):
+                v0, v1 = float(corners[i]), float(corners[(i + 1) % 4])
+                if (v0 - level) * (v1 - level) >= 0.0:
+                    continue
+                t = (level - v0) / (v1 - v0)
+                p0, p1 = pts[i], pts[(i + 1) % 4]
+                hits.append((x + p0[0] + t * (p1[0] - p0[0]), y + p0[1] + t * (p1[1] - p0[1])))
+            if len(hits) >= 2:
+                segs.append((hits[0], hits[1]))
+    return segs
+
+
+def _rgb(t: float) -> str:
+    t = min(1.0, max(0.0, t))
+    stops = ((0.0, (29, 78, 137)), (0.5, (242, 193, 78)), (1.0, (192, 57, 43)))
+    for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+        if t <= t1:
+            u = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+            rgb = tuple(int(a + u * (b - a)) for a, b in zip(c0, c1))
+            return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+    return "#c0392b"
+
+
+def heatmap_svg(records: list[dict]) -> str | None:
+    """X is scale, Y is duration, colour is along RMSE, lines are detection rate."""
+    cells = []
+    for rec in records:
+        fault = rec["fault"]
+        if fault.get("type") != "rear_scale":
+            continue
+        mag = fault.get("magnitude")
+        dur = fault.get("duration_s")
+        rmse = rec["metrics"].get("along_rmse_m")
+        rate = rec["metrics"].get("detection_rate")
+        if mag is None or rmse is None or rate is None:
+            continue
+        cells.append((float(mag), dur, float(rmse), float(rate)))
+    mags = sorted({c[0] for c in cells})
+    durs = []
+    for dur in GRID_DURATIONS:
+        key = "rest_of_run" if dur <= 0.0 else dur
+        if any(c[1] == key or c[1] == dur for c in cells):
+            durs.append(key)
+    if len(mags) < 2 or len(durs) < 2:
+        return None
+    lookup = {(c[0], c[1]): c for c in cells}
+
+    nx, ny = len(mags), len(durs)
+    rmse = np.full((ny, nx), np.nan)
+    rate = np.full((ny, nx), np.nan)
+    for iy, dur in enumerate(durs):
+        for ix, mag in enumerate(mags):
+            got = lookup.get((mag, dur))
+            if got is None:
+                continue
+            rmse[iy, ix] = got[2]
+            rate[iy, ix] = got[3]
+    positive = rmse[np.isfinite(rmse) & (rmse > 0)]
+    if len(positive) == 0:
+        return None
+    lo, hi = float(np.min(positive)), float(np.max(positive))
+    if hi == lo:
+        hi = lo + 1.0
+    width, height = 760, 460
+    left, right, top, bottom = 88, 150, 36, 64
+    plot_w, plot_h = width - left - right, height - top - bottom
+    cw, ch = plot_w / nx, plot_h / ny
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#f7f4ee"/>',
+        '<text x="88" y="24" font-family="sans-serif" font-size="16" fill="#1c1917">Задняя тележка, масштаб</text>',
+    ]
+    for iy, dur in enumerate(durs):
+        for ix, mag in enumerate(mags):
+            value = rmse[iy, ix]
+            if not np.isfinite(value) or value <= 0:
+                colour = "#d6d3d1"
+            else:
+                colour = _rgb((np.log10(value) - np.log10(lo)) / (np.log10(hi) - np.log10(lo)))
+            x = left + ix * cw
+            y = top + (ny - 1 - iy) * ch
+            parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{cw:.1f}" height="{ch:.1f}" fill="{colour}" stroke="#f7f4ee" stroke-width="2"/>')
+    for level in (0.25, 0.5, 0.75):
+        if not (np.nanmin(rate) <= level <= np.nanmax(rate)):
+            continue
+        for (x0, y0), (x1, y1) in _isolines(rate, level):
+            px0 = left + (x0 + 0.5) * cw
+            py0 = top + plot_h - (y0 + 0.5) * ch
+            px1 = left + (x1 + 0.5) * cw
+            py1 = top + plot_h - (y1 + 0.5) * ch
+            parts.append(
+                f'<line x1="{px0:.1f}" y1="{py0:.1f}" x2="{px1:.1f}" y2="{py1:.1f}" '
+                f'stroke="#1c1917" stroke-width="1.6" fill="none"/>'
+            )
+    for ix, mag in enumerate(mags):
+        x = left + (ix + 0.5) * cw
+        parts.append(
+            f'<text x="{x:.1f}" y="{height - 28}" text-anchor="middle" font-family="sans-serif" '
+            f'font-size="11" fill="#1c1917">{mag:.2f}</text>'
+        )
+    parts.append(
+        f'<text x="{left + plot_w / 2:.1f}" y="{height - 8}" text-anchor="middle" '
+        f'font-family="sans-serif" font-size="12" fill="#1c1917">масштаб</text>'
+    )
+    for iy, dur in enumerate(durs):
+        y = top + plot_h - (iy + 0.5) * ch
+        label = "весь рейс" if dur == "rest_of_run" else f"{dur:g} с"
+        parts.append(
+            f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end" font-family="sans-serif" '
+            f'font-size="11" fill="#1c1917">{label}</text>'
+        )
+    parts.append(
+        f'<text x="16" y="{top + plot_h / 2:.1f}" text-anchor="middle" font-family="sans-serif" '
+        f'font-size="12" fill="#1c1917" transform="rotate(-90 16 {top + plot_h / 2:.1f})">длительность</text>'
+    )
+    bar_x, bar_y, bar_w, bar_h = width - 120, top, 16, plot_h
+    for k in range(40):
+        t = k / 39
+        y = bar_y + bar_h - (k + 1) * bar_h / 40
+        parts.append(f'<rect x="{bar_x}" y="{y:.1f}" width="{bar_w}" height="{bar_h / 40 + 0.5:.1f}" fill="{_rgb(t)}"/>')
+    parts.append(
+        f'<text x="{bar_x + 22}" y="{bar_y + 12}" font-family="sans-serif" font-size="11" fill="#1c1917">{hi:.0f} м</text>'
+    )
+    parts.append(
+        f'<text x="{bar_x + 22}" y="{bar_y + bar_h}" font-family="sans-serif" font-size="11" fill="#1c1917">{lo:.1f} м</text>'
+    )
+    parts.append(
+        f'<text x="{bar_x}" y="{bar_y + bar_h + 28}" font-family="sans-serif" font-size="11" fill="#1c1917">цвет — RMSE вдоль пути, лог</text>'
+    )
+    parts.append(
+        f'<text x="{left}" y="{height - 48}" font-family="sans-serif" font-size="11" fill="#44403c">'
+        f'линии — вероятность обнаружения 0.25, 0.50, 0.75</text>'
+    )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Run the fault campaign on the Python twin.")
     ap.add_argument("--org", default="local/org")
@@ -839,10 +1095,14 @@ def main() -> int:
     ap.add_argument("--group", nargs="*", default=None)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--jobs", type=int, default=1)
+    ap.add_argument("--grid", choices=("rear", "front"), default=None,
+                    help="magnitude by duration for one bogie, instead of the named catalog")
+    ap.add_argument("--report", type=Path, default=None,
+                    help="directory for fault_report.json and fault_heatmap.svg")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
-    chosen = _selected(args.cases, args.group)
+    chosen = scale_grid(args.grid) if args.grid else _selected(args.cases, args.group)
     if args.list:
         for case in chosen:
             print(f"{case.group:8} {case.id}")
@@ -855,7 +1115,7 @@ def main() -> int:
         names = names[: args.limit]
     payload = {
         "org": args.org, "map": args.map, "model": args.model, "window": args.window,
-        "ids": [c.id for c in chosen],
+        "cases": chosen,
     }
     bag_rows: list[list[dict]] = []
     if args.jobs == 1:
@@ -873,12 +1133,22 @@ def main() -> int:
     table = {c.id: summarize(c, by_case[c.id]) for c in chosen}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(table, indent=1), encoding="utf-8")
+    root = Path(__file__).resolve().parents[2]
+    commit = head_commit(root)
+    dataset = dataset_version(Path(args.splits), args.split, Path(args.map))
+    records = [to_record(case, table[case.id], commit, dataset) for case in chosen]
+    if args.report is not None:
+        args.report.mkdir(parents=True, exist_ok=True)
+        (args.report / "fault_report.json").write_text(json.dumps(records, indent=1, ensure_ascii=False), encoding="utf-8")
+        svg = heatmap_svg(records)
+        if svg is not None:
+            (args.report / "fault_heatmap.svg").write_text(svg, encoding="utf-8")
     for case in chosen:
         t = table[case.id]
         along = t["along_rmse_med"]
         along_s = f"{along:7.2f}" if along is not None else "   none"
         print(
-            f"{case.id:24} n={t['n_started']:2d}/{t['n']:<2d} applied={t['n_applied']:<2d} "
+            f"{case.id:32} n={t['n_started']:2d}/{t['n']:<2d} applied={t['n_applied']:<2d} "
             f"finite={t['all_finite']} along={along_s} reach={case.changes_filter}",
             flush=True,
         )
