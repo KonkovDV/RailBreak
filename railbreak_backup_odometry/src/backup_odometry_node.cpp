@@ -406,8 +406,9 @@ class BackupOdometryNode : public rclcpp::Node {
     diagnostic_msgs::msg::DiagnosticStatus st;
     st.name = "railbreak_backup_odometry";
     st.hardware_id = "tram";
-    st.level = od_->slip() ? diagnostic_msgs::msg::DiagnosticStatus::WARN
-                           : diagnostic_msgs::msg::DiagnosticStatus::OK;
+    st.level = (od_->slip_front() || od_->slip_rear())
+                   ? diagnostic_msgs::msg::DiagnosticStatus::WARN
+                   : diagnostic_msgs::msg::DiagnosticStatus::OK;
     st.message = railbreak::mode_name(od_->mode());
     auto kv = [&](const char* k, const std::string& v) {
       diagnostic_msgs::msg::KeyValue x;
@@ -417,6 +418,13 @@ class BackupOdometryNode : public rclcpp::Node {
     };
     kv("mode", railbreak::mode_name(od_->mode()));
     kv("slip", od_->slip() ? "true" : "false");
+    kv("slip_front", od_->slip_front() ? "true" : "false");
+    kv("slip_rear", od_->slip_rear() ? "true" : "false");
+    kv("slip_age_s", std::to_string(od_->slip_age_s()));
+    kv("slip_front_run", std::to_string(od_->slip_front_run()));
+    kv("slip_rear_run", std::to_string(od_->slip_rear_run()));
+    kv("slip_front_nis", std::to_string(od_->slip_front_nis()));
+    kv("slip_rear_nis", std::to_string(od_->slip_rear_nis()));
     kv("s_m", std::to_string(od_->s()));
     kv("sigma_s_m", std::to_string(od_->sigma_s()));
     kv("wheel_scale_k", std::to_string(od_->k()));

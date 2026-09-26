@@ -266,6 +266,10 @@ class TrackOdometer {
     still_since_ = -1.0;
     anchored_ = false;
     slip_ = false;
+    slip_front_ = slip_rear_ = false;
+    slip_front_run_ = slip_rear_run_ = 0;
+    slip_front_nis_ = slip_rear_nis_ = 0.0;
+    slip_since_ = -1.0;
     mode_ = Mode::kWheels;
     n_anchor_ = n_rejected_ = n_gap_reset_ = n_guard_ = 0;
     have_v_ = false;
@@ -353,6 +357,7 @@ class TrackOdometer {
           ++n_guard_;
         }
         disagree_since_ = -1.0;
+        note_slip(is_front, false, t, innov * innov / S);
         slip_ = false;
         zupt(t);
         if (mode_ != Mode::kZupt) mode_ = Mode::kWheels;
@@ -361,6 +366,7 @@ class TrackOdometer {
     } else {
       disagree_since_ = -1.0;
     }
+    note_slip(is_front, slip, t, innov * innov / S);
     slip_ = slip;
     update_scalar(h, innov, slip ? p_.r_bad : r, true);
     x_[IV] = std::max(0.0, x_[IV]);
@@ -417,6 +423,16 @@ class TrackOdometer {
     c[21] = c[28] = c[35] = 1e6;
   }
   bool slip() const { return slip_; }
+  // Last callback only. The other bogie keeps its own flag until it speaks.
+  bool slip_front() const { return slip_front_; }
+  bool slip_rear() const { return slip_rear_; }
+  int slip_front_run() const { return slip_front_run_; }
+  int slip_rear_run() const { return slip_rear_run_; }
+  double slip_front_nis() const { return slip_front_nis_; }
+  double slip_rear_nis() const { return slip_rear_nis_; }
+  double slip_age_s() const {
+    return slip_since_ < 0.0 || !have_t_ ? 0.0 : std::max(0.0, t_ - slip_since_);
+  }
   Mode mode() const { return mode_; }
   int notch() const { return notch_; }
   int n_anchor() const { return n_anchor_; }
@@ -451,6 +467,19 @@ class TrackOdometer {
     for (int i = 0; i < N; ++i)
       for (int j = 0; j < N; ++j) q += h[i] * P_[i][j] * h[j];
     return q;
+  }
+
+  void note_slip(bool is_front, bool flagged, double t, double nis) {
+    if (!std::isfinite(nis) || nis < 0.0) nis = 0.0;
+    (is_front ? slip_front_ : slip_rear_) = flagged;
+    (is_front ? slip_front_nis_ : slip_rear_nis_) = nis;
+    int& run = is_front ? slip_front_run_ : slip_rear_run_;
+    run = flagged ? run + 1 : 0;
+    if (slip_front_ || slip_rear_) {
+      if (slip_since_ < 0.0) slip_since_ = t;
+    } else {
+      slip_since_ = -1.0;
+    }
   }
 
   void learn_pair(double uf, double ur) {
@@ -658,6 +687,13 @@ class TrackOdometer {
   double still_since_ = -1.0;
   bool anchored_ = false;
   bool slip_ = false;
+  bool slip_front_ = false;
+  bool slip_rear_ = false;
+  int slip_front_run_ = 0;
+  int slip_rear_run_ = 0;
+  double slip_front_nis_ = 0.0;
+  double slip_rear_nis_ = 0.0;
+  double slip_since_ = -1.0;
   bool have_v_ = false;
   double disagree_since_ = -1.0;
   Mode mode_ = Mode::kWheels;

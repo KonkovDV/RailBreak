@@ -254,6 +254,25 @@ int main() {
     railbreak::TrackOdometer od(&assets, p);
     od.init(0.0, 0.5);
     od.set_time(0.0);
+    drive(od, 0.0, 30.0, 36.0);
+    od.on_bogie(30.0, true, 36.0 * 1.2);
+    od.on_bogie(30.1, true, 36.0 * 1.2);
+    od.on_bogie(30.15, false, 36.0);
+    std::printf("     slip_last=%d front=%d rear=%d run=%d age=%.3f nis=%.1f\n",
+                od.slip() ? 1 : 0, od.slip_front() ? 1 : 0, od.slip_rear() ? 1 : 0,
+                od.slip_front_run(), od.slip_age_s(), od.slip_front_nis());
+    check(!od.slip(), "the published slip flag is the last callback");
+    check(od.slip_front() && !od.slip_rear(), "a healthy rear does not clear the front channel");
+    check(od.slip_front_run() >= 2, "consecutive front anomalies are counted");
+    check(od.slip_age_s() > 0.1, "the front channel keeps its age across the rear callback");
+    check(od.slip_front_nis() > 16.0, "the channel keeps the gate statistic, not a probability");
+    od.on_bogie(30.2, true, 36.0);
+    check(!od.slip_front() && od.slip_front_run() == 0, "a healthy front callback clears only the front channel");
+  }
+  {
+    railbreak::TrackOdometer od(&assets, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
     // Wheels read 0.5 % low (the spread seen in the recordings); 40 s at 10 m/s,
     // then a 1 m/s^2 brake to the station at s = 450.
     drive(od, 0.0, 40.0, 36.0 * 0.995);

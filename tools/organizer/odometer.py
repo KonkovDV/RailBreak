@@ -97,6 +97,10 @@ class Odometer:
         self.still_since = None
         self.anchored_this_dwell = False
         self.slip = False
+        self.slip_side = {"front": False, "rear": False}
+        self.slip_run = {"front": 0, "rear": 0}
+        self.slip_nis = {"front": 0.0, "rear": 0.0}
+        self.slip_since = None
         self.mode = "WHEELS"
         self.n_anchor = 0
         self.n_guard = 0
@@ -126,6 +130,18 @@ class Odometer:
         except np.linalg.LinAlgError:
             return False
         return True
+
+    def _note_slip(self, which: str, flagged: bool, t: float, nis: float) -> None:
+        if not math.isfinite(nis) or nis < 0.0:
+            nis = 0.0
+        self.slip_side[which] = flagged
+        self.slip_nis[which] = nis
+        self.slip_run[which] = self.slip_run[which] + 1 if flagged else 0
+        if self.slip_side["front"] or self.slip_side["rear"]:
+            if self.slip_since is None:
+                self.slip_since = t
+        else:
+            self.slip_since = None
 
     # --- helpers -------------------------------------------------------------
     def init(self, s0: float, sigma_s0: float) -> None:
@@ -289,11 +305,13 @@ class Odometer:
                     self.n_guard += 1
                 self.disagree_since = None
                 slip = False
+                self._note_slip(which, False, t, innov * innov / S)
                 self.slip = False
                 self._zupt(t)
                 return
         else:
             self.disagree_since = None
+        self._note_slip(which, slip, t, innov * innov / S)
         self.slip = slip
         self._update_scalar(h, innov, self.p.r_bad if slip else r, consider_k=True)
         self.x[IV] = max(0.0, self.x[IV])
