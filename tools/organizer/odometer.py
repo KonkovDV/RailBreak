@@ -14,8 +14,9 @@ Three time scales keep calibration, noise and slip apart:
     It grows only while that difference is sign-balanced (noise); a one-signed
     run (slip or slide on one bogie) freezes it.
   * slip is a fast test: normalised innovation against the prediction, and a
-    two-bogie consensus gate. A flagged bogie is down-weighted to r_bad; with
-    both flagged the model carries v.
+    two-bogie consensus gate. A flagged bogie is not dropped: its update uses
+    r_bad, and the speed weight is about Pvv/(Pvv+r_bad). With both flagged
+    the notch model carries the prediction; the measurements still update.
 Predict:  s += v dt,  v += (a_tab(n, v) - g i(s) + ba) dt.
 Anchor:   once per dwell, unique station within the gate, s = s_stop + e.
 """

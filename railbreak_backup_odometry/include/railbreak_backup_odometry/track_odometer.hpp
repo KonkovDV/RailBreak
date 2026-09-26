@@ -13,7 +13,8 @@
 //   r    measurement noise from the corrected front-rear difference; it grows only
 //        while that difference is sign-balanced, a one-signed run freezes it
 //   slip normalised innovation gate and a two-bogie consensus gate; a flagged
-//        bogie is down-weighted to r_bad, with both flagged the model carries v
+//        bogie is not dropped: the update uses r_bad, weight ~ Pvv/(Pvv+r_bad).
+//        With both flagged the notch model carries the prediction, not a skipped update.
 // Bogie updates treat k as a consider state (Schmidt-Kalman): wheels and model
 // cannot separate v from k, only station anchors move k.
 //
