@@ -220,25 +220,15 @@ int main() {
   }
   {
     double c[36];
-    const double plat = railbreak::TrackOdometer::kCrossTrackSigmaM *
-                        railbreak::TrackOdometer::kCrossTrackSigmaM;
-    const double pz = railbreak::TrackOdometer::kMapHeightSigmaM *
-                      railbreak::TrackOdometer::kMapHeightSigmaM;
-    railbreak::TrackOdometer::fill_pose_covariance(4.0, 1.0, 0.0, 0.0, c);
-    check(std::fabs(c[0] - 4.0) < 1e-9, "eastbound along-track variance is Pss");
-    check(std::fabs(c[7] - plat) < 1e-9, "eastbound cross-track variance is the map floor");
-    check(std::fabs(c[14] - pz) < 1e-9, "level-track height variance is the map floor, not Pss");
-    check(std::fabs(c[1]) < 1e-12, "an axis-aligned track has no Pxy");
-    railbreak::TrackOdometer::fill_pose_covariance(4.0, 1.0, 1.0, 0.04, c);
-    const double half = 0.5 * (4.0 + plat);
-    check(std::fabs(c[0] - half) < 1e-9 && std::fabs(c[7] - half) < 1e-9,
-          "a diagonal track splits Pss and the lateral floor");
-    check(std::fabs(c[1] - 0.5 * (4.0 - plat)) < 1e-9, "a diagonal track publishes Pxy");
-    check(std::fabs(c[14] - (4.0 * 0.04 * 0.04 + pz)) < 1e-9,
-          "height is the grade term plus the map floor");
-    check(std::fabs(c[2] - 4.0 * std::sqrt(0.5) * 0.04) < 1e-9,
-          "along-track error couples into height");
-    check(c[21] == 1e6 && c[35] == 1e6, "orientation stays uninformative");
+    railbreak::TrackOdometer::fill_pose_covariance(4.0, c);
+    check(c[0] == 4.0 && c[7] == 4.0 && c[14] == 4.0, "Pss is on x, y and z");
+    check(c[1] == 0.0 && c[2] == 0.0 && c[6] == 0.0 && c[8] == 0.0 && c[12] == 0.0 && c[13] == 0.0,
+          "position off-diagonals stay zero");
+    check(c[7] != railbreak::TrackOdometer::kCrossTrackSigmaM * railbreak::TrackOdometer::kCrossTrackSigmaM,
+          "the cross-track floor is not the y variance");
+    check(c[14] != railbreak::TrackOdometer::kMapHeightSigmaM * railbreak::TrackOdometer::kMapHeightSigmaM,
+          "the height floor is not the z variance");
+    check(c[21] == 1e6 && c[28] == 1e6 && c[35] == 1e6, "orientation stays uninformative");
   }
   {
     railbreak::TrackOdometer od(&assets, p);
