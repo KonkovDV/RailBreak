@@ -33,7 +33,7 @@
     },
     "tools/organizer/score_ros.py": {
       "commit": "HEAD",
-      "sha256": "5fb2b6cc3bae33797dfe8571674ec0ad5c37d3b1b19adb352aff17ed5c04f31d"
+      "sha256": "58d2ec25cea834077e440ab234cec099cea278f1e5dc6061338d72c2f124b848"
     },
     "tools/organizer/speed_reference.py": {
       "commit": "HEAD",
