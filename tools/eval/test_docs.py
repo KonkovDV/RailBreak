@@ -18,6 +18,7 @@ CURRENT_DOCS = (
     "docs/verification.md", "docs/refs.md",
     "docs/solution/model.md", "docs/solution/assumptions.md",
     "docs/solution/results.md", "docs/solution/form.md", "docs/solution/pitch.md",
+    "docs/solution/references.md",
 )
 
 
