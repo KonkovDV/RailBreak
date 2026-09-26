@@ -55,6 +55,7 @@ $env:DURATION = ''
 $env:RECORD = '0'
 $env:SCORE = '0'
 $env:REQUIRE_POSITION = '1'
+$env:SCORE_MODE = 'acceptance'
 
 switch ($Scenario) {
     'smoke' { $env:DURATION = '25' }
@@ -71,7 +72,7 @@ switch ($Scenario) {
         $env:INITIAL_S = $InitialS
         $env:TOPICS = '/vehicle/front_bogie_velocity /vehicle/rear_bogie_velocity /vehicle/driver_position_cmd'
     }
-    'record' { $env:RECORD = '1'; $env:SCORE = '1' }
+    'record' { $env:RECORD = '1'; $env:SCORE = '1'; $env:SCORE_MODE = 'acceptance' }
 }
 
 Push-Location $Root

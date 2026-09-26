@@ -26,6 +26,7 @@ services:
       DURATION: ${DURATION:-}
       RECORD: ${RECORD:-0}
       SCORE: ${SCORE:-0}
+      SCORE_MODE: ${SCORE_MODE:-acceptance}
       REQUIRE_POSITION: ${REQUIRE_POSITION:-1}
     command: ["bash", "/opt/jury_inside.sh"]
 

@@ -11,6 +11,24 @@ position_required() {
   return 0
 }
 
+# acceptance keeps the scorer status. exploratory warns and stays green.
+# Any other mode is acceptance, so a forgotten flag cannot hide a failure.
+score_scenario_status() {
+  local mode="${1:-acceptance}"
+  local status="${2:-0}"
+  if [ "${status}" -eq 0 ]; then
+    printf '0\n'
+    return 0
+  fi
+  if [ "${mode}" = "exploratory" ]; then
+    echo "score_ros status ${status}: exploratory mode does not fail the scenario" >&2
+    printf '0\n'
+    return 0
+  fi
+  printf '%s\n' "${status}"
+  return 0
+}
+
 if [ "${JURY_POSITION_LIB:-0}" = "1" ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -138,14 +156,21 @@ if [ "${RECORD:-0}" = "1" ] && [ -f /out/result/metadata.yaml ]; then
   echo "----- recorded /result -----"
   ros2 bag info /out/result | head -n 25
 fi
-if [ "${SCORE:-0}" = "1" ] && [ -f /out/result/metadata.yaml ]; then
+score_status=0
+if [ "${SCORE:-0}" = "1" ]; then
   echo "----- score_ros -----"
-  python3 /opt/tools/organizer/score_ros.py /out/result /bag --frame "${OUTPUT_FRAME:-mgrs}" || score_status=$?
+  if [ ! -f /out/result/metadata.yaml ]; then
+    echo "no recorded /result bag" >&2
+    score_status=2
+  else
+    python3 /opt/tools/organizer/score_ros.py /out/result /bag --frame "${OUTPUT_FRAME:-mgrs}" || score_status=$?
+  fi
+  code=$(score_scenario_status "${SCORE_MODE:-acceptance}" "${score_status}")
+  if [ "${code}" -ne 0 ]; then
+    exit "${code}"
+  fi
 fi
 if [ "${play_status}" -eq 124 ]; then
   play_status=0
-fi
-if [ "${score_status:-0}" -ne 0 ]; then
-  exit "${score_status}"
 fi
 exit "${play_status}"

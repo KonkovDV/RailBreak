@@ -28,7 +28,7 @@ scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_ve
 | `no-gnss` | в проигрыватель не попадают топики GNSS, выход относительный |
 | `no-assets` | каталог карты подменён, нода не падает |
 | `arc` | без GNSS, дуга старта `-InitialS` / `--initial-s` (по умолчанию 0) |
-| `record` | пишет `/result/*` в `jury_out/result` и вызывает `score_ros.py` |
+| `record` | пишет `/result/*` в `jury_out/result` и вызывает `score_ros.py` в режиме acceptance: код скорера становится кодом сценария. `SCORE_MODE=exploratory` только предупреждает |
 | `core` | CMake и тест ядра, без Docker, без записи и без сообщений |
 
 Пример на Windows:

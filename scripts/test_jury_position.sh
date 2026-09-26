@@ -55,5 +55,36 @@ err = text.find("no /result/position", none)
 exit1 = text.find("exit 1", err)
 if none < 0 or err < 0 or exit1 < 0 or exit1 - err > 200:
     raise SystemExit("position: none is not followed by exit 1")
+for line in text.splitlines():
+    if "score_ros.py" in line and "|| true" in line:
+        raise SystemExit("score_ros failure is swallowed")
 PY
+got=$(score_scenario_status acceptance 2)
+if [ "${got}" != "2" ]; then
+  echo "acceptance did not keep scorer status ${got}" >&2
+  exit 1
+fi
+got=$(score_scenario_status exploratory 2)
+if [ "${got}" != "0" ]; then
+  echo "exploratory did not stay green, status ${got}" >&2
+  exit 1
+fi
+got=$(score_scenario_status acceptance 0)
+if [ "${got}" != "0" ]; then
+  echo "a successful score was failed" >&2
+  exit 1
+fi
+got=$(score_scenario_status other 2)
+if [ "${got}" != "2" ]; then
+  echo "an unknown mode hid the scorer failure" >&2
+  exit 1
+fi
+if ! grep -q 'SCORE_MODE=acceptance' "${ROOT}/scripts/jury.sh"; then
+  echo "jury.sh record is not acceptance" >&2
+  exit 1
+fi
+if ! grep -q "SCORE_MODE = 'acceptance'" "${ROOT}/scripts/jury.ps1"; then
+  echo "jury.ps1 record is not acceptance" >&2
+  exit 1
+fi
 echo ok
