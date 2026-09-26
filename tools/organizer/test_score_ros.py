@@ -128,6 +128,69 @@ def main():
         fail("one estimate did not cover several references")
     if len(np.unique(used)) != len(t_est):
         fail("estimate reuse test did not use every output sample")
+    from judge import compare_pairings, pair_one_to_one, score
+    idx_oto = pair_one_to_one(t_est, t_ref, 0.05)
+    used_oto = idx_oto[idx_oto >= 0]
+    if len(used_oto) != len(np.unique(used_oto)):
+        fail("one-to-one reused an estimate")
+    if len(used_oto) > len(t_est):
+        fail("one-to-one matched more references than estimates")
+    prev_e = -1e99
+    for i in np.argsort(t_ref, kind="mergesort"):
+        j = int(idx_oto[i])
+        if j < 0:
+            continue
+        if t_est[j] + 1e-12 < prev_e:
+            fail("one-to-one match crossed in time")
+        prev_e = t_est[j]
+    # Two references sit on the estimate at 0.04. Legacy uses it twice.
+    # One-to-one keeps the earlier estimate for the first reference.
+    cross_e = np.array([0.00, 0.04])
+    cross_r = np.array([0.03, 0.045])
+    legacy_idx = pair_estimates(cross_e, cross_r, 0.05)
+    oto_idx = pair_one_to_one(cross_e, cross_r, 0.05)
+    if len(np.unique(legacy_idx)) != 1:
+        fail("the legacy matcher did not reuse the nearer estimate")
+    if list(oto_idx) != [0, 1]:
+        fail(f"one-to-one did not walk forward, idx={list(oto_idx)}")
+    est = {
+        "t": np.array([0.0, 1.0]),
+        "x": np.array([10.0, 0.0]),
+        "y": np.zeros(2),
+        "z": np.zeros(2),
+        "v": np.zeros(2),
+    }
+    ref = {
+        "t": np.array([0.0, 0.04, 0.05, 1.0]),
+        "x": np.zeros(4),
+        "y": np.zeros(4),
+        "z": np.zeros(4),
+        "v": np.zeros(4),
+    }
+    both = compare_pairings(est, ref)
+    legacy = score(est, ref)
+    if abs(both["rmse_3d_nearest_legacy"] - legacy["rmse_3d"]) > 1e-12:
+        fail("the legacy alias moved the published RMSE")
+    if abs(both["coverage_nearest_legacy"] - legacy["coverage"]) > 1e-12:
+        fail("the legacy alias moved the published coverage")
+    if abs(both["rmse_3d_nearest_legacy"] - (75.0 ** 0.5)) > 1e-9:
+        fail(f"legacy RMSE changed, {both['rmse_3d_nearest_legacy']}")
+    if abs(both["rmse_3d_one_to_one"] - (50.0 ** 0.5)) > 1e-9:
+        fail(f"one-to-one RMSE changed, {both['rmse_3d_one_to_one']}")
+    if abs(both["coverage_nearest_legacy"] - 1.0) > 1e-12 or abs(both["coverage_one_to_one"] - 0.5) > 1e-12:
+        fail(f"coverage pair changed, {both}")
+    if abs(exact_rep["rate_all_messages_hz"] - exact_rep["rate_record_hz"]) > 1e-9:
+        fail("all-message rate left the record rate")
+    if abs(exact_rep["rate_unique_stamp_hz"] - exact_rep["rate_unique_hz"]) > 1e-9:
+        fail("unique-stamp rate left the unique rate")
+    if abs(exact_rep["duplicate_stamp_fraction"] - 200.0 / 300.0) > 1e-12:
+        fail("duplicate fraction is not the exact-copy share")
+    if exact_rep["regressed_stamp_count"] != 0 or back["regressed_stamp_count"] != 1:
+        fail("regressed stamp count disagreed with n_regressed")
+    if abs(exact_rep["p50_gap"] - 0.1) > 1e-9 or abs(exact_rep["max_gap"] - exact_rep["max_gap_s"]) > 1e-12:
+        fail("unique-stamp gaps moved the old max gap")
+    if not (near_rep["p50_gap"] < 1e-3 and near_rep["p95_gap"] > near_rep["p50_gap"]):
+        fail("near-duplicate gaps did not separate the median from the tail")
     from reference import along_track_speed, horizontal_speed
     vx = np.array([10.0, -10.0, 10.0, 0.0])
     vy = np.array([0.0, 0.0, 3.0, 4.0])

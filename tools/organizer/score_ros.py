@@ -28,7 +28,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "eval"))
 from geo import to_frame  # noqa: E402
-from judge import score  # noqa: E402
+from judge import compare_pairings, score  # noqa: E402
 from rosbag2_io import decode_message, iter_messages  # noqa: E402
 
 # master→base_link is 9.873 of the 12.436 m master→rover baseline.
@@ -56,9 +56,12 @@ def output_rate_report(stamps, log_stamps=None) -> dict:
 
     rate_hz is 1/median(diff(unique header stamps)). Exact duplicates do not
     make it infinite. Stamps a fraction of a millisecond apart still do.
-    rate_record_hz is (N-1) over the header span. rate_wall_hz is the same
-    over bag log time. n_duplicate counts exact repeats. n_regressed counts
-    steps that go backwards in arrival order.
+    rate_record_hz and rate_all_messages_hz are (N-1) over the header span.
+    rate_unique_hz and rate_unique_stamp_hz are the unique-stamp count over
+    that span. rate_wall_hz is the message count over bag log time.
+    n_duplicate counts exact repeats. n_regressed and regressed_stamp_count
+    count steps that go backwards in arrival order. p50_gap, p95_gap and
+    max_gap are gaps between successive unique stamps.
     """
     t = np.asarray(stamps, float)
     finite = t[np.isfinite(t)]
@@ -68,6 +71,12 @@ def output_rate_report(stamps, log_stamps=None) -> dict:
     dt = np.diff(uniq)
     dt = dt[dt > 0]
     span = float(uniq[-1] - uniq[0]) if n_unique >= 2 else float("nan")
+    if dt.size:
+        p50_gap = float(np.median(dt))
+        p95_gap = float(np.percentile(dt, 95))
+        max_gap = float(dt.max())
+    else:
+        p50_gap = p95_gap = max_gap = float("nan")
     wall = float("nan")
     if log_stamps is not None:
         w = np.asarray(log_stamps, float)
@@ -80,7 +89,14 @@ def output_rate_report(stamps, log_stamps=None) -> dict:
         "n_duplicate": n - n_unique,
         "n_regressed": int(np.sum(np.diff(finite) < 0)) if n > 1 else 0,
         "rate_hz": float(1.0 / np.median(dt)) if dt.size else float("nan"),
-        "max_gap_s": float(dt.max()) if dt.size else float("nan"),
+        "max_gap_s": max_gap,
+        "rate_all_messages_hz": float((n - 1) / span) if span > 0.0 else float("nan"),
+        "rate_unique_stamp_hz": float((n_unique - 1) / span) if span > 0.0 else float("nan"),
+        "duplicate_stamp_fraction": float(n - n_unique) / float(n) if n else float("nan"),
+        "regressed_stamp_count": int(np.sum(np.diff(finite) < 0)) if n > 1 else 0,
+        "p50_gap": p50_gap,
+        "p95_gap": p95_gap,
+        "max_gap": max_gap,
         "rate_record_hz": float((n - 1) / span) if span > 0.0 else float("nan"),
         "rate_unique_hz": float((n_unique - 1) / span) if span > 0.0 else float("nan"),
         "rate_wall_hz": wall,
@@ -264,6 +280,7 @@ def main() -> int:
     ref = {"t": g[after, 1], "x": rx[after], "y": ry[after], "z": rz[after], "v": ref_v[after]}
     est = {"t": np.array(pos_t), "x": np.array(px), "y": np.array(py), "z": np.array(pz), "v": np.array(pv)}
     pos = score(est, ref)
+    paired_names = compare_pairings(est, ref)
     raw_3d = float("nan")
     raw_coverage = float("nan")
     if len(g_raw) >= 2:
@@ -314,8 +331,19 @@ def main() -> int:
         "rate_record_hz": rates["rate_record_hz"],
         "rate_unique_hz": rates["rate_unique_hz"],
         "rate_wall_hz": rates["rate_wall_hz"],
+        "rate_all_messages_hz": rates["rate_all_messages_hz"],
+        "rate_unique_stamp_hz": rates["rate_unique_stamp_hz"],
+        "duplicate_stamp_fraction": rates["duplicate_stamp_fraction"],
+        "regressed_stamp_count": rates["regressed_stamp_count"],
+        "p50_gap": rates["p50_gap"],
+        "p95_gap": rates["p95_gap"],
+        "max_gap": rates["max_gap"],
         "coverage": pos["coverage"],
         "rmse_3d": pos["rmse_3d"],
+        "rmse_3d_nearest_legacy": paired_names["rmse_3d_nearest_legacy"],
+        "rmse_3d_one_to_one": paired_names["rmse_3d_one_to_one"],
+        "coverage_nearest_legacy": paired_names["coverage_nearest_legacy"],
+        "coverage_one_to_one": paired_names["coverage_one_to_one"],
         "rmse_3d_raw": raw_3d,
         "coverage_raw": raw_coverage,
         "rmse_x": pos["rmse_x"], "rmse_y": pos["rmse_y"], "rmse_z": pos["rmse_z"],
