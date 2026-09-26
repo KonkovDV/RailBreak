@@ -2,9 +2,14 @@
 
 The organisers' tf in base_link (first-bogie yaw axis, wheel-rail contact):
 master (−9.873, 0, 3), rover (2.563, 0, 3). base_link is the point 0.794 of
-the way from master to rover, then 3 m down. Bogie pitch 7.55 m is not this
-baseline. Default frame is absolute MGRS, matching the node. Pairs by header
-stamp, tolerance 0.05 s.
+the way from master to rover, then 3 m down. A master fix is kept only when
+the rover lies on that rigid body: planar baseline within 2 m of 12.436 m,
+and the two antenna heights within 1 m. On a clean recording the baseline
+residual is centimetres (max 0.1 m) and the height split stays under 0.5 m;
+a rover tens of metres away is not the antenna. Bogie pitch 7.55 m is not
+this baseline.
+Default frame is absolute MGRS, matching the node. Pairs by header stamp,
+tolerance 0.05 s.
 """
 
 from __future__ import annotations
@@ -25,6 +30,11 @@ from rosbag2_io import decode_message, iter_messages  # noqa: E402
 
 # master→base_link is 9.873 of the 12.436 m master→rover baseline.
 BASE_FRAC = 9.873 / 12.436
+BASELINE_M = 12.436
+BASELINE_TOL_M = 2.0
+# Clean recording 30618_e9a34502: |dh| max 0.5 m. A 40 permille grade over
+# 12.436 m is 0.5 m. 1 m is outside that body, short of a bad altitude.
+HEIGHT_TOL_M = 1.0
 ANTENNA_UP_M = 3.0
 
 
@@ -52,8 +62,16 @@ def load_source(path: Path) -> dict:
     return out
 
 
-def base_link_xyz(master: np.ndarray, rover: np.ndarray, frame: str, start):
-    """master, rover rows: stamp, lat, lon, alt, ... Interpolate rover onto master."""
+def base_link_xyz(master: np.ndarray, rover: np.ndarray, frame: str, start,
+                  baseline_tol: float = BASELINE_TOL_M,
+                  height_tol: float = HEIGHT_TOL_M):
+    """master, rover rows: stamp, lat, lon, alt, ... Interpolate rover onto master.
+
+    Drop a sample whose rover is not on the rigid antenna pair. Planar length
+    catches a fix tens of metres off the tram. Height is separate: a 3 m
+    altitude split changes the 3D length by 0.36 m, so a length
+    gate alone would keep it.
+    """
     rover = rover[np.argsort(rover[:, 1])]
     rt = rover[:, 1]
     t = master[:, 1]
@@ -77,6 +95,9 @@ def base_link_xyz(master: np.ndarray, rover: np.ndarray, frame: str, start):
     x = mx + BASE_FRAC * (rx - mx)
     y = my + BASE_FRAC * (ry - my)
     z = mz + BASE_FRAC * (rz - mz) - ANTENNA_UP_M
+    span = np.hypot(rx - mx, ry - my)
+    ok = ok & (np.abs(span - BASELINE_M) <= baseline_tol)
+    ok = ok & (np.abs(rz - mz) <= height_tol)
     return x, y, z, ok
 
 
@@ -90,6 +111,12 @@ def main() -> int:
     ap.add_argument("--frame", choices=("mkrs_start", "mkrs", "mgrs", "grid_start", "enu"),
                     default="mgrs",
                     help="must match the node's output_frame")
+    ap.add_argument("--baseline-tol", type=float, default=BASELINE_TOL_M,
+                    help="drop a reference sample when the planar master–rover "
+                         "distance is outside 12.436 ± this many metres")
+    ap.add_argument("--height-tol", type=float, default=HEIGHT_TOL_M,
+                    help="drop a reference sample when the antenna heights differ "
+                         "by more than this many metres")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
     pos_t, px, py, pz, pv = [], [], [], [], []
@@ -122,11 +149,14 @@ def main() -> int:
         print("no rover fixes: base_link is the master–rover segment, not the master antenna", file=sys.stderr)
         return 2
     rover = rover[rover[:, 5] >= 0] if rover.shape[1] > 5 else rover
-    rx, ry, rz, ok = base_link_xyz(g, rover, args.frame, (lat0, lon0, h0))
+    n_master = int(len(g))
+    rx, ry, rz, ok = base_link_xyz(g, rover, args.frame, (lat0, lon0, h0),
+                                   baseline_tol=args.baseline_tol,
+                                   height_tol=args.height_tol)
     g = g[ok]
     rx, ry, rz = rx[ok], ry[ok], rz[ok]
     if len(g) < 2:
-        print("rover does not cover the master fixes", file=sys.stderr)
+        print("rover does not cover the master fixes inside the 12.436 m baseline", file=sys.stderr)
         return 2
     ref_v = np.full(len(g), np.nan)
     if "sensing_gnss_master_vel" in z:
@@ -166,6 +196,10 @@ def main() -> int:
         "frame": args.frame,
         "reference": "base_link",
         "base_frac": BASE_FRAC,
+        "baseline_m": BASELINE_M,
+        "baseline_tol_m": args.baseline_tol,
+        "height_tol_m": args.height_tol,
+        "n_master": n_master,
         "min_status": args.min_status,
         "n_fix": int(len(g)),
         "status_counts": status_counts,
