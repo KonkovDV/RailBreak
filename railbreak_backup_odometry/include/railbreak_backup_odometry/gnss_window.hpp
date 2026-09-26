@@ -1,6 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <vector>
 
 namespace railbreak {
 
@@ -11,6 +14,28 @@ namespace railbreak {
 inline bool gnss_fix_ok(double t, double lat, double lon, double alt, int status, int status_fix) {
   return status >= status_fix && std::isfinite(t) && std::isfinite(alt) && lat >= -90.0 &&
          lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
+}
+
+// One fix taken from a subscription, before the two queues are merged.
+// index is the position in the caller's holding array.
+struct QueuedStamp {
+  bool master = false;
+  double t = 0.0;
+  std::size_t index = 0;
+};
+
+// Finite stamps first, ascending. Equal stamps keep the order they were taken
+// (masters, then rovers, each queue in take order). A non-finite stamp sorts
+// after every finite one and does not disturb that order.
+inline std::vector<QueuedStamp> order_queued_stamps(std::vector<QueuedStamp> q) {
+  std::stable_sort(q.begin(), q.end(), [](const QueuedStamp& a, const QueuedStamp& b) {
+    const bool fa = std::isfinite(a.t);
+    const bool fb = std::isfinite(b.t);
+    if (fa != fb) return fa;
+    if (!fa) return false;
+    return a.t < b.t;
+  });
+  return q;
 }
 
 // When the start window closes. Stamps only: no wall clock.

@@ -640,6 +640,61 @@ int main() {
       check(alt.size() == 2 && std::isfinite(railbreak::upper_median(alt)),
             "a NaN altitude does not enter the alignment median");
     }
+    {
+      // Master queue is ahead of the rover and then delivers an earlier stamp.
+      // Rover's only queued stamp is already past the window. Index pairing
+      // closes on that rover before the early master is read.
+      using Pair = std::pair<bool, double>;
+      const std::vector<Pair> by_index = {{true, 3.2}, {false, 3.3}, {true, 2.4}};
+      auto opened = []() {
+        railbreak::GnssWindow w;
+        w.on_fix(true, 0.0, true);
+        w.on_fix(false, 0.0, true);
+        return w;
+      };
+      auto apply = [](railbreak::GnssWindow w, const std::vector<Pair>& seq) {
+        bool saw_early = false;
+        bool closed_on = false;
+        for (const auto& s : seq) {
+          const auto action = w.on_fix(s.first, s.second, true);
+          if (s.second == 2.4) saw_early = true;
+          if (action == Act::kFinish) {
+            closed_on = true;
+            break;
+          }
+        }
+        return std::pair<bool, bool>{saw_early, closed_on};
+      };
+      const auto dropped = apply(opened(), by_index);
+      check(!dropped.first && dropped.second,
+            "index interleaving closes before the earlier master in the other queue");
+      std::vector<railbreak::QueuedStamp> taken = {
+          {true, 3.2, 0},
+          {true, 2.4, 1},
+          {false, 3.3, 2},
+      };
+      const auto ordered = railbreak::order_queued_stamps(taken);
+      check(ordered.size() == 3 && ordered[0].index == 1 && ordered[1].index == 0 &&
+                ordered[2].index == 2,
+            "queued fixes are ordered by stamp, not by subscription index");
+      std::vector<Pair> by_stamp;
+      for (const auto& s : ordered) by_stamp.push_back({s.master, s.t});
+      const auto kept = apply(opened(), by_stamp);
+      check(kept.first && kept.second,
+            "the earlier master is applied before the window closes on the later rover");
+      std::vector<railbreak::QueuedStamp> ties = {
+          {true, 1.0, 0},
+          {true, 1.0, 1},
+          {false, 1.0, 2},
+      };
+      const auto stable = railbreak::order_queued_stamps(ties);
+      check(stable.size() == 3 && stable[0].index == 0 && stable[1].index == 1 && stable[2].index == 2,
+            "equal stamps keep take order");
+      const double nan = std::numeric_limits<double>::quiet_NaN();
+      const auto nonfinite = railbreak::order_queued_stamps({{true, nan, 0}, {false, 1.0, 1}});
+      check(nonfinite.size() == 2 && nonfinite[0].index == 1 && nonfinite[1].index == 0,
+            "a non-finite stamp sorts after a finite one");
+    }
   }
   {
     railbreak::TrackOdometer od(&assets, p);

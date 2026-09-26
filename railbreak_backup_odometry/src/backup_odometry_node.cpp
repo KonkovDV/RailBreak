@@ -201,23 +201,34 @@ class BackupOdometryNode : public rclcpp::Node {
   }
 
   // True if a queued fix was applied or the window already closed from one.
+  // Both subscriptions are drained, then ordered by header.stamp. Index
+  // interleaving closes on a later stamp before an earlier fix still sitting
+  // in the other queue.
   bool absorb_queued_gnss() {
     const int m0 = win_.master_fixes();
     const int r0 = win_.rover_fixes();
-    std::vector<sensor_msgs::msg::NavSatFix> masters, rovers;
+    struct Held {
+      sensor_msgs::msg::NavSatFix msg;
+      bool master;
+      double t;
+    };
+    std::vector<Held> held;
     sensor_msgs::msg::NavSatFix msg;
     rclcpp::MessageInfo info;
     if (sub_gm_) {
-      while (sub_gm_->take(msg, info)) masters.push_back(msg);
+      while (sub_gm_->take(msg, info)) held.push_back({msg, true, stamp_s(msg.header.stamp)});
     }
     if (sub_gr_) {
-      while (sub_gr_->take(msg, info)) rovers.push_back(msg);
+      while (sub_gr_->take(msg, info)) held.push_back({msg, false, stamp_s(msg.header.stamp)});
     }
-    const std::size_t n = std::max(masters.size(), rovers.size());
-    for (std::size_t i = 0; i < n && !win_.closed; ++i) {
-      if (i < masters.size()) on_fix(masters[i], true);
+    std::vector<railbreak::QueuedStamp> order;
+    order.reserve(held.size());
+    for (std::size_t i = 0; i < held.size(); ++i)
+      order.push_back({held[i].master, held[i].t, i});
+    order = railbreak::order_queued_stamps(std::move(order));
+    for (const auto& s : order) {
       if (win_.closed) break;
-      if (i < rovers.size()) on_fix(rovers[i], false);
+      on_fix(held[s.index].msg, s.master);
     }
     return win_.closed || win_.master_fixes() != m0 || win_.rover_fixes() != r0;
   }
