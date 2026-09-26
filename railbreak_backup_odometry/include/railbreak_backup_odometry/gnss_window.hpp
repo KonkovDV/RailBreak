@@ -57,6 +57,10 @@ struct GnssWindow {
 
   double window_s = 3.0;
   double wait_s = 10.0;
+  // t_open is the window origin: the first valid fix of either antenna.
+  // It does not move when the other antenna arrives later.
+  // t_first_fix is only the first valid master, t_first_rover only the first
+  // valid rover. They say which antenna is still waited on. Neither is the start.
   double t_first_fix = -1.0;
   double t_first_rover = -1.0;
   double t_open = -1.0;

@@ -2,7 +2,8 @@ backup_odometry:
   ros__parameters:
     # Empty: share/railbreak_backup_odometry/assets
     assets_dir: ""
-    # GNSS is read from the first fix for this many seconds, then unsubscribed.
+    # GNSS is read from the first valid fix of either antenna for this many
+    # seconds, then unsubscribed. A later master does not move that start.
     gnss_init_window_s: 3.0
     # No fix this long after the first input: publish relative odometry from the start point.
     gnss_wait_s: 10.0
