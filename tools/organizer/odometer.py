@@ -168,6 +168,8 @@ class Odometer:
         self.P = A @ self.P @ A.T + r * np.outer(K, K)
 
     def on_cmd(self, t: float, position: int) -> None:
+        if self.t is not None and t < self.t:
+            return
         self.predict(t)
         self.notch = int(position)
 
@@ -194,6 +196,8 @@ class Odometer:
                 self.log_rho = max(-self.p.rho_max, min(self.p.rho_max, self.log_rho))
 
     def on_bogie(self, t: float, which: str, raw: float) -> None:
+        if self.t is not None and t < self.t:
+            return
         self.predict(t)
         if not math.isfinite(raw):
             return
@@ -203,7 +207,7 @@ class Odometer:
         other_name = "rear" if which == "front" else "front"
         other = self.last[other_name]
         self.last[which] = (t, u_raw)
-        fresh_other = other[0] is not None and t - other[0] < self.p.wheel_stale_s and math.isfinite(other[1])
+        fresh_other = other[0] is not None and t >= other[0] and t - other[0] < self.p.wheel_stale_s and math.isfinite(other[1])
         u = self.corrected(which, u_raw)
         if not self.have_v:
             # The first reading sets the speed; there is nothing to gate it against.

@@ -282,11 +282,21 @@ class TrackOdometer {
   }
 
   void on_cmd(double t, int position) {
+    if (have_t_ && t < t_) {
+      ++n_rejected_;
+      return;
+    }
     predict(t);
     notch_ = std::clamp(position, kNotchMin, kNotchMax);
   }
 
   void on_bogie(double t, bool is_front, double raw) {
+    // A stamp behind the filter is another subscription, not a step backward.
+    // Equal stamps still apply: the two bogies can share a header stamp.
+    if (have_t_ && t < t_) {
+      ++n_rejected_;
+      return;
+    }
     predict(t);
     if (!std::isfinite(raw)) {
       ++n_rejected_;
@@ -300,7 +310,7 @@ class TrackOdometer {
     Bogie& me = is_front ? front_ : rear_;
     const Bogie other = is_front ? rear_ : front_;
     me = {true, t, u_raw};
-    const bool fresh_other = other.have && t - other.t < p_.wheel_stale_s && std::isfinite(other.u);
+    const bool fresh_other = other.have && t >= other.t && t - other.t < p_.wheel_stale_s && std::isfinite(other.u);
     const double u = corrected(is_front, u_raw);
     if (!have_v_) {
       // The first reading sets the speed; there is nothing to gate it against.

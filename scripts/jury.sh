@@ -89,7 +89,7 @@ if command -v cygpath >/dev/null 2>&1; then
   OUT=$(cygpath -w "${OUT}")
 fi
 export RATE=1 CLOCK=0 OUTPUT_FRAME=mgrs ASSETS_DIR= TOPICS=
-export GNSS_WINDOW=3.0 GNSS_WAIT= INITIAL_S= DURATION= RECORD=0 SCORE=0
+export GNSS_WINDOW=3.0 GNSS_WAIT= INITIAL_S= DURATION= RECORD=0 SCORE=0 REQUIRE_POSITION=1
 
 case "${SCENARIO}" in
   play) ;;
@@ -101,7 +101,7 @@ case "${SCENARIO}" in
     GNSS_WAIT=2
     TOPICS="/vehicle/front_bogie_velocity /vehicle/rear_bogie_velocity /vehicle/driver_position_cmd"
     ;;
-  no-assets) ASSETS_DIR=/nonexistent ;;
+  no-assets) ASSETS_DIR=/nonexistent; REQUIRE_POSITION=0 ;;
   arc)
     GNSS_WAIT=2
     INITIAL_S=${INITIAL_S_ARG}
@@ -110,6 +110,6 @@ case "${SCENARIO}" in
   record) RECORD=1; SCORE=1 ;;
 esac
 
-export RATE CLOCK OUTPUT_FRAME ASSETS_DIR TOPICS GNSS_WINDOW GNSS_WAIT INITIAL_S DURATION RECORD SCORE
+export RATE CLOCK OUTPUT_FRAME ASSETS_DIR TOPICS GNSS_WINDOW GNSS_WAIT INITIAL_S DURATION RECORD SCORE REQUIRE_POSITION
 cd "${ROOT}"
 docker compose -f docker-compose.jury.yml run -T --rm --build jury

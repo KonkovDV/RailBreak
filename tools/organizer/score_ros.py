@@ -2,7 +2,9 @@
 
 The organisers' tf in base_link (first-bogie yaw axis, wheel-rail contact):
 master (−9.873, 0, 3), rover (2.563, 0, 3). base_link is the point 0.794 of
-the way from master to rover, then 3 m down. A master fix is kept only when
+the way from master to rover, then 3 m down. rmse_3d_raw is the same chord
+with the baseline and height gates turned off; it is still time-paired and
+status-filtered, not the master antenna. A master fix is kept in rmse_3d only when
 the rover lies on that rigid body: planar baseline within 2 m of 12.436 m,
 and the two antenna heights within 1 m. On a clean recording the baseline
 residual is centimetres (max 0.1 m) and the height split stays under 0.5 m;

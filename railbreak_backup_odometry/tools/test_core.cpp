@@ -121,6 +121,20 @@ int main() {
     check(od.n_gap_reset() == 1 && od.s() < 200.0, "a long gap resets the time base");
   }
   {
+    railbreak::TrackOdometer od(&assets, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 5.0, 36.0);
+    const double s = od.s();
+    const int notch = od.notch();
+    const int rej = od.n_rejected();
+    od.on_bogie(1.0, false, 36.0);
+    od.on_cmd(1.0, 8);
+    check(std::fabs(od.s() - s) < 1e-9, "a stamp behind the filter does not move the state");
+    check(od.notch() == notch, "a stamp behind the filter does not change the notch");
+    check(od.n_rejected() == rej + 2, "regressed stamps are counted and dropped");
+  }
+  {
     // Reference values: pyproj EPSG:4326 -> EPSG:32637 at the two route termini.
     double e = 0, n = 0;
     railbreak::utm_forward(55.810417, 37.462308, 37, e, n);

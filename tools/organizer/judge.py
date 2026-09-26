@@ -1,7 +1,9 @@
 """Pair an estimate to a reference the way the README describes the jury.
 
 Nearest header stamp, tolerance 0.05 s. One reference sample takes at most
-one estimate. RMSE is over paired samples only; coverage is paired/reference.
+one estimate. The converse is not true: one estimate can pair to several
+reference samples inside the tolerance, so coverage can exceed the output rate.
+RMSE is over paired samples only; coverage is paired/reference.
 """
 
 from __future__ import annotations

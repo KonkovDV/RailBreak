@@ -119,9 +119,16 @@ if [ "${RECORD:-0}" = "1" ] && [ -f /out/result/metadata.yaml ]; then
 fi
 if [ "${SCORE:-0}" = "1" ] && [ -f /out/result/metadata.yaml ]; then
   echo "----- score_ros -----"
-  python3 /opt/tools/organizer/score_ros.py /out/result /bag --frame "${OUTPUT_FRAME:-mgrs}" || true
+  python3 /opt/tools/organizer/score_ros.py /out/result /bag --frame "${OUTPUT_FRAME:-mgrs}" || score_status=$?
 fi
 if [ "${play_status}" -eq 124 ]; then
-  exit 0
+  play_status=0
+fi
+if [ "${REQUIRE_POSITION:-1}" = "1" ] && ! grep -q "x:" /tmp/pos.txt 2>/dev/null; then
+  echo "no /result/position" >&2
+  exit 1
+fi
+if [ "${score_status:-0}" -ne 0 ]; then
+  exit "${score_status}"
 fi
 exit "${play_status}"
