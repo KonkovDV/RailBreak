@@ -166,8 +166,9 @@ class BackupOdometryNode : public rclcpp::Node {
   void on_fix(const sensor_msgs::msg::NavSatFix& m, bool master) {
     if (win_.closed) return;
     const double t = stamp_s(m.header.stamp);
-    const bool valid = m.status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
-                       std::isfinite(m.latitude) && std::isfinite(m.longitude);
+    const bool valid = railbreak::gnss_fix_ok(
+        t, m.latitude, m.longitude, m.altitude, m.status.status,
+        sensor_msgs::msg::NavSatStatus::STATUS_FIX);
     const auto action = win_.on_fix(master, t, valid);
     if (valid) {
       const bool in_window = win_.t_open >= 0.0 && t <= win_.t_open + win_.window_s;

@@ -606,6 +606,40 @@ int main() {
       check(early.on_fix(true, 2.0, true) == Act::kWait, "a queued valid fix is still accepted");
       check(early.on_input(4.0) == Act::kWait, "that fix resets the drain, so the next wheel does not finish");
     }
+    {
+      const double nan = std::numeric_limits<double>::quiet_NaN();
+      const double inf = std::numeric_limits<double>::infinity();
+      const int fix = 0;
+      check(railbreak::gnss_fix_ok(1.0, 55.8, 37.4, 160.0, fix, fix),
+            "a finite fix inside the ranges is valid");
+      check(railbreak::gnss_fix_ok(1.0, -90.0, -180.0, 0.0, fix, fix),
+            "the closed latitude and longitude bounds are valid");
+      check(railbreak::gnss_fix_ok(1.0, 90.0, 180.0, 0.0, fix, fix),
+            "the other closed bounds are valid");
+      check(!railbreak::gnss_fix_ok(nan, 55.8, 37.4, 160.0, fix, fix), "a NaN stamp is not a fix");
+      check(!railbreak::gnss_fix_ok(inf, 55.8, 37.4, 160.0, fix, fix), "an infinite stamp is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, 55.8, 37.4, nan, fix, fix), "a NaN altitude is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, 55.8, 37.4, inf, fix, fix), "an infinite altitude is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, nan, 37.4, 160.0, fix, fix), "a NaN latitude is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, 55.8, nan, 160.0, fix, fix), "a NaN longitude is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, 90.1, 37.4, 160.0, fix, fix), "latitude above 90 is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, -90.1, 37.4, 160.0, fix, fix), "latitude below -90 is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, 55.8, 180.1, 160.0, fix, fix), "longitude above 180 is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, 55.8, -180.1, 160.0, fix, fix), "longitude below -180 is not a fix");
+      check(!railbreak::gnss_fix_ok(1.0, 55.8, 37.4, 160.0, -1, fix), "STATUS_NO_FIX stays invalid");
+      railbreak::GnssWindow poisoned;
+      check(poisoned.on_fix(false, nan, false) == Act::kWait, "a rejected stamp does not finish the window");
+      check(poisoned.t_open < 0.0, "a NaN stamp does not open the window");
+      check(poisoned.on_fix(false, 0.0, railbreak::gnss_fix_ok(0.0, 55.8, 37.4, 160.0, fix, fix)) == Act::kWait,
+            "the next finite fix is still accepted");
+      check(poisoned.t_open == 0.0, "that finite fix is the origin");
+      std::vector<double> alt;
+      if (railbreak::gnss_fix_ok(0.0, 55.8, 37.4, nan, fix, fix)) alt.push_back(nan);
+      if (railbreak::gnss_fix_ok(0.1, 55.8, 37.4, 160.0, fix, fix)) alt.push_back(160.0);
+      if (railbreak::gnss_fix_ok(0.2, 55.8, 37.4, 162.0, fix, fix)) alt.push_back(162.0);
+      check(alt.size() == 2 && std::isfinite(railbreak::upper_median(alt)),
+            "a NaN altitude does not enter the alignment median");
+    }
   }
   {
     railbreak::TrackOdometer od(&assets, p);

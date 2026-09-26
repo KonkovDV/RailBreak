@@ -1,6 +1,17 @@
 #pragma once
 
+#include <cmath>
+
 namespace railbreak {
+
+// A fix that may open the window or enter the start sample. Status is compared
+// with the caller's STATUS_FIX. A NaN stamp must not become t_open. A NaN
+// altitude, or a latitude/longitude outside the closed geographic bounds, must
+// not enter the median.
+inline bool gnss_fix_ok(double t, double lat, double lon, double alt, int status, int status_fix) {
+  return status >= status_fix && std::isfinite(t) && std::isfinite(alt) && lat >= -90.0 &&
+         lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
+}
 
 // When the start window closes. Stamps only: no wall clock.
 //
