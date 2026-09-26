@@ -568,6 +568,206 @@ int main() {
       check(w.on_fix(true, 3.1, true) == Act::kFinish, "master past the original end closes the window");
       check(w.t_open == 0.0, "the origin is still the first rover");
     }
+    {
+      // Eight wheel callbacks are not proof a GNSS fix is absent. The first
+      // input past the window only resets the drain; the finish is later.
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(false, 0.0, true);
+      int finish_at = -1;
+      for (int i = 0; i < 12; ++i) {
+        if (w.on_input(3.2 + 0.05 * i) == Act::kFinish) {
+          finish_at = i;
+          break;
+        }
+      }
+      check(finish_at == q, "the quiet finish is the call after the drain reset, not the eighth wheel");
+      railbreak::GnssWindow early;
+      early.on_fix(true, 0.0, true);
+      early.on_fix(false, 0.0, true);
+      bool closed = false;
+      for (int i = 0; i < 7; ++i)
+        closed = closed || early.on_input(3.2 + 0.05 * i) == Act::kFinish;
+      check(!closed, "seven wheels before the next GNSS fix do not close the window");
+      check(early.on_fix(true, 2.0, true) == Act::kWait, "a queued valid fix is still accepted");
+      check(early.on_input(4.0) == Act::kWait, "that fix resets the drain, so the next wheel does not finish");
+    }
+  }
+  {
+    railbreak::TrackOdometer od(&assets, p);
+    od.on_cmd(0.0, 7);
+    check(od.notch() == 7, "a command before any bogie sets the notch");
+    od.on_bogie(0.1, true, 36.0);
+    od.on_bogie(0.15, false, 36.0);
+    check(std::isfinite(od.s()) && std::fabs(od.v() - 10.0) < 0.2,
+          "wheels after that command stay finite");
+    railbreak::TrackOdometer rates(&assets, p);
+    rates.init(0.0, 0.5);
+    rates.set_time(0.0);
+    for (int i = 0; i < 50; ++i) {
+      rates.on_bogie(0.1 * i, true, 36.0);
+      if (i % 5 == 0) rates.on_bogie(0.1 * i + 0.02, false, 36.0);
+    }
+    check(std::isfinite(rates.v()) && rates.v() > 5.0, "front at 10 Hz and rear at 2 Hz stay finite");
+    railbreak::TrackOdometer moving(&assets, p);
+    moving.on_bogie(0.0, true, 36.0);
+    check(std::fabs(moving.v() - 10.0) < 0.2, "the first reading accepts a start already at speed");
+  }
+  {
+    auto badk = assets;
+    badk.k0 = 1e-6;
+    railbreak::TrackOdometer od(&badk, p);
+    check(std::fabs(od.k() - 1.0) < 1e-12 && od.n_guard() >= 1,
+          "k0 below 0.5 is replaced by 1 and counted");
+    railbreak::Params neg = p;
+    neg.sigma_k0 = -0.2;
+    railbreak::Params pos = p;
+    pos.sigma_k0 = 0.2;
+    railbreak::TrackOdometer a(&assets, neg);
+    railbreak::TrackOdometer b(&assets, pos);
+    a.init(0.0, 1.0);
+    b.init(0.0, 1.0);
+    a.set_time(0.0);
+    b.set_time(0.0);
+    drive(a, 0.0, 3.0, 36.0);
+    drive(b, 0.0, 3.0, 36.0);
+    check(std::fabs(a.s() - b.s()) < 1e-6 && std::fabs(a.k() - b.k()) < 1e-9,
+          "a negative sigma_k0 is squared and matches the positive value");
+    railbreak::Params nq = p;
+    nq.q_s = -100.0;
+    nq.q_v = -100.0;
+    nq.q_k = -1.0;
+    nq.q_ba = -1.0;
+    railbreak::TrackOdometer guard(&assets, nq);
+    guard.init(10.0, 1.0);
+    guard.set_time(0.0);
+    guard.on_bogie(1.0, true, 36.0);
+    check(guard.n_guard() >= 1 && std::isfinite(guard.s()) && std::isfinite(guard.v()),
+          "negative process noise trips the PSD guard and stays finite");
+    check(std::fabs(guard.s() - 10.0) < 1e-6, "that rejected step does not move s");
+    auto hole = assets;
+    hole.map.grade[20] = std::numeric_limits<double>::quiet_NaN();
+    railbreak::TrackOdometer nanmap(&hole, p);
+    nanmap.init(0.0, 0.5);
+    nanmap.set_time(0.0);
+    drive(nanmap, 0.0, 5.0, 36.0);
+    check(std::isfinite(nanmap.s()) && std::isfinite(nanmap.v()), "NaN in the grade column stays finite");
+    auto bent = assets;
+    bent.map.s[3] = 1.0;
+    railbreak::TrackOdometer ring(&bent, p);
+    ring.init(0.0, 0.5);
+    ring.set_time(0.0);
+    drive(ring, 0.0, 2.0, 36.0);
+    check(std::isfinite(ring.s()) && ring.s() > 10.0, "a non-increasing ring sample does not stop the filter");
+    auto blank = assets;
+    blank.table.a[15].clear();
+    check(blank.table.lookup(0, 5.0) == 0.0, "an empty notch row looks up as zero acceleration");
+    railbreak::TrackOdometer coast(&blank, p);
+    coast.init(0.0, 0.5);
+    coast.set_time(0.0);
+    drive(coast, 0.0, 2.0, 36.0);
+    check(std::fabs(coast.v() - 10.0) < 0.2, "that empty row does not throw and does not change coasting");
+    railbreak::Params flip = p;
+    flip.unit = -1.0 / 3.6;
+    railbreak::TrackOdometer negu(&assets, flip);
+    negu.init(0.0, 0.5);
+    negu.set_time(0.0);
+    drive(negu, 0.0, 2.0, 36.0);
+    std::printf("     neg unit s=%.3f v=%.3f\n", negu.s(), negu.v());
+    check(negu.v() < 0.05 && negu.s() > 1900.0,
+          "a negative wheel_unit_scale keeps speed at 0 and wraps a tiny backward step");
+    railbreak::TrackOdometer far(&assets, p);
+    far.init(1e8, 1.0);
+    far.set_time(0.0);
+    drive(far, 0.0, 1.0, 36.0);
+    std::printf("     huge s=%.3f v=%.3f\n", far.s(), far.v());
+    check(std::isfinite(far.s()) && far.s() > 30.0 && far.s() < 40.0 && std::fabs(far.v() - 10.0) < 0.2,
+          "a huge initial_s_m is wrapped onto the ring and speed is still tracked");
+  }
+  {
+    railbreak::TrackOdometer both(&assets, p);
+    both.init(0.0, 0.5);
+    both.set_time(0.0);
+    for (double t = 0.0; t < 10.0 - 1e-9; t += 0.1) {
+      both.on_bogie(t, true, 36.0 * 1.05);
+      both.on_bogie(t + 0.05, false, 36.0 * 1.05);
+    }
+    std::printf("     both +5%% s=%.2f v=%.3f\n", both.s(), both.v());
+    check(both.v() > 10.2 && both.s() > 100.0, "agreed +5% on both bogies is accepted as speed");
+    railbreak::TrackOdometer slide(&assets, p);
+    slide.init(0.0, 0.5);
+    slide.set_time(0.0);
+    for (double t = 0.0; t < 8.0 - 1e-9; t += 0.1) {
+      slide.on_bogie(t, true, 36.0 * 0.8);
+      slide.on_bogie(t + 0.05, false, 36.0 * 0.8);
+    }
+    std::printf("     both -20%% s=%.2f v=%.3f\n", slide.s(), slide.v());
+    check(slide.v() < 9.0 && slide.v() > 7.0, "agreed -20% on both bogies is accepted as speed");
+    railbreak::TrackOdometer frozen(&assets, p);
+    frozen.init(0.0, 0.5);
+    frozen.set_time(0.0);
+    drive(frozen, 0.0, 2.0, 36.0);
+    for (double t = 2.0; t < 5.0 - 1e-9; t += 0.1) {
+      frozen.on_bogie(t, true, 0.0);
+      frozen.on_bogie(t + 0.05, false, 36.0);
+    }
+    check(std::isfinite(frozen.s()) && frozen.v() >= 0.0, "one bogie frozen at the old speed stays finite");
+    auto brake = assets;
+    brake.table.a[8].assign(18, -1.0);
+    railbreak::TrackOdometer held(&brake, p);
+    held.init(0.0, 0.5);
+    held.set_time(0.0);
+    drive(held, 0.0, 2.0, 36.0);
+    const double s_hold = held.s();
+    for (double t = 2.0; t < 6.0 - 1e-9; t += 0.1) {
+      held.on_bogie(t, true, 36.0);
+      held.on_bogie(t + 0.05, false, 36.0);
+      held.on_cmd(t + 0.02, -7);
+    }
+    check(std::isfinite(held.s()) && held.s() + 0.05 >= s_hold && held.v() >= 0.0,
+          "both bogies frozen at speed while the notch brakes do not walk backward");
+    railbreak::TrackOdometer sgn(&assets, p);
+    sgn.init(0.0, 0.5);
+    sgn.set_time(0.0);
+    for (double t = 0.0; t < 3.0 - 1e-9; t += 0.1) {
+      sgn.on_bogie(t, true, 36.0);
+      sgn.on_bogie(t + 0.05, false, -36.0);
+    }
+    check(std::isfinite(sgn.s()) && sgn.v() >= 0.0, "a sign flip on one bogie does not make speed negative");
+    railbreak::TrackOdometer lag(&assets, p);
+    lag.init(0.0, 0.5);
+    lag.set_time(0.0);
+    for (double t = 0.0; t < 3.0 - 1e-9; t += 0.1) {
+      lag.on_bogie(t, true, 36.0);
+      lag.on_bogie(t + 0.2, false, 36.0);
+    }
+    check(std::fabs(lag.v() - 10.0) < 0.3, "a 200 ms lag on one bogie is still applied");
+    railbreak::TrackOdometer drift(&assets, p);
+    drift.init(0.0, 0.5);
+    drift.set_time(0.0);
+    for (double t = 0.0; t < 10.0 - 1e-9; t += 0.1) {
+      const double scale = 1.0 + 0.002 * t;
+      drift.on_bogie(t, true, 36.0 * scale);
+      drift.on_bogie(t + 0.05, false, 36.0 * scale);
+    }
+    check(std::isfinite(drift.s()) && drift.s() > 100.0, "a slow scale drift on both bogies stays finite");
+    auto kick = assets;
+    kick.table.a[22].assign(18, 0.5);
+    railbreak::TrackOdometer drop(&kick, p);
+    drop.init(0.0, 0.5);
+    drop.set_time(0.0);
+    drive(drop, 0.0, 2.0, 36.0);
+    const double s_drop = drop.s();
+    for (double t = 2.0; t < 6.0 - 1e-9; t += 0.2) drop.on_cmd(t, 7);
+    check(drop.s() > s_drop + 30.0, "silence right after a notch change integrates the new acceleration");
+    auto line = flat_ring(2000.0);
+    line.stops.clear();
+    line.stops.push_back({100.0, 0.5, 10});
+    railbreak::TrackOdometer miss(&line, p);
+    miss.init(0.0, 0.5);
+    miss.set_time(0.0);
+    drive(miss, 0.0, 20.0, 36.0);
+    check(miss.n_anchor() == 0, "driving past the only station does not anchor");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

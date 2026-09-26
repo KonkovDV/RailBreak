@@ -144,6 +144,11 @@ def load_source(path: Path) -> dict:
     return out
 
 
+def keep_status(status, min_status):
+    """True where status >= min_status. A negative status is not a fix at the default 0."""
+    return np.asarray(status) >= min_status
+
+
 def base_link_xyz(master: np.ndarray, rover: np.ndarray, frame: str, start,
                   baseline_tol: float = BASELINE_TOL_M,
                   height_tol: float = HEIGHT_TOL_M):
@@ -221,16 +226,16 @@ def main() -> int:
     status_counts = {int(s): int(n) for s, n in zip(*np.unique(g_all[:, 5].astype(int), return_counts=True))}
     # Origin is the node's start window: every fix with status >= 0. The scored
     # set can be stricter (RTK only) without moving the frame.
-    g0 = g_all[g_all[:, 5] >= 0]
+    g0 = g_all[keep_status(g_all[:, 5], 0)]
     t0 = g0[0, 1]
     w = g0[g0[:, 1] <= t0 + args.window]
     lat0, lon0, h0 = float(np.median(w[:, 2])), float(np.median(w[:, 3])), float(np.median(w[:, 4]))
-    g = g_all[g_all[:, 5] >= args.min_status]
+    g = g_all[keep_status(g_all[:, 5], args.min_status)]
     rover = z.get("sensing_gnss_rover_fix")
     if rover is None or len(rover) < 2:
         print("no rover fixes: base_link is the master–rover segment, not the master antenna", file=sys.stderr)
         return 2
-    rover = rover[rover[:, 5] >= 0] if rover.shape[1] > 5 else rover
+    rover = rover[keep_status(rover[:, 5], 0)] if rover.shape[1] > 5 else rover
     n_master = int(len(g))
     start = (lat0, lon0, h0)
     rx_raw, ry_raw, rz_raw, ok_time = base_link_xyz(

@@ -212,6 +212,40 @@ def main():
     midi = float(np.hypot(xi[0] - mx[0], yi[0] - my[0]))
     if not (off * 0.4 < midi < off * 0.8):
         fail(f"the interpolated chord is not between the two rovers, offset {midi:.2f}")
+
+    from score_ros import keep_status
+    status = np.array([-1, 0, 1, 2])
+    if list(np.flatnonzero(keep_status(status, 0))) != [1, 2, 3]:
+        fail("status >= 0 did not drop a negative status")
+    if list(np.flatnonzero(keep_status(status, 2))) != [3]:
+        fail("status >= 2 did not keep only RTK")
+
+    # Every master is time-paired and every chord fails the baseline gate.
+    masters = np.array([[0.0, 10.0 + i, LAT0, LON0, H0, 2.0] for i in range(4)])
+    far_lon = lon_for_east(80.0, H0)
+    rovers = np.array([[0.0, 10.0 + i, LAT0, far_lon, H0, 2.0] for i in range(4)])
+    _, _, _, ok_time = base_link_xyz(masters, rovers, "enu", START, baseline_tol=1e9, height_tol=1e9)
+    _, _, _, ok_gate = base_link_xyz(masters, rovers, "enu", START, baseline_tol=2.0, height_tol=1.0)
+    if int(ok_time.sum()) != 4 or int(ok_gate.sum()) != 0:
+        fail("a fully rejected baseline was not 4 time pairs and 0 gated fixes")
+    if int(ok_gate.sum()) != 0:
+        fail("the gated reference was not empty")
+
+    # Same chords, two gates: raw keeps the long chord, the 2 m gate does not.
+    edges = (BASELINE_M, BASELINE_M + 2.0, BASELINE_M + 2.05, 80.0)
+    raw_keep = []
+    gated_keep = []
+    for east in edges:
+        _, _, _, ok_raw = base_link_xyz(
+            master, np.array([[0.0, 10.0, LAT0, lon_for_east(east, H0), H0, 2.0]]),
+            "enu", START, baseline_tol=1e9, height_tol=1e9)
+        _, _, _, ok_g = base_link_xyz(
+            master, np.array([[0.0, 10.0, LAT0, lon_for_east(east, H0), H0, 2.0]]),
+            "enu", START, baseline_tol=2.0, height_tol=1.0)
+        raw_keep.append(bool(ok_raw[0]))
+        gated_keep.append(bool(ok_g[0]))
+    if raw_keep != [True, True, True, True] or gated_keep != [True, True, False, False]:
+        fail(f"raw/gated sensitivity {raw_keep} {gated_keep}")
     print("ok")
 
 
