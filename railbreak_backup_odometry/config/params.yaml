@@ -19,7 +19,7 @@ backup_odometry:
     mgrs_square_northing: 6100000.0
     # Publish base_link: yaw axis of the first bogie, at the wheel-rail contact.
     # Antenna tf in that frame, y = 0: master (-9.873, 0, 3), rover (2.563, 0, 3).
-    # Bogie pitch is 7.55 m and is not this offset.
+    # Bogie pitch is not this offset.
     output_offset_along_m: 9.873
     output_offset_up_m: -3.0
     # Rover-only start: the snap is the rover. Step back to the master along

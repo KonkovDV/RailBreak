@@ -10,7 +10,7 @@ kept in rmse_3d only when the rover lies on that rigid body: planar baseline
 within 2 m of 12.436 m, and the two antenna heights within 1 m. On a clean
 recording the baseline residual is centimetres (max 0.1 m) and the height
 split stays under 0.5 m; a rover tens of metres away is not the antenna.
-Bogie pitch 7.55 m is not this baseline.
+Bogie pitch is not this baseline.
 Default frame is absolute MGRS, matching the node. Pairs by header stamp,
 tolerance 0.05 s.
 """
