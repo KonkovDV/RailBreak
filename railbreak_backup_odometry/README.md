@@ -11,6 +11,8 @@ GNSS читается только в окне старта (3 с) для нач
 удаляется. Модель — [`../docs/solution/model.md`](../docs/solution/model.md),
 допущения — [`../docs/solution/assumptions.md`](../docs/solution/assumptions.md),
 точность — [`../docs/solution/results.md`](../docs/solution/results.md).
+Снимок пакета — [`MANIFEST.json`](MANIFEST.json): хеши карты и таблицы, параметры
+по умолчанию и опубликованные 1.467 м / 5.828 м. Хешей записей там нет.
 
 Входы: `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity`
 (`tram_vehicle_msgs/VelocitySensor`), `/vehicle/driver_position_cmd`
