@@ -121,8 +121,11 @@ jobs:
     # Research package tram_dr_localization, and the submission node
     # railbreak_backup_odometry against ci/tram_vehicle_msgs. That stub is
     # two messages (header+velocity, header+int8 position), not the organiser
-    # package and not a recording. A green run is a colcon of the submission
-    # node. The node's filter core is also ctest'd in the cpp job.
+    # package and not a recording. A green run compiles the submission node
+    # and runs the synthetic executor gtest. It is not acceptance evidence:
+    # no organiser tram_vehicle_msgs, no rosbag playback, no MGRS base_link
+    # 3D, no --rate 10 GNSS check on a recording, no RSS/CPU limits, and no
+    # replay of 1.467 / 5.828 / 84.0 m.
     # Compiles the four ROS nodes and runs ament gtests. Previously invisible
     # (F-19). The job used to die on `source setup.bash` under `set -u`
     # (AMENT_TRACE_SETUP_FILES unbound). Do not wrap the source with nounset.
