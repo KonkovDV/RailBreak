@@ -364,6 +364,40 @@ class TrackOdometer {
   double noise_sd() const { return std::sqrt(r_); }
   double sigma_s() const { return std::sqrt(std::max(P_[IS][IS], 0.0)); }
   double sigma_v() const { return std::sqrt(std::max(P_[IV][IV], 0.0)); }
+
+  // Cross-track floor: p95 of RTK-to-ring distance on val, fixes within 3 m
+  // (median 0.28 m, RMSE 0.40 m, p95 0.53 m). Not a fitted variance, and it
+  // does not cover the parallel track at 3.49 m.
+  static constexpr double kCrossTrackSigmaM = 0.53;
+  // Height floor: the worse published RTK height RMSE, 1.10 m on 30618_01f73500.
+  static constexpr double kMapHeightSigmaM = 1.10;
+
+  // Pose covariance in the output frame, row-major 6x6. Along-track uses the
+  // filter variance. (tx, ty) is the horizontal unit tangent in that frame,
+  // grade is dh/ds. Orientation stays uninformative.
+  static void fill_pose_covariance(double p_ss, double tx, double ty, double grade, double* c) {
+    for (int i = 0; i < 36; ++i) c[i] = 0.0;
+    const double plat = kCrossTrackSigmaM * kCrossTrackSigmaM;
+    const double pz = kMapHeightSigmaM * kMapHeightSigmaM;
+    const double nrm = std::hypot(tx, ty);
+    if (!(nrm > 1e-9) || !std::isfinite(tx) || !std::isfinite(ty)) {
+      tx = 1.0;
+      ty = 0.0;
+    } else {
+      tx /= nrm;
+      ty /= nrm;
+    }
+    if (!std::isfinite(p_ss) || p_ss < 0.0) p_ss = 0.0;
+    const double i = std::isfinite(grade) ? grade : 0.0;
+    const double nx = -ty, ny = tx;
+    c[0] = p_ss * tx * tx + plat * nx * nx;
+    c[1] = c[6] = p_ss * tx * ty + plat * nx * ny;
+    c[2] = c[12] = p_ss * tx * i;
+    c[7] = p_ss * ty * ty + plat * ny * ny;
+    c[8] = c[13] = p_ss * ty * i;
+    c[14] = p_ss * i * i + pz;
+    c[21] = c[28] = c[35] = 1e6;
+  }
   bool slip() const { return slip_; }
   Mode mode() const { return mode_; }
   int notch() const { return notch_; }

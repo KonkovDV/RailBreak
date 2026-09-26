@@ -385,10 +385,9 @@ class BackupOdometryNode : public rclcpp::Node {
       o.pose.pose.orientation.z = std::sin(0.5 * yaw);
       o.pose.pose.orientation.w = std::cos(0.5 * yaw);
       const double vs = od_->sigma_s() * od_->sigma_s();
-      o.pose.covariance[0] = vs;
-      o.pose.covariance[7] = vs;
-      o.pose.covariance[14] = vs;
-      o.pose.covariance[21] = o.pose.covariance[28] = o.pose.covariance[35] = 1e6;
+      const double grade = initialised_ ? assets_.map.at(assets_.map.grade, s) : 0.0;
+      railbreak::TrackOdometer::fill_pose_covariance(
+          vs, std::cos(yaw), std::sin(yaw), grade, o.pose.covariance.data());
       o.twist.twist.linear.x = od_->v();
       o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
       for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;

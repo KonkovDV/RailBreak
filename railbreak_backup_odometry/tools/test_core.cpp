@@ -170,6 +170,28 @@ int main() {
           "the speed error stays and the path error grows through the rest of the silence");
   }
   {
+    double c[36];
+    const double plat = railbreak::TrackOdometer::kCrossTrackSigmaM *
+                        railbreak::TrackOdometer::kCrossTrackSigmaM;
+    const double pz = railbreak::TrackOdometer::kMapHeightSigmaM *
+                      railbreak::TrackOdometer::kMapHeightSigmaM;
+    railbreak::TrackOdometer::fill_pose_covariance(4.0, 1.0, 0.0, 0.0, c);
+    check(std::fabs(c[0] - 4.0) < 1e-9, "eastbound along-track variance is Pss");
+    check(std::fabs(c[7] - plat) < 1e-9, "eastbound cross-track variance is the map floor");
+    check(std::fabs(c[14] - pz) < 1e-9, "level-track height variance is the map floor, not Pss");
+    check(std::fabs(c[1]) < 1e-12, "an axis-aligned track has no Pxy");
+    railbreak::TrackOdometer::fill_pose_covariance(4.0, 1.0, 1.0, 0.04, c);
+    const double half = 0.5 * (4.0 + plat);
+    check(std::fabs(c[0] - half) < 1e-9 && std::fabs(c[7] - half) < 1e-9,
+          "a diagonal track splits Pss and the lateral floor");
+    check(std::fabs(c[1] - 0.5 * (4.0 - plat)) < 1e-9, "a diagonal track publishes Pxy");
+    check(std::fabs(c[14] - (4.0 * 0.04 * 0.04 + pz)) < 1e-9,
+          "height is the grade term plus the map floor");
+    check(std::fabs(c[2] - 4.0 * std::sqrt(0.5) * 0.04) < 1e-9,
+          "along-track error couples into height");
+    check(c[21] == 1e6 && c[35] == 1e6, "orientation stays uninformative");
+  }
+  {
     railbreak::TrackOdometer od(&assets, p);
     od.init(0.0, 0.5);
     od.set_time(0.0);
