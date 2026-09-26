@@ -125,21 +125,34 @@ class BackupOdometryNode : public rclcpp::Node {
     pub_p_ = create_publisher<nav_msgs::msg::Odometry>("/result/position", out_qos);
     pub_d_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/result/diagnostics", 10);
 
-    sub_f_ = create_subscription<VelocitySensor>(
-        "/vehicle/front_bogie_velocity", in_qos,
-        [this](const VelocitySensor& m) { on_bogie(m, true); });
-    sub_r_ = create_subscription<VelocitySensor>(
-        "/vehicle/rear_bogie_velocity", in_qos,
-        [this](const VelocitySensor& m) { on_bogie(m, false); });
-    sub_c_ = create_subscription<DriverControllerCommand>(
-        "/vehicle/driver_position_cmd", in_qos,
-        [this](const DriverControllerCommand& m) { on_cmd(m); });
-    sub_gm_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-        "/sensing/gnss/master/fix", in_qos,
-        [this](const sensor_msgs::msg::NavSatFix& m) { on_fix(m, true); });
-    sub_gr_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-        "/sensing/gnss/rover/fix", in_qos,
-        [this](const sensor_msgs::msg::NavSatFix& m) { on_fix(m, false); });
+    drain_gnss_queue_ = declare_parameter("drain_gnss_queue", true);
+    const bool gnss_first = declare_parameter("gnss_subscribe_first", false);
+    auto make_wheels = [&]() {
+      sub_f_ = create_subscription<VelocitySensor>(
+          "/vehicle/front_bogie_velocity", in_qos,
+          [this](const VelocitySensor& m) { on_bogie(m, true); });
+      sub_r_ = create_subscription<VelocitySensor>(
+          "/vehicle/rear_bogie_velocity", in_qos,
+          [this](const VelocitySensor& m) { on_bogie(m, false); });
+      sub_c_ = create_subscription<DriverControllerCommand>(
+          "/vehicle/driver_position_cmd", in_qos,
+          [this](const DriverControllerCommand& m) { on_cmd(m); });
+    };
+    auto make_gnss = [&]() {
+      sub_gm_ = create_subscription<sensor_msgs::msg::NavSatFix>(
+          "/sensing/gnss/master/fix", in_qos,
+          [this](const sensor_msgs::msg::NavSatFix& m) { on_fix(m, true); });
+      sub_gr_ = create_subscription<sensor_msgs::msg::NavSatFix>(
+          "/sensing/gnss/rover/fix", in_qos,
+          [this](const sensor_msgs::msg::NavSatFix& m) { on_fix(m, false); });
+    };
+    if (gnss_first) {
+      make_gnss();
+      make_wheels();
+    } else {
+      make_wheels();
+      make_gnss();
+    }
     RCLCPP_INFO(get_logger(), "assets %s: ring %.1f m, %zu stops, k0 %.5f; GNSS window %.1f s",
                 dir.c_str(), assets_.map.ring_len, assets_.stops.size(), assets_.k0, win_.window_s);
   }
@@ -175,8 +188,32 @@ class BackupOdometryNode : public rclcpp::Node {
       relative_ = true;
       close_gnss("no fix within gnss_wait_s; relative odometry from the start point");
     } else if (action == railbreak::GnssWindow::Action::kFinish) {
-      finish_init();
+      // Eight quiet callbacks do not prove the GNSS queue is empty. Take what
+      // the middleware already holds; a valid fix there resets the drain.
+      if (!(drain_gnss_queue_ && absorb_queued_gnss())) finish_init();
     }
+  }
+
+  // True if a queued fix was applied or the window already closed from one.
+  bool absorb_queued_gnss() {
+    const int m0 = win_.master_fixes();
+    const int r0 = win_.rover_fixes();
+    std::vector<sensor_msgs::msg::NavSatFix> masters, rovers;
+    sensor_msgs::msg::NavSatFix msg;
+    rclcpp::MessageInfo info;
+    if (sub_gm_) {
+      while (sub_gm_->take(msg, info)) masters.push_back(msg);
+    }
+    if (sub_gr_) {
+      while (sub_gr_->take(msg, info)) rovers.push_back(msg);
+    }
+    const std::size_t n = std::max(masters.size(), rovers.size());
+    for (std::size_t i = 0; i < n && !win_.closed; ++i) {
+      if (i < masters.size()) on_fix(masters[i], true);
+      if (win_.closed) break;
+      if (i < rovers.size()) on_fix(rovers[i], false);
+    }
+    return win_.closed || win_.master_fixes() != m0 || win_.rover_fixes() != r0;
   }
 
   void finish_init() {
@@ -396,6 +433,7 @@ class BackupOdometryNode : public rclcpp::Node {
   double s_at_first_fix_ = -1e9, s_rel_origin_ = 0.0;
   std::vector<double> m_lat_, m_lon_, m_alt_, r_lat_, r_lon_, r_alt_;
   bool initialised_ = false, relative_ = false;
+  bool drain_gnss_queue_ = true;
   std::string gnss_note_ = "window open";
   int n_fix_used_ = 0;
   railbreak::OutputFrame frame_;

@@ -275,6 +275,18 @@ int main() {
       }
       check(at == q, "a stream of NO_FIX does not hold the window open");
     }
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(false, 0.0, true);
+      Act last = Act::kWait;
+      for (int i = 0; i < q + 2 && last != Act::kFinish; ++i) last = w.on_input(3.2 + 0.05 * i);
+      check(last == Act::kFinish, "quiet count asks to close");
+      const int m = w.master_fixes();
+      check(w.on_fix(true, 2.0, true) == Act::kWait, "a fix taken before unsubscribe is still accepted");
+      check(w.master_fixes() == m + 1, "that fix is counted");
+      check(w.on_input(4.0) == Act::kWait, "a counted fix resets the quiet drain");
+    }
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;
