@@ -337,6 +337,23 @@ int main() {
     check(loose.n_anchor() == 0, "a stop wider than 3 m is not a station anchor");
   }
   {
+    // One ring, no switch graph and no direction after start. Metres of a
+    // depot spur, a turnout, a short turn or a partial trip still move s
+    // along this ring. Negative wheels are not a second direction.
+    railbreak::TrackOdometer od(&assets, p);
+    od.init(500.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 10.0, 36.0);
+    std::printf("     ring-only s=%.2f v=%.3f\n", od.s(), od.v());
+    check(std::fabs(od.v() - 10.0) < 0.05, "speed on the only axis matches the wheels");
+    check(std::fabs(od.s() - 600.0) < 2.0, "those metres move s along the ring");
+    const double s_fwd = od.s();
+    drive(od, 10.0, 15.0, -36.0);
+    std::printf("     reverse s=%.2f v=%.3f ds=%.2f\n", od.s(), od.v(), od.s() - s_fwd);
+    check(od.v() < 0.05, "agreed reverse is not kept as a negative speed");
+    check(od.s() + 0.05 >= s_fwd, "reverse does not walk s backward");
+  }
+  {
     railbreak::TrackOdometer od(&assets, p);
     od.init(0.0, 0.5);
     od.set_time(0.0);
