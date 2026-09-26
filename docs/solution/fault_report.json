@@ -1,0 +1,674 @@
+[
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.9,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.452,
+   "speed_rmse_mps": 0.0321,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 0.968,
+   "recovery_s": 0.086
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.9,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.387,
+   "speed_rmse_mps": 0.0321,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.187,
+   "recovery_s": 0.08
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.9,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.335,
+   "speed_rmse_mps": 0.0321,
+   "detection_rate": 0.9524,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.207,
+   "recovery_s": 0.089
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.9,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 15.954,
+   "speed_rmse_mps": 0.0891,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 36.301,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.95,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.452,
+   "speed_rmse_mps": 0.0321,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 0.956,
+   "recovery_s": 0.069
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.95,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.455,
+   "speed_rmse_mps": 0.0322,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.236,
+   "recovery_s": 0.07
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.95,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.665,
+   "speed_rmse_mps": 0.0338,
+   "detection_rate": 0.9524,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.297,
+   "recovery_s": 0.103
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.95,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 30.821,
+   "speed_rmse_mps": 0.1467,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 65.279,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.97,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.608,
+   "speed_rmse_mps": 0.0331,
+   "detection_rate": 0.7619,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.022,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.97,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.659,
+   "speed_rmse_mps": 0.0334,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.436,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.97,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.025,
+   "speed_rmse_mps": 0.0345,
+   "detection_rate": 0.9524,
+   "detection_latency_s": 0.0,
+   "max_error_m": 2.189,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.97,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 20.212,
+   "speed_rmse_mps": 0.0954,
+   "detection_rate": 0.619,
+   "detection_latency_s": 0.0,
+   "max_error_m": 38.853,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.99,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.595,
+   "speed_rmse_mps": 0.0322,
+   "detection_rate": 0.0,
+   "detection_latency_s": null,
+   "max_error_m": 1.048,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.99,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.857,
+   "speed_rmse_mps": 0.0335,
+   "detection_rate": 0.0952,
+   "detection_latency_s": 7.746,
+   "max_error_m": 1.335,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.99,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.235,
+   "speed_rmse_mps": 0.0374,
+   "detection_rate": 0.1429,
+   "detection_latency_s": 9.316,
+   "max_error_m": 1.779,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 0.99,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 4.97,
+   "speed_rmse_mps": 0.0466,
+   "detection_rate": 0.0,
+   "detection_latency_s": null,
+   "max_error_m": 16.309,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.01,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.42,
+   "speed_rmse_mps": 0.0324,
+   "detection_rate": 0.0,
+   "detection_latency_s": null,
+   "max_error_m": 1.268,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.01,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.026,
+   "speed_rmse_mps": 0.0347,
+   "detection_rate": 0.0,
+   "detection_latency_s": null,
+   "max_error_m": 2.025,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.01,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.135,
+   "speed_rmse_mps": 0.0362,
+   "detection_rate": 0.0,
+   "detection_latency_s": null,
+   "max_error_m": 2.357,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.01,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 5.873,
+   "speed_rmse_mps": 0.0389,
+   "detection_rate": 0.0,
+   "detection_latency_s": null,
+   "max_error_m": 19.756,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.03,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.66,
+   "speed_rmse_mps": 0.0336,
+   "detection_rate": 0.619,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.459,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.03,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.112,
+   "speed_rmse_mps": 0.0342,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 3.016,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.03,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.101,
+   "speed_rmse_mps": 0.0367,
+   "detection_rate": 0.9524,
+   "detection_latency_s": 0.151,
+   "max_error_m": 2.883,
+   "recovery_s": 0.0
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.03,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 43.71,
+   "speed_rmse_mps": 0.0871,
+   "detection_rate": 0.5714,
+   "detection_latency_s": 0.0,
+   "max_error_m": 83.844,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.05,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.45,
+   "speed_rmse_mps": 0.0321,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 0.99,
+   "recovery_s": 0.069
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.05,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.339,
+   "speed_rmse_mps": 0.0323,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.329,
+   "recovery_s": 0.07
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.05,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.356,
+   "speed_rmse_mps": 0.0356,
+   "detection_rate": 0.9524,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.393,
+   "recovery_s": 0.092
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.05,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 66.586,
+   "speed_rmse_mps": 0.1316,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 122.528,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.1,
+   "start_s": 324.015,
+   "duration_s": 5.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.45,
+   "speed_rmse_mps": 0.0321,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 0.983,
+   "recovery_s": 0.086
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.1,
+   "start_s": 328.72,
+   "duration_s": 15.0
+  },
+  "metrics": {
+   "along_rmse_m": 1.314,
+   "speed_rmse_mps": 0.0321,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.157,
+   "recovery_s": 0.08
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.1,
+   "start_s": 368.903,
+   "duration_s": 30.0
+  },
+  "metrics": {
+   "along_rmse_m": 2.38,
+   "speed_rmse_mps": 0.0356,
+   "detection_rate": 0.9524,
+   "detection_latency_s": 0.0,
+   "max_error_m": 1.396,
+   "recovery_s": 0.092
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ },
+ {
+  "commit": "9ac4667b996d88cd58173194f7b098a213080fec",
+  "dataset_version": "val:july27_arc.npz:f992e4be9fbe",
+  "fault": {
+   "type": "rear_scale",
+   "magnitude": 1.1,
+   "start_s": 317.694,
+   "duration_s": "rest_of_run"
+  },
+  "metrics": {
+   "along_rmse_m": 82.205,
+   "speed_rmse_mps": 0.1775,
+   "detection_rate": 0.9048,
+   "detection_latency_s": 0.0,
+   "max_error_m": 186.27,
+   "recovery_s": null
+  },
+  "pass": true,
+  "pass_rule": "every applied bag started and the state stayed finite",
+  "n": 21
+ }
+]
