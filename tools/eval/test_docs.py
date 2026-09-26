@@ -73,6 +73,19 @@ def check(root: Path) -> list[str]:
                 errors.append(f"undocumented CTest target: {target}")
     except (OSError, ET.ParseError) as exc:
         errors.append(f"cannot validate build metadata: {exc}")
+    stub = root / "ci/tram_vehicle_msgs"
+    vel = (stub / "msg/VelocitySensor.msg").read_text(encoding="utf-8") if stub.is_dir() else ""
+    cmd = (stub / "msg/DriverControllerCommand.msg").read_text(encoding="utf-8") if stub.is_dir() else ""
+    if "std_msgs/Header header" not in vel or "float64 velocity" not in vel:
+        errors.append("CI velocity stub does not match the node")
+    if "std_msgs/Header header" not in cmd or "int8 position" not in cmd:
+        errors.append("CI command stub does not match the node")
+    pkg = (stub / "package.xml").read_text(encoding="utf-8") if (stub / "package.xml").is_file() else ""
+    if "<name>tram_vehicle_msgs</name>" not in pkg:
+        errors.append("CI message stub is not named tram_vehicle_msgs")
+    workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    if "railbreak_backup_odometry" not in workflow or "ci/tram_vehicle_msgs" not in workflow:
+        errors.append("public CI does not build the submission node")
     return errors
 
 

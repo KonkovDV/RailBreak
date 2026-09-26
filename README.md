@@ -7,11 +7,13 @@ ROS 2 Humble считает скорость и положение трамва�
 
 Запустить можно на Windows, Linux и macOS. Нода живёт в одном контейнере
 Humble: Docker Desktop или Docker Engine, сеть хоста не нужна. Запись и пакет
-`tram_vehicle_msgs` в репозиторий не входят, карта маршрута уже в пакете.
+сообщений организатора в репозиторий не входят, карта маршрута уже в пакете.
+В `ci/tram_vehicle_msgs` лежит только интерфейс сборки: `VelocitySensor`
+(`header`, `float64 velocity`) и `DriverControllerCommand` (`header`, `int8 position`).
+Публичный GitHub Actions собирает ядро (`test_core`), проверяет гейт
+`score_ros.py` и собирает ноду `railbreak_backup_odometry` против этого интерфейса.
+Это проверка компиляции, не проигрывание записи.
 Без Docker и без ROS собирается только ядро, сценарий `core`.
-Публичный GitHub Actions собирает это ядро (`test_core`) и проверяет гейт
-`score_ros.py`. Сдаваемый ROS-пакет в том workflow не собирается: пакета
-сообщений в дереве нет. Зелёный прогон не означает, что нода прошла `colcon`.
 
 ```text
 scripts/jury.sh  <сценарий> --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
