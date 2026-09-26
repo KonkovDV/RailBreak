@@ -9,6 +9,7 @@
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
 #include "railbreak_backup_odometry/integrity_monitor.hpp"
+#include "railbreak_backup_odometry/start_epoch.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
 namespace {
@@ -918,6 +919,74 @@ int main() {
           "the live pair is the common-mode pattern");
     check(std::string(live_report.mu_estimate) == "null", "the live pair still has no mu");
     check(od.s() == s_after && od.v() == v_after, "the proxy does not move the filter");
+  }
+  {
+    // Rover is valid at t=0 and the tram is already moving. Master is valid
+    // only from t=2.5. The window, opened by the rover, ends at t=3.
+    // base_link is the master antenna plus 9.873 m along the ring.
+    const double s_m0 = 400.0;
+    const double v = 10.0;
+    const double off_along = 9.873;
+    const double t_end = 3.0;
+    const auto line = flat_ring(2000.0);
+    railbreak::TrackOdometer od(&line, p);
+    std::vector<railbreak::ArcMark> hist;
+    for (double t = 0.0; t < t_end + 1e-9; t += 0.1) {
+      od.on_bogie(t, true, 36.0);
+      hist.push_back({t, od.s()});
+      od.on_cmd(t + 0.025, 0);
+      hist.push_back({t + 0.025, od.s()});
+      od.on_bogie(t + 0.05, false, 36.0);
+      hist.push_back({t + 0.05, od.s()});
+    }
+    const double s_now = railbreak::arc_at(hist, t_end);
+    auto master_at = [&](double t, double& lat, double& lon) {
+      const double s = s_m0 + v * t;
+      line.map.latlon(line.map.at(line.map.x, s), line.map.at(line.map.y, s), lat, lon);
+    };
+    auto snap = [&](double lat, double lon) {
+      return railbreak::init_on_ring(line.map, lat, lon, false, 0.0, 0.0);
+    };
+    auto base_link = [&](double s0, double t_epoch) {
+      return railbreak::align_s(s0, s_now, railbreak::arc_at(hist, t_epoch)) + off_along;
+    };
+    const double physical = s_m0 + v * t_end + off_along;
+
+    double lat = 0.0, lon = 0.0;
+    master_at(2.5, lat, lon);
+    const auto one = snap(lat, lon);
+    check(one.ok && std::fabs(one.s0 - (s_m0 + v * 2.5)) < 1e-6,
+          "the single master fix snaps to the antenna arc at t=2.5");
+    const double at_master = base_link(one.s0, 2.5);
+    const double at_rover = base_link(one.s0, 0.0);
+    std::printf("     one master: auth err=%.3f rover-epoch err=%.3f physical=%.3f\n",
+                at_master - physical, at_rover - physical, physical);
+    check(std::fabs(at_master - physical) < 0.3,
+          "the alignment epoch is the first master fix, and base_link matches");
+    check(at_rover - physical > 20.0,
+          "anchoring that master fix at the rover stamp is ahead by the travelled section");
+
+    std::vector<double> ts, lats, lons;
+    for (double t = 2.5; t < t_end + 1e-9; t += 0.1) {
+      master_at(t, lat, lon);
+      ts.push_back(t);
+      lats.push_back(lat);
+      lons.push_back(lon);
+    }
+    const double t_sample = railbreak::upper_median(ts);
+    const auto med = snap(railbreak::upper_median(lats), railbreak::upper_median(lons));
+    const double at_sample = base_link(med.s0, t_sample);
+    const double at_first = base_link(med.s0, 2.5);
+    const double sample_at_rover = base_link(med.s0, 0.0);
+    std::printf("     master interval: sample t=%.2f sample err=%.3f first-master err=%.3f rover err=%.3f\n",
+                t_sample, at_sample - physical, at_first - physical, sample_at_rover - physical);
+    check(std::fabs(t_sample - 2.5) > 0.2, "the master sample is later than the first master fix");
+    check(std::fabs(at_sample - physical) < 0.3,
+          "base_link matches when the path is anchored at the master sample stamp");
+    check(at_first - physical > 2.0,
+          "anchoring the later master sample at the first master stamp is not base_link");
+    check(sample_at_rover - physical > 20.0,
+          "anchoring the later master sample at the rover stamp is ahead by the travelled section");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

@@ -3,7 +3,9 @@
 // Inputs (main loop):  /vehicle/front_bogie_velocity, /vehicle/rear_bogie_velocity
 //                      (VelocitySensor), /vehicle/driver_position_cmd (DriverControllerCommand).
 // Start only:          /sensing/gnss/{master,rover}/fix for gnss_init_window_s from the
-//                      first master fix, then both subscriptions are destroyed.
+//                      first valid fix of either antenna. The arc is anchored at the
+//                      stamp of the authoritative sample, then both subscriptions
+//                      are destroyed.
 // Outputs:             /result/velocity (VelocitySensor, m/s), /result/position (Odometry,
 //                      MGRS metres of base_link, see output_frame),
 //                      /result/diagnostics.
@@ -30,6 +32,7 @@
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
+#include "railbreak_backup_odometry/start_epoch.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
 using tram_vehicle_msgs::msg::DriverControllerCommand;
@@ -41,12 +44,7 @@ double stamp_s(const builtin_interfaces::msg::Time& t) {
   return static_cast<double>(t.sec) + 1e-9 * static_cast<double>(t.nanosec);
 }
 
-double median(std::vector<double> v) {
-  if (v.empty()) return std::numeric_limits<double>::quiet_NaN();
-  const std::size_t m = v.size() / 2;
-  std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(m), v.end());
-  return v[m];
-}
+double median(std::vector<double> v) { return railbreak::upper_median(std::move(v)); }
 
 }  // namespace
 
@@ -177,10 +175,12 @@ class BackupOdometryNode : public rclcpp::Node {
         m_lat_.push_back(m.latitude);
         m_lon_.push_back(m.longitude);
         m_alt_.push_back(m.altitude);
+        m_t_.push_back(t);
       } else if (!master && in_window) {
         r_lat_.push_back(m.latitude);
         r_lon_.push_back(m.longitude);
         r_alt_.push_back(m.altitude);
+        r_t_.push_back(t);
       }
     }
     if (action == railbreak::GnssWindow::Action::kFinish) finish_init();
@@ -236,14 +236,17 @@ class BackupOdometryNode : public rclcpp::Node {
       close_gnss("start fix not on the track map; relative odometry");
       return;
     }
-    if (s_at_first_fix_ < -1e8) s_at_first_fix_ = od_->s();
-    // Distance already travelled since the first fix is carried over.
     // Rover is 12.436 m ahead of master. Absolute MGRS does not subtract the
     // antenna, so a rover-only snap is stepped back to the master; the along
     // offset then publishes base_link.
+    // The window may have been opened by an earlier rover. s0 is the upper
+    // median of the authoritative antenna, so the carried path starts at that
+    // sample's stamp, not at the rover and not at the next wheel.
     double s0 = r.s0;
     if (rover_only) s0 -= rover_baseline_m_;
-    od_->init(s0 + (od_->s() - s_at_first_fix_), std::max(r.d0, 0.5));
+    const double t_epoch = median(master ? m_t_ : r_t_);
+    const double s_epoch = railbreak::arc_at(arc_hist_, t_epoch);
+    od_->init(railbreak::align_s(s0, od_->s(), s_epoch), std::max(r.d0, 0.5));
     // Start-relative frames subtract this point. Absolute mkrs and mgrs do not,
     // so their first sample is the map point in that grid, not (0, 0, 0).
     anchor_frame_to_output();
@@ -356,14 +359,7 @@ class BackupOdometryNode : public rclcpp::Node {
       od_->set_time(t);
       s_rel_origin_ = od_->s();
     }
-    // Anchor the carried path to the antenna that will define the origin.
-    // A later master replaces an earlier rover anchor.
-    if (win_.t_first_fix >= 0.0 && !s_anchored_to_master_) {
-      s_at_first_fix_ = od_->s();
-      s_anchored_to_master_ = true;
-    } else if (!s_anchored_to_master_ && win_.t_first_rover >= 0.0 && s_at_first_fix_ < -1e8) {
-      s_at_first_fix_ = od_->s();
-    }
+    if (!win_.closed) arc_hist_.push_back({t, od_->s()});
     on_window_input(t);
   }
 
@@ -582,9 +578,9 @@ class BackupOdometryNode : public rclcpp::Node {
   int64_t diag_every_ = 20;
   std::string frame_id_, child_frame_id_;
 
-  bool s_anchored_to_master_ = false;
   double s_at_first_fix_ = -1e9, s_rel_origin_ = 0.0;
-  std::vector<double> m_lat_, m_lon_, m_alt_, r_lat_, r_lon_, r_alt_;
+  std::vector<railbreak::ArcMark> arc_hist_;
+  std::vector<double> m_lat_, m_lon_, m_alt_, m_t_, r_lat_, r_lon_, r_alt_, r_t_;
   bool initialised_ = false, relative_ = false;
   bool drain_gnss_queue_ = true;
   bool have_out_ = false;
