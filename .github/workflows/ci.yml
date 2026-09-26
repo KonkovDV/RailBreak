@@ -92,6 +92,9 @@ jobs:
           ctest --test-dir standalone/build-asan --output-on-failure
 
   ros:
+    # Research package only. railbreak_backup_odometry is not built here:
+    # tram_vehicle_msgs is not in the public tree. A green run is not a colcon
+    # check of the submission node. That node's core is ctest'd in the cpp job.
     # Compiles the four ROS nodes and runs ament gtests. Previously invisible
     # (F-19). The job used to die on `source setup.bash` under `set -u`
     # (AMENT_TRACE_SETUP_FILES unbound). Do not wrap the source with nounset.

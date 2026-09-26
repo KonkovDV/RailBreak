@@ -9,10 +9,12 @@ namespace railbreak {
 // before GNSS still sitting in the queue, and unsubscribing there drops the window.
 //
 // If the antennas stop inside the window (the case allows GNSS for only the
-// first seconds), close after kQuietInputs wheel/command callbacks with no GNSS
-// callback between them. Those callbacks are the drain. An antenna that never
-// sent a fix is not waited on. An antenna that already delivered a stamp past
-// the window does not keep the other one open.
+// first seconds), close after kQuietInputs wheel/command callbacks with no
+// valid fix between them. A STATUS_NO_FIX stream is not a fix and must not
+// hold the window open. Valid fixes still in the queue do reset the drain:
+// at --rate 10 those are the messages a wheel callback would otherwise drop.
+// An antenna that never sent a valid fix is not waited on. An antenna that
+// already delivered a stamp past the window does not keep the other one open.
 struct GnssWindow {
   static constexpr int kQuietInputs = 8;
 
@@ -29,9 +31,9 @@ struct GnssWindow {
 
   Action on_fix(bool master, double t, bool valid) {
     if (closed) return Action::kWait;
+    if (!valid) return Action::kWait;
     if (master) ++n_master_cb_;
     else ++n_rover_cb_;
-    if (!valid) return Action::kWait;
     if (master) {
       if (t_first_fix < 0.0) t_first_fix = t;
     } else if (t_first_rover < 0.0) {

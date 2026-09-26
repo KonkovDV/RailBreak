@@ -9,6 +9,9 @@ ROS 2 Humble считает скорость и положение трамва�
 Humble: Docker Desktop или Docker Engine, сеть хоста не нужна. Запись и пакет
 `tram_vehicle_msgs` в репозиторий не входят, карта маршрута уже в пакете.
 Без Docker и без ROS собирается только ядро, сценарий `core`.
+Публичный GitHub Actions собирает это ядро (`test_core`) и проверяет гейт
+`score_ros.py`. Сдаваемый ROS-пакет в том workflow не собирается: пакета
+сообщений в дереве нет. Зелёный прогон не означает, что нода прошла `colcon`.
 
 ```text
 scripts/jury.sh  <сценарий> --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>

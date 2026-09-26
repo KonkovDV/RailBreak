@@ -230,6 +230,25 @@ int main() {
       check(w.on_input(0.0) == Act::kWait, "no fix yet: the wait has not expired");
       check(w.on_input(10.01) == Act::kRelative, "no fix within gnss_wait_s goes relative");
     }
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(false, 0.0, true);
+      w.on_fix(true, 2.9, true);
+      w.on_fix(false, 2.9, true);
+      Act last = Act::kWait;
+      int at = -1;
+      for (int i = 0; i < q + 4; ++i) {
+        w.on_fix(true, 3.2, false);
+        w.on_fix(false, 3.2, false);
+        last = w.on_input(3.05 + 0.05 * i);
+        if (last == Act::kFinish) {
+          at = i;
+          break;
+        }
+      }
+      check(at == q, "a stream of NO_FIX does not hold the window open");
+    }
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;
