@@ -154,8 +154,7 @@ CI выполняет эти команды. 23 metric tests покрывают 
 13 physics tests и 8 contact tests проверяют выбранные контракты Python-twin.
 Это не 36 новых сценариев движения и не новая таблица точности вагона.
 Структурный docs checker обходит `CURRENT_DOCS` в
-`tools/eval/test_docs.py` (12 файлов на , включая refs.md,
-t0-runbook и data-contract): относительные ссылки, некоторые пути
+`tools/eval/test_docs.py` (включая refs.md и data-contract): относительные ссылки, некоторые пути
 исходников, code fences, версии и список CTest. Он не проверяет внешние
 URL, heading anchors, LaTeX или истинность текста.
 
@@ -189,10 +188,6 @@ colcon test-result --all --verbose
 ```
 
 Сборка нод и library gtests **не** равны запуску реального ROS-графа.
- на этом Windows-хосте граф запускался в `railbreak-tram_dr`
-(Humble desktop): `live.launch.py` и `replay.launch.py` с синтетическим
-bag. Лог и граница: [ros-rehearsal.md](ros-rehearsal.md). `colcon test`
-в том контейнере утром  не повторялся — только `colcon build`.
 
 ## 6. Открытая матрица испытаний
 
@@ -205,8 +200,8 @@ bag. Лог и граница: [ros-rehearsal.md](ros-rehearsal.md). `colcon tes
 | Статистика | Нормированность NIS/NEES, false alarms, exposure, независимые поездки |
 | Физика | Полевые m/r0/тяга/Дэвис/уклон; статическое удержание, WSP и joint faults |
 | Python generator | Полная валидация входов, clipping/корни и coupled-ODE convergence; не весь solver domain покрыт fixtures |
-| Источники | Выборочная проверка первоисточников выполнена; точный объём и непрочитанное — [OSINT/triage](review/osint-triage.md), применимость к вагону остаётся открытой |
-| Презентация | PPTX пересобран из `pitch.md` (`9cd215e`); визуальную вёрстку всё равно сверить на проекторе |
+| Источники | Выборочная проверка первоисточников выполнена; применимость к вагону из ссылки не следует |
+| Сдача | Пакет `railbreak_backup_odometry` и `docs/solution/`. Таблицы seed 42 к нему не относятся |
 | Производительность | WCET и latency на целевом контроллере, DDS/executor, HIL |
 | Safety | Независимый hazard analysis и действия потребителя, не только PL/HMI |
 

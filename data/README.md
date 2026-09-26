@@ -21,6 +21,4 @@ If lidar pose has a usable $z$:
 python tools/eval/profile_from_bag.py data/bags/run01 --out data/route_10_profile.csv
 ```
 
-Offline only — never a filter input. June 2026 CWR on the river spans, temporary
-line (mos.ru / AGN / Metro ) — not the  Moscow 24 bus-replacement
-headline. Treat  as likely single-track; do not assume 60 km/h.
+Offline only — never a filter input.

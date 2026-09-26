@@ -29,7 +29,7 @@ htmlcov/
 .coverage
 *.log
 
-# Organiser bags (25.09). Keep the drop-slot README.
+# Organiser bags. Keep the drop-slot README.
 data/bags/*
 !data/bags/README.md
 files/

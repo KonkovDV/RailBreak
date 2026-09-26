@@ -7,8 +7,7 @@ RailBreak требованиям безопасности. Ниже отдель
 
 Проверялись исходники, независимые формулы и regression tests.
 Выборочно сверены внешние первоисточники: Polach, фрагмент UNISIG,
-каталог BSI, официальное резюме RAIB и сайт хакатона. Точный объём чтения,
-недоступные документы и triage — [OSINT](review/osint-triage.md).
+каталог BSI, официальное резюме RAIB и сайт хакатона.
 Весь прежний каталог не объявляется верифицированным.
 
 ## Математический контекст
@@ -96,11 +95,8 @@ et al. (CMES 2025), Shrestha (2025), Reid et al. (2019). Это **не полн�
 | [test_metric_contracts.py](../tools/eval/test_metric_contracts.py) | HMI/coverage и независимый nearest-GT reference |
 | [test_python_plant_contracts.py](../tools/eval/test_python_plant_contracts.py) | Python drive/stop и аналитический Newton witness |
 | [verification.md](verification.md) | Наблюдавшиеся результаты, версии, окружение и открытые проверки |
-| [CHANGELOG.md](../CHANGELOG.md) | Исторические изменения; старые статусы не заменяют текущий triage |
-| [OSINT](review/osint-triage.md) | Проверка первоисточников, статусы доказательств и вопросы перед защитой |
-| [issue #3](https://github.com/KonkovDV/RailBreak/issues/3) | Исторический реестр находок; актуальный статус сдачи — [`HACKATHON.md`](../HACKATHON.md) |
+| [CHANGELOG.md](../CHANGELOG.md) | Где лежит сдаваемый пакет и версия исследовательского ядра |
+| [HACKATHON.md](../HACKATHON.md) | Состав сдачи |
 
 Числа количества assertions не перенесены из старого списка как вечные:
 состав тестов меняется, актуальные результаты привязаны к commit в verification.
-Исторические интерпретации доступны в истории Git и review-документах;
-они не переиздаются здесь как актуальные технические гарантии.

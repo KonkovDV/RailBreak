@@ -1,5 +1,8 @@
 # Data contract (template)
 
+Шаблон инструмента `tools/hackathon/t0.py` для исследовательского ядра.
+Контракт сдачи — README пакета `railbreak_backup_odometry`, не эта таблица.
+
 Filled at T0 from the organiser recording by
 `python tools/hackathon/t0.py <bag> --out reports/t0`.
 Until then every organiser-specific cell is `TBD`. Do not copy

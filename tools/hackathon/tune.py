@@ -1,8 +1,6 @@
 """M7 budget-limited noise search. Never changes filter defaults.
 
-Criterion from hackathon-plan.md §M7. CMA-ES at 200–500 evals is for 
-on the organiser val set. This host dry-run is a 1-D (1+1)-ES on log q_v
-with a small budget so the protocol exists before T0.
+This host dry-run is a 1-D (1+1)-ES on log q_v with a small budget.
 """
 
 from __future__ import annotations

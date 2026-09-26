@@ -29,4 +29,3 @@ launch; тара TBD), `vehicle_combino_nf100.yaml` (twin e2e), `vehicle_vityaz_
 | `tools/eval/profile_from_bag.py` | $z$ лидарной позы → $h(s)$ оффлайн; кап 250k; не $i(s)$ в ноде |
 | `tools/synth/generate.py` | сценарии, seed 42; `*route10*` — оценка 25–40 ‰ (центр 32 ‰), не $i(s)$ в ноде |
 | `tools/synth/score.py` | таблица vs baseline |
-| `tools/pitch/build_pitch.js` | пересборка [`docs/pitch.pptx`](../docs/pitch.pptx) (`npm install` в `tools/pitch`) |

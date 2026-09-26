@@ -514,8 +514,7 @@ def run_t0(src: Path, out: Path, ukf: Path | None = None) -> dict:
         f"- kappa_ob: {integrity.get('overbound', {}).get('kappa_ob', 'TBD')}",
         f"- figures: `{fig_dir}`",
         "",
-        "Test split was not scored. Next: send docs/organizer-questions.md; "
-        "freeze flags on val only; one test pass on .",
+        "Test split was not scored.",
         "",
     ]
     (out / "REPORT.md").write_text("\n".join(report), encoding="utf-8")
