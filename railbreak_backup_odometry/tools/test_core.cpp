@@ -170,6 +170,51 @@ int main() {
           "the speed error stays and the path error grows through the rest of the silence");
   }
   {
+    auto hostile = flat_ring(4000.0);
+    hostile.stops.clear();
+    hostile.stops.push_back({20.0, 0.2, 10});
+    hostile.k0 = 1.0;
+    railbreak::Params hp;
+    hp.unit = 1.0 / 3.6;
+    hp.sigma_k0 = 50.0;
+    hp.q_k = 1.0;
+    hp.stop_gate = 20.0;
+    railbreak::TrackOdometer od(&hostile, hp);
+    od.init(0.0, 50.0);
+    drive(od, 0.0, 60.0, 36.0);
+    for (double t = 60.0; t < 64.0 - 1e-9; t += 0.1) {
+      od.on_bogie(t, true, 0.0);
+      od.on_bogie(t + 0.05, false, 0.0);
+    }
+    std::printf("     guarded k=%.3f guards=%d\n", od.k(), od.n_guard());
+    check(std::isfinite(od.k()) && od.k() >= 0.5 && od.k() <= 1.5,
+          "a damaged anchor cannot drive k through zero");
+    check(od.n_guard() >= 1, "the update that would leave the scale interval is dropped");
+    check(std::isfinite(od.s()) && std::isfinite(od.v()) && std::isfinite(od.model_bias()),
+          "the state stays finite");
+    od.on_bogie(64.0, true, 36.0);
+    od.on_bogie(64.05, false, 36.0);
+    check(std::isfinite(od.v()) && od.k() > 0.0, "the next wheel step still divides by k");
+  }
+  {
+    auto bad = flat_ring(100.0);
+    bad.k0 = 0.0;
+    railbreak::TrackOdometer od(&bad, p);
+    check(od.k() == 1.0, "a zero scale prior is replaced before any division");
+    check(od.n_guard() >= 1, "the replacement is counted");
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    od.on_bogie(0.0, true, 36.0);
+    check(std::isfinite(od.v()), "the first wheel step stays finite");
+  }
+  {
+    railbreak::TrackOdometer od(&assets, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 10.0, 36.0);
+    check(od.n_guard() == 0, "a normal run does not trip the numerical stop");
+  }
+  {
     double c[36];
     const double plat = railbreak::TrackOdometer::kCrossTrackSigmaM *
                         railbreak::TrackOdometer::kCrossTrackSigmaM;

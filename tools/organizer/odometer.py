@@ -98,9 +98,33 @@ class Odometer:
         self.slip = False
         self.mode = "WHEELS"
         self.n_anchor = 0
+        self.n_guard = 0
         self.anchor_log: list[tuple[float, float, float, float]] = []
         self.have_v = False
         self.disagree_since = None
+        if not math.isfinite(self.x[IK]) or self.x[IK] < 0.5 or self.x[IK] > 1.5:
+            self.x[IK] = 1.0
+            self.n_guard += 1
+
+    # Numerical stops, not a physical scale or bias. 1/k stays in [2/3, 2].
+    SCALE_MIN = 0.5
+    SCALE_MAX = 1.5
+    BIAS_ABS_MAX = 5.0
+
+    def _state_numerical(self) -> bool:
+        if not (self.SCALE_MIN <= self.x[IK] <= self.SCALE_MAX):
+            return False
+        if abs(self.x[IBA]) > self.BIAS_ABS_MAX:
+            return False
+        if not np.isfinite(self.x).all() or not np.isfinite(self.P).all():
+            return False
+        if not np.all(np.diag(self.P) >= 0.0):
+            return False
+        try:
+            np.linalg.cholesky(0.5 * (self.P + self.P.T))
+        except np.linalg.LinAlgError:
+            return False
+        return True
 
     # --- helpers -------------------------------------------------------------
     def init(self, s0: float, sigma_s0: float) -> None:
@@ -138,6 +162,8 @@ class Odometer:
         if dt_all > self.p.max_gap_s:
             self.t = t
             return
+        x_keep = self.x.copy()
+        p_keep = self.P.copy()
         while dt_all > 1e-9:
             dt = min(dt_all, self.p.dt_max)
             s, v = self.x[IS], self.x[IV]
@@ -152,6 +178,10 @@ class Odometer:
             Q = np.diag([self.p.q_s * dt, self.p.q_v * dt, self.p.q_k * dt, self.p.q_ba * dt])
             self.P = F @ self.P @ F.T + Q
             dt_all -= dt
+        if not self._state_numerical():
+            self.x = x_keep
+            self.P = p_keep
+            self.n_guard += 1
         self.t = t
 
     def _update_scalar(self, h: np.ndarray, innov: float, r: float, consider_k: bool = False) -> None:
@@ -163,9 +193,15 @@ class Odometer:
             # Schmidt-Kalman: k is a consider state for bogie updates. Wheels
             # and model cannot tell v from k apart; only anchors move k.
             K[IK] = 0.0
+        x_keep = self.x.copy()
+        p_keep = self.P.copy()
         self.x = self.x + K * innov
         A = np.eye(N) - np.outer(K, h)
         self.P = A @ self.P @ A.T + r * np.outer(K, K)
+        if not self._state_numerical():
+            self.x = x_keep
+            self.P = p_keep
+            self.n_guard += 1
 
     def _stamp_ok(self, t: float) -> bool:
         return math.isfinite(t) and (self.t is None or t >= self.t)
@@ -240,10 +276,16 @@ class Odometer:
             if self.disagree_since is None:
                 self.disagree_since = t
             elif t - self.disagree_since >= self.p.recover_s:
+                x_keep = self.x.copy()
+                p_keep = self.P.copy()
                 self.x[IV] = max(0.0, u * k)
                 self.P[IV, :] = 0.0
                 self.P[:, IV] = 0.0
                 self.P[IV, IV] = r * k * k
+                if not self._state_numerical():
+                    self.x = x_keep
+                    self.P = p_keep
+                    self.n_guard += 1
                 self.disagree_since = None
                 slip = False
                 self.slip = False

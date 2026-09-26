@@ -266,9 +266,13 @@ class TrackOdometer {
     anchored_ = false;
     slip_ = false;
     mode_ = Mode::kWheels;
-    n_anchor_ = n_rejected_ = n_gap_reset_ = 0;
+    n_anchor_ = n_rejected_ = n_gap_reset_ = n_guard_ = 0;
     have_v_ = false;
     disagree_since_ = -1.0;
+    if (!std::isfinite(x_[IK]) || x_[IK] < kScaleMin || x_[IK] > kScaleMax) {
+      x_[IK] = 1.0;
+      ++n_guard_;
+    }
   }
 
   void init(double s0, double sigma_s0) {
@@ -337,9 +341,16 @@ class TrackOdometer {
       if (disagree_since_ < 0.0) {
         disagree_since_ = t;
       } else if (t - disagree_since_ >= p_.recover_s) {
+        const Vec x_keep = x_;
+        const Mat p_keep = P_;
         x_[IV] = std::max(0.0, u * k);
         for (int i = 0; i < N; ++i) P_[IV][i] = P_[i][IV] = 0.0;
         P_[IV][IV] = r * k * k;
+        if (!state_numerical()) {
+          x_ = x_keep;
+          P_ = p_keep;
+          ++n_guard_;
+        }
         disagree_since_ = -1.0;
         slip_ = false;
         zupt(t);
@@ -365,6 +376,12 @@ class TrackOdometer {
   double sigma_s() const { return std::sqrt(std::max(P_[IS][IS], 0.0)); }
   double sigma_v() const { return std::sqrt(std::max(P_[IV][IV], 0.0)); }
 
+  // Numerical stops, not a physical identification of the scale or the bias.
+  // 1/k then stays in [2/3, 2]. On the recorded runs k stays near 1 and b_a
+  // stays within a few tenths, so the stop does not fire.
+  static constexpr double kScaleMin = 0.5;
+  static constexpr double kScaleMax = 1.5;
+  static constexpr double kBiasAbsMax = 5.0;
   // Cross-track floor: p95 of RTK-to-ring distance on val, fixes within 3 m
   // (median 0.28 m, RMSE 0.40 m, p95 0.53 m). Not a fitted variance, and it
   // does not cover the parallel track at 3.49 m.
@@ -411,6 +428,7 @@ class TrackOdometer {
   }
 
   int n_rejected() const { return n_rejected_; }
+  int n_guard() const { return n_guard_; }
   int n_gap_reset() const { return n_gap_reset_; }
   double a_model_now() const { return a_model(x_[IV], x_[IS]) + x_[IBA]; }
 
@@ -458,6 +476,35 @@ class TrackOdometer {
     }
   }
 
+  bool state_numerical() const {
+    if (x_[IK] < kScaleMin || x_[IK] > kScaleMax || std::fabs(x_[IBA]) > kBiasAbsMax) return false;
+    for (int i = 0; i < N; ++i) {
+      if (!std::isfinite(x_[i]) || !std::isfinite(P_[i][i]) || P_[i][i] < 0.0) return false;
+      for (int j = 0; j < N; ++j)
+        if (!std::isfinite(P_[i][j])) return false;
+    }
+    return covariance_pd();
+  }
+
+  bool covariance_pd() const {
+    double a[N][N];
+    for (int i = 0; i < N; ++i)
+      for (int j = 0; j < N; ++j) a[i][j] = 0.5 * (P_[i][j] + P_[j][i]);
+    for (int i = 0; i < N; ++i) {
+      for (int j = 0; j <= i; ++j) {
+        double s = a[i][j];
+        for (int k = 0; k < j; ++k) s -= a[i][k] * a[j][k];
+        if (i == j) {
+          if (!(s > 0.0) || !std::isfinite(s)) return false;
+          a[i][j] = std::sqrt(s);
+        } else {
+          a[i][j] = s / a[j][j];
+        }
+      }
+    }
+    return true;
+  }
+
   void predict(double t) {
     if (!have_t_) {
       set_time(t);
@@ -470,6 +517,8 @@ class TrackOdometer {
       t_ = t;
       return;
     }
+    const Vec x_keep = x_;
+    const Mat p_keep = P_;
     while (dt_all > 1e-9) {
       const double dt = std::min(dt_all, p_.dt_max);
       const double s = x_[IS], v = x_[IV];
@@ -497,6 +546,11 @@ class TrackOdometer {
       P_ = out;
       dt_all -= dt;
     }
+    if (!state_numerical()) {
+      x_ = x_keep;
+      P_ = p_keep;
+      ++n_guard_;
+    }
     t_ = t;
   }
 
@@ -507,6 +561,8 @@ class TrackOdometer {
     double S = r;
     for (int i = 0; i < N; ++i) S += h[i] * Ph[i];
     if (!(S > 0.0) || !std::isfinite(S) || !std::isfinite(innov)) return;
+    const Vec x_keep = x_;
+    const Mat p_keep = P_;
     Vec K{};
     for (int i = 0; i < N; ++i) K[i] = Ph[i] / S;
     if (consider_k) K[IK] = 0.0;
@@ -524,6 +580,11 @@ class TrackOdometer {
         out[i][j] += r * K[i] * K[j];
       }
     P_ = out;
+    if (!state_numerical()) {
+      x_ = x_keep;
+      P_ = p_keep;
+      ++n_guard_;
+    }
   }
 
   void zupt(double t) {
@@ -602,6 +663,7 @@ class TrackOdometer {
   int n_anchor_ = 0;
   int n_rejected_ = 0;
   int n_gap_reset_ = 0;
+  int n_guard_ = 0;
 };
 
 
