@@ -70,7 +70,8 @@ class BackupOdometryNode : public rclcpp::Node {
     } else if (mode == "enu") {
       frame_.mode = railbreak::FrameMode::kEnu;
     } else {
-      RCLCPP_ERROR(get_logger(), "output_frame '%s' unknown; using mkrs_start", mode.c_str());
+      frame_.mode = railbreak::FrameMode::kMgrs;
+      RCLCPP_ERROR(get_logger(), "output_frame '%s' unknown; using mgrs", mode.c_str());
     }
     frame_.x_is_north = declare_parameter("mkrs_x_is_north", false);
     frame_.zone = static_cast<int>(declare_parameter("utm_zone", 37));

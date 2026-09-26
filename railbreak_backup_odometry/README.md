@@ -46,7 +46,16 @@ source install/setup.bash
 
 ## Запуск
 
-Терминал 1:
+Из корня клона, если есть Docker Desktop или Docker Engine. Запись и `tram_vehicle_msgs` в репозиторий не входят.
+
+```text
+scripts/jury.sh play --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
+```
+
+Windows: `.\scripts\jury.ps1 play -Bag <каталог> -Msgs <tram_vehicle_msgs>`.
+Остальные сценарии и лимиты ТЗ — в [корневом README](../README.md).
+
+Без Docker, Ubuntu 22.04 с Humble. Терминал 1:
 
 ```bash
 ros2 launch railbreak_backup_odometry backup_odometry.launch.py

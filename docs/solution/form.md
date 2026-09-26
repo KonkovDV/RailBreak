@@ -14,15 +14,25 @@
 https://github.com/KonkovDV/RailBreak/tree/main/railbreak_backup_odometry
 ```
 
-Пакет `railbreak_backup_odometry`, C++17, ROS 2 Humble, `colcon build`. Подписка: `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` (`tram_vehicle_msgs/VelocitySensor`), `/vehicle/driver_position_cmd` (`DriverControllerCommand`). Публикация: `/result/velocity` (м/с), `/result/position` (`nav_msgs/Odometry`, метры городской сетки Москвы от старта, параметр `output_frame`). QoS входа — SensorData, выхода — reliable, keep_last 10. Сборка без сети, зависимости только из Humble плюс пакет сообщений организатора. У выданного `tram_vehicle_msgs/package.xml` нет `<maintainer>`; без одной добавленной строки Humble `colcon` пакет отвергает — команда есть в README.
+Пакет `railbreak_backup_odometry`, C++17, ROS 2 Humble. `colcon build` без сети: зависимости только из Humble и пакет сообщений организатора. Подписка: `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` (`tram_vehicle_msgs/VelocitySensor`; в записи км/ч, в фильтр м/с), `/vehicle/driver_position_cmd` (`DriverControllerCommand`). GNSS master и rover читаются только в окне старта, затем подписка снимается. IMU, лидар и зрение не читаются.
+
+`/result/velocity` — м/с, тот же тип, что у тележки, с первого сообщения тележки. `/result/position` — `nav_msgs/Odometry`: штамп входа, `frame_id` `map`, `child_frame_id` `base_link`, позиция, продольная скорость в `twist.twist.linear.x`, ковариация положения \(P_{ss}\). По умолчанию это абсолютный MGRS: UTM 37N минус угол квадрата 300000 м / 6100000 м, x — восток, y — север. Точка — `base_link` (ось первой тележки, касание колеса и рельса): от master +9.873 м вдоль пути и −3 м по высоте. На выданных записях x около 99–103 км. Городская сетка от старта — параметр `output_frame:=mkrs_start`, не значение по умолчанию. Нет фикса дольше `gnss_wait_s` — относительный путь: x равен пройденному, y = z = 0. QoS входа — SensorData, очередь 500; выхода — reliable, keep_last 10. У выданного `tram_vehicle_msgs/package.xml` нет `<maintainer>`; без одной добавленной строки Humble `colcon` пакет отвергает — команда есть в README.
 
 ## Поле 2. Ссылка на инструкцию для жюри
 
 ```
-https://github.com/KonkovDV/RailBreak/blob/main/railbreak_backup_odometry/README.md
+https://github.com/KonkovDV/RailBreak/blob/main/README.md
 ```
 
-Кратко, если поле — не только ссылка. Терминал 1: `ros2 launch railbreak_backup_odometry backup_odometry.launch.py`. Терминал 2: `ros2 bag play data/<bag_id>`. Время берётся из `header.stamp`, `/clock` не нужен. На выходе ждать `/result/velocity` с первого сообщения тележки и `/result/position` после 3 с от первого master-фикса. Частота — на каждый вход, около 40 Гц. Логи и задержка: `ros2 topic echo /result/diagnostics --field status[0].values`. Поле `callback_max_us` — максимум обработки одного входа, мкс. `gnss=closed` значит, что после окна старта GNSS больше не читается. Сравнение с эталоном: записать `/result/*` и прогнать `python3 tools/organizer/score_ros.py` по исходному bag с полным GNSS.
+Кратко, если поле — не только ссылка. На Windows, Linux и macOS, из корня клона, при установленном Docker:
+
+```text
+scripts/jury.sh play --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
+```
+
+На Windows то же самое: `.\scripts\jury.ps1 play -Bag <каталог> -Msgs <tram_vehicle_msgs>`. Контейнер собирает пакет и проигрывает запись сам. Сеть хоста не нужна. Первый запуск скачивает образ Humble.
+
+На Ubuntu 22.04 с уже стоящим Humble, без Docker. Терминал 1: `ros2 launch railbreak_backup_odometry backup_odometry.launch.py`. Терминал 2: `ros2 bag play <каталог rosbag2>`. Время берётся из `header.stamp`, `/clock` не нужен. Ждать `/result/velocity` с первого сообщения тележки и `/result/position` после 3 с от первого фикса: x порядка 99–103 км. Частота — на каждый вход, около 40 Гц. В записанных прогонах колбэк 0.6–3.3 мс при потолке ТЗ 100 мс, память 23–24 МБ при потолке 0.5 ГБ. Логи: `ros2 topic echo /result/diagnostics --field status[0].values`. `callback_max_us` — максимум одного входа, мкс. `gnss=closed` — после окна старта GNSS больше не читается. `slip=true` — опора на модель, координата всё равно публикуется. Сравнение с эталоном: записать `/result/*` и прогнать `python3 tools/organizer/score_ros.py` по исходному bag с полным GNSS. Та же инструкция внутри пакета: `railbreak_backup_odometry/README.md`.
 
 ## Поле 3. Математическая модель
 
