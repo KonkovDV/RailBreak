@@ -149,16 +149,25 @@ int main() {
     od.init(0.0, 0.5);
     od.set_time(0.0);
     drive(od, 0.0, 30.0, 36.0);
-    const double v_pre = od.v();
     od.on_cmd(30.0, 7);
-    od.on_bogie(30.0, true, 36.0);
-    od.on_bogie(30.05, false, 36.0);
-    const double ba = od.model_bias();
-    for (double t = 30.1; t < 35.0 - 1e-9; t += 0.1) od.on_cmd(t, 7);
-    std::printf("     notch ba=%.4f v_pre=%.3f v_end=%.3f\n", ba, v_pre, od.v());
-    check(std::fabs(ba) < 0.01, "one notch change does not train b_a");
-    check(std::fabs(od.model_bias() - ba) < 1e-12, "b_a stays put through the following silence");
-    check(od.v() > v_pre + 3.5 && od.v() < v_pre + 4.5, "silence after a notch change integrates the table, not b_a");
+    const double s0 = od.s();
+    const double v0 = od.v();
+    const double a_new = 0.8;  // steady row, the value the fit would keep after 1 s
+    for (double t = 30.1; t <= 35.0 + 1e-9; t += 0.1) od.on_cmd(t, 7);
+    const double T = 5.0;
+    const double lag = 1.0;  // the second excluded from the table, not a state in the filter
+    const double dv = od.v() - v0;
+    const double ds = od.s() - s0;
+    const double dv_lag = a_new * (T - lag);
+    const double ds_lag = v0 * T + 0.5 * a_new * (T - lag) * (T - lag);
+    std::printf("     notch ba=%.4f dv=%.3f ds=%.2f excess_v=%.3f excess_s=%.2f\n",
+                od.model_bias(), dv, ds, dv - dv_lag, ds - ds_lag);
+    check(std::fabs(od.model_bias()) < 0.01, "a notch change with no wheels does not train b_a");
+    check(std::fabs(dv - a_new * T) < 0.05, "five silent seconds use the new notch acceleration at once");
+    check(std::fabs(ds - (v0 * T + 0.5 * a_new * T * T)) < 0.5, "the path is that steady acceleration");
+    check(std::fabs((dv - dv_lag) - a_new * lag) < 0.05, "a one-second actuator lag leaves one second of acceleration as speed error");
+    check(std::fabs((ds - ds_lag) - (0.5 * a_new * lag * lag + a_new * lag * (T - lag))) < 0.5,
+          "the speed error stays and the path error grows through the rest of the silence");
   }
   {
     railbreak::TrackOdometer od(&assets, p);
