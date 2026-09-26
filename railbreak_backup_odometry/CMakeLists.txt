@@ -32,4 +32,18 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/assets)
   install(DIRECTORY assets DESTINATION share/${PROJECT_NAME})
 endif()
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_gnss_stress test/test_gnss_stress.cpp)
+  if(TARGET test_gnss_stress)
+    target_include_directories(test_gnss_stress PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(test_gnss_stress PRIVATE
+      RAILBREAK_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    ament_target_dependencies(test_gnss_stress rclcpp nav_msgs sensor_msgs diagnostic_msgs
+      tram_vehicle_msgs ament_index_cpp)
+  endif()
+endif()
+
 ament_package()

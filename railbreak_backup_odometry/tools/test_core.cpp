@@ -547,6 +547,25 @@ int main() {
     }
     {
       railbreak::GnssWindow w;
+      check(w.on_fix(true, 0.0, true) == Act::kWait, "a valid master opens the start");
+      check(w.on_fix(false, 0.0, true) == Act::kWait, "a valid rover stays in that start");
+      check(w.on_fix(true, 3.2, true) == Act::kWait, "master past the window waits for rover");
+      check(w.on_fix(false, 3.2, true) == Act::kFinish, "both antennas past the window finish the start");
+      w.closed = true;
+      const int m = w.master_fixes();
+      const int r = w.rover_fixes();
+      const double t_open = w.t_open;
+      bool ignored = true;
+      for (int i = 0; i < 30; ++i) {
+        ignored = ignored && w.on_fix(i % 2 == 0, 4.0 + 0.1 * i, false) == Act::kWait;
+        ignored = ignored && w.on_input(4.0 + 0.1 * i) == Act::kWait;
+      }
+      ignored = ignored && w.on_fix(true, std::numeric_limits<double>::quiet_NaN(), false) == Act::kWait;
+      check(ignored && w.closed && w.master_fixes() == m && w.rover_fixes() == r && w.t_open == t_open,
+            "continuous invalid GNSS after a valid start does not reopen the window");
+    }
+    {
+      railbreak::GnssWindow w;
       w.on_fix(true, 0.0, true);
       w.on_fix(false, 0.0, true);
       Act last = Act::kWait;

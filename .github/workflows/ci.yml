@@ -198,3 +198,17 @@ jobs:
           cd /ws
           colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \
             --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wall -Wextra"
+      - name: colcon test submission node
+        shell: bash
+        run: |
+          set -eo pipefail
+          set +u
+          # shellcheck disable=SC1091
+          source "/opt/ros/$ROS_DISTRO/setup.bash"
+          source /ws/install/setup.bash
+          set -u
+          set -x
+          cd /ws
+          colcon test --packages-select railbreak_backup_odometry \
+            --event-handlers console_direct+
+          colcon test-result --test-result-base build/railbreak_backup_odometry --verbose

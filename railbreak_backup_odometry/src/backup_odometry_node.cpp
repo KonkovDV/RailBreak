@@ -47,9 +47,12 @@ double median(std::vector<double> v) {
 
 }  // namespace
 
+struct GnssDrainProbe;
+
 class BackupOdometryNode : public rclcpp::Node {
  public:
-  BackupOdometryNode() : Node("backup_odometry") {
+  explicit BackupOdometryNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
+      : Node("backup_odometry", options) {
     std::string dir = declare_parameter("assets_dir", std::string(""));
     if (dir.empty()) {
       dir = ament_index_cpp::get_package_share_directory("railbreak_backup_odometry") + "/assets";
@@ -495,11 +498,15 @@ class BackupOdometryNode : public rclcpp::Node {
   rclcpp::Subscription<VelocitySensor>::SharedPtr sub_f_, sub_r_;
   rclcpp::Subscription<DriverControllerCommand>::SharedPtr sub_c_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr sub_gm_, sub_gr_;
+
+  friend struct GnssDrainProbe;
 };
 
+#ifndef RAILBREAK_ODOMETRY_NO_MAIN
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<BackupOdometryNode>());
   rclcpp::shutdown();
   return 0;
 }
+#endif
