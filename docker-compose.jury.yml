@@ -28,6 +28,7 @@ services:
       SCORE: ${SCORE:-0}
       SCORE_MODE: ${SCORE_MODE:-acceptance}
       REQUIRE_POSITION: ${REQUIRE_POSITION:-1}
+      RELATIVE_PATH: ${RELATIVE_PATH:-0}
       FAIL_CLOSED: ${FAIL_CLOSED:-0}
     command: ["bash", "/opt/jury_inside.sh"]
 

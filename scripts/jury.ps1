@@ -55,6 +55,7 @@ $env:DURATION = ''
 $env:RECORD = '0'
 $env:SCORE = '0'
 $env:REQUIRE_POSITION = '1'
+$env:RELATIVE_PATH = '0'
 $env:SCORE_MODE = 'acceptance'
 $env:FAIL_CLOSED = '0'
 
@@ -67,7 +68,7 @@ switch ($Scenario) {
         $env:GNSS_WAIT = '2'
         $env:TOPICS = '/vehicle/front_bogie_velocity /vehicle/rear_bogie_velocity /vehicle/driver_position_cmd'
     }
-    'no-assets' { $env:ASSETS_DIR = '/nonexistent'; $env:REQUIRE_POSITION = '0' }
+    'no-assets' { $env:ASSETS_DIR = '/nonexistent'; $env:RELATIVE_PATH = '1' }
     'arc' {
         $env:GNSS_WAIT = '2'
         $env:INITIAL_S = $InitialS

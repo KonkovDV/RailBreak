@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs inside the Humble image. Host wrappers: scripts/jury.sh and scripts/jury.ps1.
 
-# Missing /result/position fails the scenario. no-assets sets REQUIRE_POSITION=0.
+# Missing /result/position fails the scenario, including no-assets.
 position_required() {
   local require="${1:-1}"
   local pos_file="$2"
@@ -9,6 +9,21 @@ position_required() {
     return 1
   fi
   return 0
+}
+
+# Relative path without a map: y=z=0, and x changes after the tram moves.
+# The file is `ros2 topic echo --field pose.pose.position`.
+relative_path_ok() {
+  local pos_file="$1"
+  awk '
+    $1 == "x:" { n++; if (n == 1) first = $2; last = $2 }
+    $1 == "y:" { if (($2 + 0) != 0) bad = 1 }
+    $1 == "z:" { if (($2 + 0) != 0) bad = 1 }
+    END {
+      if (bad || n < 2) exit 1
+      if ((first + 0) == (last + 0)) exit 1
+    }
+  ' "${pos_file}"
 }
 
 # acceptance keeps the scorer status. exploratory warns and stays green.
@@ -95,7 +110,11 @@ if ! kill -0 "${node_pid}" 2>/dev/null; then
   exit 1
 fi
 
-timeout 180 ros2 topic echo /result/position --once > /tmp/pos.txt 2>&1 &
+if [ "${RELATIVE_PATH:-0}" = "1" ]; then
+  ros2 topic echo /result/position --field pose.pose.position > /tmp/pos.txt 2>&1 &
+else
+  timeout 180 ros2 topic echo /result/position --once > /tmp/pos.txt 2>&1 &
+fi
 echo_pid=$!
 
 if [ "${RECORD:-0}" = "1" ]; then
@@ -146,11 +165,21 @@ echo "----- node (tail) -----"
 tail -n 25 /tmp/node.log
 echo "----- first /result/position -----"
 head -n 40 /tmp/pos.txt || true
+if [ "${RELATIVE_PATH:-0}" = "1" ] && [ "${node_alive}" != "1" ]; then
+  echo "no-assets: node died" >&2
+  exit 1
+fi
 if position_required "${REQUIRE_POSITION:-1}" /tmp/pos.txt; then
-  if grep -q "x:" /tmp/pos.txt 2>/dev/null; then
+  if [ "${RELATIVE_PATH:-0}" = "1" ]; then
+    if ! relative_path_ok /tmp/pos.txt; then
+      echo "no-assets: /result/position is not a changing x with y=z=0" >&2
+      exit 1
+    fi
+    echo "position: relative path"
+  elif grep -q "x:" /tmp/pos.txt 2>/dev/null; then
     echo "position: received"
   else
-    echo "position: none (REQUIRE_POSITION=0, scenario no-assets). Velocity does not wait."
+    echo "position: none (REQUIRE_POSITION=0). Velocity does not wait."
   fi
 else
   echo "position: none. /result/position is published once a stamp passes gnss_init_window_s after the first fix, or gnss_wait_s with no fix. Velocity does not wait."

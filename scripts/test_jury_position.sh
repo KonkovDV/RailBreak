@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Missing /result/position must fail smoke and play. no-assets may omit it.
+# Missing /result/position must fail smoke, play, and no-assets.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 JURY_POSITION_LIB=1
@@ -19,9 +19,29 @@ if ! position_required 1 "${tmp}"; then
   echo "a pose was rejected" >&2
   exit 1
 fi
+printf 'x: 0.0\ny: 0.0\nz: 0.0\n---\nx: 12.0\ny: 0.0\nz: 0.0\n' > "${tmp}"
+if ! relative_path_ok "${tmp}"; then
+  echo "a changing relative path was rejected" >&2
+  exit 1
+fi
+printf 'x: 0.0\ny: 0.0\nz: 0.0\n---\nx: 0.0\ny: 0.0\nz: 0.0\n' > "${tmp}"
+if relative_path_ok "${tmp}"; then
+  echo "an unchanged x was accepted" >&2
+  exit 1
+fi
+printf 'x: 0.0\ny: 1.0\nz: 0.0\n---\nx: 4.0\ny: 1.0\nz: 0.0\n' > "${tmp}"
+if relative_path_ok "${tmp}"; then
+  echo "a nonzero y was accepted" >&2
+  exit 1
+fi
+printf 'x: 0.0\ny: 0.0\nz: 0.5\n---\nx: 4.0\ny: 0.0\nz: 0.5\n' > "${tmp}"
+if relative_path_ok "${tmp}"; then
+  echo "a nonzero z was accepted" >&2
+  exit 1
+fi
 : > "${tmp}"
-if ! position_required 0 "${tmp}"; then
-  echo "no-assets was required to publish position" >&2
+if relative_path_ok "${tmp}"; then
+  echo "an empty position file was a relative path" >&2
   exit 1
 fi
 
@@ -39,12 +59,24 @@ if ! grep -q "REQUIRE_POSITION = '1'" "${ROOT}/scripts/jury.ps1"; then
   echo "jury.ps1 does not require position by default" >&2
   exit 1
 fi
-if ! grep -q 'REQUIRE_POSITION=0' "${ROOT}/scripts/jury.sh"; then
-  echo "no-assets exception missing from jury.sh" >&2
+if grep -q 'REQUIRE_POSITION=0' "${ROOT}/scripts/jury.sh"; then
+  echo "jury.sh still waives position" >&2
   exit 1
 fi
-if ! grep -q "REQUIRE_POSITION = '0'" "${ROOT}/scripts/jury.ps1"; then
-  echo "no-assets exception missing from jury.ps1" >&2
+if grep -q "REQUIRE_POSITION = '0'" "${ROOT}/scripts/jury.ps1"; then
+  echo "jury.ps1 still waives position" >&2
+  exit 1
+fi
+if ! grep -q 'no-assets) ASSETS_DIR=/nonexistent; RELATIVE_PATH=1' "${ROOT}/scripts/jury.sh"; then
+  echo "jury.sh no-assets does not check the relative path" >&2
+  exit 1
+fi
+if ! grep -q "RELATIVE_PATH = '1'" "${ROOT}/scripts/jury.ps1"; then
+  echo "jury.ps1 no-assets does not check the relative path" >&2
+  exit 1
+fi
+if ! grep -q 'no-assets: node died' "${ROOT}/scripts/jury_inside.sh"; then
+  echo "a dead no-assets node is not a failure" >&2
   exit 1
 fi
 python3 - "${ROOT}/scripts/jury_inside.sh" <<'PY'
