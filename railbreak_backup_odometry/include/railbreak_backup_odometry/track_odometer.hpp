@@ -70,7 +70,7 @@ struct Params {
   double stop_sd_max = 3.0;
   double stop_sigma_floor = 1.0;
   double stop_gate = 3.0;
-  double wheel_stale_s = 0.35;
+  double wheel_stale_s = 0.35;  // last-value pair, not message_filters or interpolation
   double dt_max = 0.2;
   double max_gap_s = 30.0;  // longer gaps: reset the time base, do not integrate
   double v_max = 30.0;      // plausibility bound on a bogie sample (m/s)
