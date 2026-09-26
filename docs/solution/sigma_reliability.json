@@ -1,0 +1,59 @@
+{
+ "name": "empirical uncertainty",
+ "name_ru": "эмпирическая неопределённость",
+ "certification_claim": false,
+ "filter_changed": false,
+ "hidden_test_used": false,
+ "split": "val",
+ "object": "ride",
+ "preferred_object": "vehicle",
+ "epsilon_m": 0.001,
+ "n_rides": 21,
+ "n_fixes": 198505,
+ "n_sigma_below_epsilon": 0,
+ "gaussian": {
+  "1.0": 0.682689,
+  "2.0": 0.9545,
+  "3.0": 0.9973
+ },
+ "coverage_equal_ride": {
+  "1.0": 0.62478,
+  "2.0": 0.879399,
+  "3.0": 0.953317
+ },
+ "coverage_pooled": {
+  "1.0": 0.61877,
+  "2.0": 0.865641,
+  "3.0": 0.948052
+ },
+ "c_0_95_equal_ride": 2.944544,
+ "c_0_95_by_vehicle": {
+  "30618": 2.815663,
+  "30639": 13.085515
+ },
+ "c_0_95": 13.085515,
+ "c_0_95_definition": "Q_0.95 of |e_s|/max(sigma_s, epsilon) with each ride weight 1, computed inside each vehicle; c_0.95 is the larger vehicle value",
+ "b_95": "c_0.95 * sigma_s",
+ "vehicles": {
+  "30618": {
+   "n_rides": 13,
+   "n_fixes": 131480,
+   "coverage_equal_ride": {
+    "1.0": 0.597664,
+    "2.0": 0.862545,
+    "3.0": 0.965442
+   },
+   "c_0_95": 2.815663
+  },
+  "30639": {
+   "n_rides": 8,
+   "n_fixes": 67025,
+   "coverage_equal_ride": {
+    "1.0": 0.668843,
+    "2.0": 0.906786,
+    "3.0": 0.933614
+   },
+   "c_0_95": 13.085515
+  }
+ }
+}
