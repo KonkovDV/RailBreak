@@ -413,6 +413,8 @@ class TrackOdometer {
       r_ += p_.r_alpha_grow * (0.5 * ec * ec - r_);
     }
     r_ = std::clamp(r_, p_.r_min, p_.r_max);
+    // Per fresh pair, not per second. Recordings are about 10 Hz per bogie, and
+    // both callbacks learn, so the same step is not a time constant at 20 or 50 Hz.
     if (uf > p_.rho_v_min && ur > p_.rho_v_min && std::abs(notch_) <= p_.rho_notch_max) {
       const double lr = std::log(ur / uf);
       if (std::fabs(lr) < p_.rho_max + 0.02) {

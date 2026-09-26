@@ -189,9 +189,10 @@ class Odometer:
             ec = self.p.fr_sigma_gate * sd
             self.r += self.p.r_alpha_grow * (0.5 * ec * ec - self.r)
         self.r = min(max(self.r, self.p.r_min), self.p.r_max)
-        # Sign-step median tracker of the rear/front log ratio: a persistent
-        # miscalibration is learned in about two minutes of running, a 30 s slip
-        # moves it by about one percent and is walked back afterwards.
+        # Sign-step on each fresh pair, not on a second. At about 10 Hz per bogie
+        # both callbacks learn, so a persistent offset takes on the order of two
+        # minutes and a 30 s slip moves the ratio by about one percent. At another
+        # rate the same rho_step is a different time constant.
         if uf > self.p.rho_v_min and ur > self.p.rho_v_min and abs(self.notch) <= self.p.rho_notch_max:
             lr = math.log(ur / uf)
             if abs(lr) < self.p.rho_max + 0.02:
