@@ -309,6 +309,68 @@ def main():
         gated_keep.append(bool(ok_g[0]))
     if raw_keep != [True, True, True, True] or gated_keep != [True, True, False, False]:
         fail(f"raw/gated sensitivity {raw_keep} {gated_keep}")
+
+    from score_ros import prepare_gnss
+
+    def fix(t, lat=LAT0, lon=LON0, alt=H0, status=0):
+        return [0.0, t, lat, lon, alt, status]
+
+    masters = np.array([fix(2.5), fix(4.0), fix(6.0)])
+    rovers = np.array([fix(0.0), fix(0.5)])
+    prep, err = prepare_gnss(masters, rovers, 3.0, 0)
+    if prep is None or abs(prep["t_open"] - 0.0) > 1e-9 or abs(prep["window_end"] - 3.0) > 1e-9:
+        fail(f"rover-first window did not open at the rover, {err} {prep}")
+    after = prep["master"][prep["master"][:, 1] > prep["window_end"], 1]
+    if not np.array_equal(after, np.array([4.0, 6.0])):
+        fail(f"the excluded interval is not the node's first 3 s, after={after}")
+    shared, err = prepare_gnss(masters, np.array([fix(2.5), fix(2.6)]), 3.0, 0)
+    if shared is None or abs(shared["t_open"] - 2.5) > 1e-9:
+        fail("a shared first stamp did not stay on that stamp")
+
+    empty, err = prepare_gnss(np.zeros((0, 6)), rovers, 3.0, 0)
+    if empty is not None or "master" not in err:
+        fail(f"empty master did not name the master, {err}")
+    below = np.array([fix(1.0, status=-1), fix(2.0, status=-1)])
+    none_m, err = prepare_gnss(below, rovers, 3.0, 0)
+    if none_m is not None or "master" not in err:
+        fail(f"masters below status 0 did not fail cleanly, {err}")
+    none_r, err = prepare_gnss(masters, below, 3.0, 0)
+    if none_r is not None or "rover" not in err:
+        fail(f"rovers below status 0 did not fail cleanly, {err}")
+    missing, err = prepare_gnss(None, None, 3.0, 0)
+    if missing is not None or "master" not in err:
+        fail(f"missing arrays did not fail cleanly, {err}")
+
+    poisoned = np.array([
+        fix(0.0, lat=float("nan")),
+        fix(1.0, alt=float("nan")),
+        fix(2.0, lon=float("nan")),
+        fix(2.2, lat=91.0),
+        fix(4.0),
+    ])
+    rover_h = np.array([fix(0.0, alt=160.0), fix(0.4, alt=162.0)])
+    kept, err = prepare_gnss(poisoned, rover_h, 3.0, 0)
+    if kept is None or abs(kept["t_open"]) > 1e-9:
+        fail(f"a NaN master opened the window or dropped the later fix, {err}")
+    if not np.isfinite(kept["start"][2]) or abs(kept["start"][2] - 161.0) > 1e-6:
+        fail(f"NaN height entered the origin, {kept['start']}")
+    only_nan, err = prepare_gnss(poisoned[:4], rover_h, 3.0, 0)
+    if only_nan is not None or "master" not in err:
+        fail(f"an all-NaN master did not fail cleanly, {err}")
+
+    mixed = np.array([fix(2.5, alt=100.0, status=0), fix(4.0, alt=200.0, status=2)])
+    strict, err = prepare_gnss(mixed, rovers, 3.0, 2)
+    if strict is None or abs(strict["t_open"]) > 1e-9:
+        fail(f"min-status moved the window, {err}")
+    if list(strict["master"][:, 5].astype(int)) != [2]:
+        fail("min-status did not drop the non-RTK master")
+    if abs(strict["start"][2] - 100.0) > 1e-6:
+        fail("the frame origin left the in-window master")
+
+    _, _, _, ok_empty_m = base_link_xyz(np.zeros((0, 6)), rovers, "enu", START)
+    _, _, _, ok_empty_r = base_link_xyz(masters, np.zeros((0, 6)), "enu", START)
+    if len(ok_empty_m) != 0 or bool(ok_empty_r.any()):
+        fail("an empty antenna raised or kept a sample")
     print("ok")
 
 

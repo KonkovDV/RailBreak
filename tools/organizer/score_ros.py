@@ -165,6 +165,90 @@ def keep_status(status, min_status):
     return np.asarray(status) >= min_status
 
 
+def _as_fix_rows(rows) -> np.ndarray:
+    if rows is None:
+        return np.zeros((0, 6))
+    arr = np.asarray(rows, float)
+    if arr.size == 0:
+        return np.zeros((0, 6))
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    return arr
+
+
+def valid_fixes(rows, min_status: int) -> np.ndarray:
+    """Finite stamp, latitude, longitude and altitude, inside the geographic bounds, status >= min_status.
+
+    Same acceptance the node uses to open the window, plus the caller's status floor.
+    A NaN coordinate or height is not a fix and does not enter a median.
+    """
+    arr = _as_fix_rows(rows)
+    if len(arr) == 0 or arr.shape[1] < 6:
+        return np.zeros((0, 6))
+    stamp, lat, lon, alt = arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4]
+    ok = (
+        np.isfinite(stamp) & np.isfinite(lat) & np.isfinite(lon) & np.isfinite(alt)
+        & (lat >= -90.0) & (lat <= 90.0) & (lon >= -180.0) & (lon <= 180.0)
+        & keep_status(arr[:, 5], min_status)
+    )
+    kept = arr[ok]
+    if len(kept) == 0:
+        return np.zeros((0, arr.shape[1]))
+    return kept[np.argsort(kept[:, 1], kind="mergesort")]
+
+
+def status_counts_of(rows) -> dict:
+    arr = _as_fix_rows(rows)
+    if len(arr) == 0 or arr.shape[1] < 6:
+        return {}
+    col = arr[:, 5]
+    col = col[np.isfinite(col)]
+    if col.size == 0:
+        return {}
+    values, counts = np.unique(col.astype(int), return_counts=True)
+    return {int(s): int(n) for s, n in zip(values, counts)}
+
+
+def prepare_gnss(master, rover, window: float, min_status: int):
+    """Start of the comparison, aligned with the node's window.
+
+    t_open is the first valid fix of either antenna. The node unsubscribes
+    window seconds after that stamp, so the scored masters are those after
+    t_open + window, not after the first master. The frame origin is the
+    median of the valid masters inside that window, or the rovers if no
+    master fell inside it.
+
+    Returns (prep, "") or (None, reason). The reason is the exit-2 message.
+    """
+    master_open = valid_fixes(master, 0)
+    rover_open = valid_fixes(rover, 0)
+    scored = valid_fixes(master, min_status)
+    if len(master_open) == 0 or len(scored) == 0:
+        return None, "no valid master fixes after the status filter"
+    if len(rover_open) == 0:
+        return None, "no valid rover fixes after the status filter"
+    t_open = min(float(master_open[0, 1]), float(rover_open[0, 1]))
+    end = t_open + float(window)
+    in_master = master_open[master_open[:, 1] <= end]
+    in_rover = rover_open[rover_open[:, 1] <= end]
+    sample = in_master if len(in_master) else in_rover
+    if len(sample) == 0:
+        return None, "no valid fixes inside the start window"
+    lat0 = float(np.median(sample[:, 2]))
+    lon0 = float(np.median(sample[:, 3]))
+    h0 = float(np.median(sample[:, 4]))
+    if not (math.isfinite(lat0) and math.isfinite(lon0) and math.isfinite(h0)):
+        return None, "no valid fixes inside the start window"
+    return {
+        "t_open": t_open,
+        "window_end": end,
+        "start": (lat0, lon0, h0),
+        "master": scored,
+        "rover": rover_open,
+        "status_counts": status_counts_of(master),
+    }, ""
+
+
 def base_link_xyz(master: np.ndarray, rover: np.ndarray, frame: str, start,
                   baseline_tol: float = BASELINE_TOL_M,
                   height_tol: float = HEIGHT_TOL_M):
@@ -175,7 +259,13 @@ def base_link_xyz(master: np.ndarray, rover: np.ndarray, frame: str, start,
     altitude split changes the 3D length by 0.36 m, so a length
     gate alone would keep it.
     """
-    rover = rover[np.argsort(rover[:, 1])]
+    master = np.asarray(master, float)
+    rover = np.asarray(rover, float)
+    if master.ndim != 2 or rover.ndim != 2 or len(master) == 0 or len(rover) == 0:
+        n = int(len(master)) if getattr(master, "ndim", 0) == 2 else 0
+        z = np.zeros(n)
+        return z, z.copy(), z.copy(), np.zeros(n, dtype=bool)
+    rover = rover[np.argsort(rover[:, 1], kind="mergesort")]
     rt = rover[:, 1]
     t = master[:, 1]
     n = len(rt)
@@ -238,20 +328,20 @@ def main() -> int:
             if "callback_max_us" in vals:
                 diag_last = vals
     z = load_source(args.source_npz)
-    g_all = z["sensing_gnss_master_fix"][np.argsort(z["sensing_gnss_master_fix"][:, 1])]
-    status_counts = {int(s): int(n) for s, n in zip(*np.unique(g_all[:, 5].astype(int), return_counts=True))}
-    # Origin is the node's start window: every fix with status >= 0. The scored
-    # set can be stricter (RTK only) without moving the frame.
-    g0 = g_all[keep_status(g_all[:, 5], 0)]
-    t0 = g0[0, 1]
-    w = g0[g0[:, 1] <= t0 + args.window]
-    lat0, lon0, h0 = float(np.median(w[:, 2])), float(np.median(w[:, 3])), float(np.median(w[:, 4]))
-    g = g_all[keep_status(g_all[:, 5], args.min_status)]
-    rover = z.get("sensing_gnss_rover_fix")
-    if rover is None or len(rover) < 2:
-        print("no rover fixes: base_link is the master–rover segment, not the master antenna", file=sys.stderr)
+    # The node's window opens on the first valid fix of either antenna.
+    # A stricter --min-status still only drops scored masters; it does not
+    # move t_open. NaN coordinates and an empty filter are exit 2.
+    prep, err = prepare_gnss(
+        z.get("sensing_gnss_master_fix"), z.get("sensing_gnss_rover_fix"),
+        args.window, args.min_status)
+    if prep is None:
+        print(err, file=sys.stderr)
         return 2
-    rover = rover[keep_status(rover[:, 5], 0)] if rover.shape[1] > 5 else rover
+    t0 = prep["t_open"]
+    lat0, lon0, h0 = prep["start"]
+    g = prep["master"]
+    rover = prep["rover"]
+    status_counts = prep["status_counts"]
     n_master = int(len(g))
     start = (lat0, lon0, h0)
     rx_raw, ry_raw, rz_raw, ok_time = base_link_xyz(
