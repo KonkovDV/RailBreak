@@ -182,6 +182,7 @@ def main() -> int:
     ref_v = np.full(len(g), np.nan)
     if "sensing_gnss_master_vel" in z:
         mv = z["sensing_gnss_master_vel"][np.argsort(z["sensing_gnss_master_vel"][:, 1])]
+        # Horizontal module, not v · t(s). speed_reference.py measures the gap.
         ref_v = np.interp(g[:, 1], mv[:, 1], np.hypot(mv[:, 2], mv[:, 3]), left=np.nan, right=np.nan)
     after = g[:, 1] > t0 + args.window
     ref = {"t": g[after, 1], "x": rx[after], "y": ry[after], "z": rz[after], "v": ref_v[after]}

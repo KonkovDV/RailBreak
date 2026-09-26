@@ -249,7 +249,7 @@ def run(path: Path, cl, model, stops, window: float, p: Params, fault: str = "no
         res["slip_flag_in_window"] = bool(np.any((slip_t >= t_on) & (slip_t <= t_on + dur + 2.0)))
     if MVEL in z.files and len(z[MVEL]) > 50:
         mv = z[MVEL][np.argsort(z[MVEL][:, 1])]
-        sp = np.hypot(mv[:, 2], mv[:, 3])
+        sp = np.hypot(mv[:, 2], mv[:, 3])  # module, not v · t(s)
         vi = np.interp(mv[:, 1], est["t"], est["v"], left=np.nan, right=np.nan)
         dtv = np.r_[1.0, np.diff(mv[:, 1])]
         mm = np.isfinite(vi) & (dtv < 0.15)

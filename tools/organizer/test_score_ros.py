@@ -96,6 +96,23 @@ def main():
         fail("one estimate did not cover several references")
     if len(np.unique(used)) != len(t_est):
         fail("estimate reuse test did not use every output sample")
+    from reference import along_track_speed, horizontal_speed
+    vx = np.array([10.0, -10.0, 10.0, 0.0])
+    vy = np.array([0.0, 0.0, 3.0, 4.0])
+    tx = np.ones(4)
+    ty = np.zeros(4)
+    mod = horizontal_speed(vx, vy)
+    par = along_track_speed(vx, vy, tx, ty)
+    if np.any(mod < 0.0):
+        fail("the horizontal module went negative")
+    if abs(mod[0] - mod[1]) > 1e-12:
+        fail("forward and reverse did not share one module")
+    if abs(par[0] - 10.0) > 1e-12 or abs(par[1] + 10.0) > 1e-12:
+        fail("the projection did not keep the sign")
+    if mod[2] <= par[2] + 0.4:
+        fail("a cross-track component did not raise the module")
+    if abs(par[3]) > 1e-12 or abs(mod[3] - 4.0) > 1e-12:
+        fail("pure cross-track speed still had an along-track part")
     print("ok")
 
 

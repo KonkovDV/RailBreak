@@ -50,6 +50,19 @@ def master_reference(z: np.lib.npyio.NpzFile, *, min_status: int = 0) -> dict | 
     }
 
 
+def horizontal_speed(vx: np.ndarray, vy: np.ndarray) -> np.ndarray:
+    """Published speed reference: the horizontal module. Always non-negative."""
+    return np.hypot(np.asarray(vx, float), np.asarray(vy, float))
+
+
+def along_track_speed(vx: np.ndarray, vy: np.ndarray, tx: np.ndarray, ty: np.ndarray) -> np.ndarray:
+    """Longitudinal speed v · t. The published scorer does not use this."""
+    tx = np.asarray(tx, float)
+    ty = np.asarray(ty, float)
+    n = np.hypot(tx, ty)
+    return (np.asarray(vx, float) * tx + np.asarray(vy, float) * ty) / np.maximum(n, 1e-12)
+
+
 def load_reference(npz: Path, **kwargs) -> dict | None:
     with np.load(npz) as z:
         return master_reference(z, **kwargs)
