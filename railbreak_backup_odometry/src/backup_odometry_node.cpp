@@ -27,6 +27,7 @@
 #include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
 
+#include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
@@ -421,6 +422,26 @@ class BackupOdometryNode : public rclcpp::Node {
   void note_integrity(bool stamp_regressed) {
     last_integrity_ = integrity_.update(integrity_obs(stamp_regressed));
     have_integrity_ = true;
+    last_adhesion_ = adhesion_.update(adhesion_obs());
+    have_adhesion_ = true;
+  }
+
+  railbreak::AdhesionObs adhesion_obs() const {
+    railbreak::AdhesionObs o;
+    o.t = od_->have_time() ? od_->time_s() : 0.0;
+    o.pair_fresh = od_->pair_fresh();
+    o.bogies_agree = od_->bogies_agree();
+    o.slip_front = od_->slip_front();
+    o.slip_rear = od_->slip_rear();
+    o.have_consensus = od_->wheel_consensus_have();
+    o.wheel_consensus_residual = od_->wheel_consensus_residual();
+    o.have_model = od_->model_consistency_have();
+    o.model_consistency_residual = od_->model_consistency_residual();
+    o.front_nis = od_->slip_front_nis();
+    o.rear_nis = od_->slip_rear_nis();
+    o.notch = od_->notch();
+    o.speed = od_->v();
+    return o;
   }
 
   railbreak::IntegrityObs integrity_obs(bool stamp_regressed) const {
@@ -523,6 +544,29 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("integrity_certification_claim", "false");
     kv("integrity_use_position", ir.use_position ? "true" : "false");
     kv("integrity_bound_name", ir.bound_name);
+    const railbreak::AdhesionReport ar = have_adhesion_
+                                              ? last_adhesion_
+                                              : adhesion_.update(adhesion_obs());
+    auto num = [](bool have, double value) {
+      if (!have || !std::isfinite(value)) return std::string("null");
+      std::ostringstream out;
+      out.setf(std::ios::fixed);
+      out.precision(4);
+      out << value;
+      return out.str();
+    };
+    kv("adhesion_proxy", ar.json());
+    kv("adhesion_classification", ar.classification);
+    kv("adhesion_mu_estimate", "null");
+    kv("adhesion_reason", ar.reason);
+    kv("adhesion_duration_s", num(true, ar.duration_s));
+    kv("adhesion_wheel_consensus_residual", num(ar.have_consensus, ar.wheel_consensus_residual));
+    kv("adhesion_model_consistency_residual", num(ar.have_model, ar.model_consistency_residual));
+    kv("adhesion_front_nis", num(true, ar.front_nis));
+    kv("adhesion_rear_nis", num(true, ar.rear_nis));
+    kv("adhesion_common_mode_duration_s", num(true, ar.common_mode_duration_s));
+    kv("adhesion_notch", std::to_string(ar.notch));
+    kv("adhesion_speed_mps", num(true, ar.speed));
     a.status.push_back(st);
     pub_d_->publish(a);
   }
@@ -533,6 +577,9 @@ class BackupOdometryNode : public rclcpp::Node {
   railbreak::IntegrityMonitor integrity_{railbreak::empirical_bound()};
   railbreak::IntegrityReport last_integrity_{};
   bool have_integrity_ = false;
+  railbreak::AdhesionProxy adhesion_{};
+  railbreak::AdhesionReport last_adhesion_{};
+  bool have_adhesion_ = false;
   railbreak::GnssWindow win_;
   int64_t diag_every_ = 20;
   std::string frame_id_, child_frame_id_;

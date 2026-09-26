@@ -101,6 +101,9 @@ class Odometer:
         self.slip_run = {"front": 0, "rear": 0}
         self.slip_nis = {"front": 0.0, "rear": 0.0}
         self.slip_since = None
+        # Pre-update copies for the adhesion proxy. predict and update do not read them.
+        self.model_resid = {"front": None, "rear": None}
+        self.wheel_consensus = None
         self.mode = "WHEELS"
         self.n_anchor = 0
         self.n_guard = 0
@@ -276,12 +279,14 @@ class Odometer:
         h = np.array([0.0, 1.0 / k, -v / (k * k), 0.0])
         S = float(h @ self.P @ h + r)
         innov = u - pred
+        self.model_resid[which] = innov if math.isfinite(innov) else None
         slip = innov * innov / S > self.p.nis_gate
         agree = False
         if fresh_other:
             uo = self.corrected(other_name, other[1])
             gate = max(self.p.fr_floor, self.p.fr_sigma_gate * math.sqrt(2.0 * r))
             agree = abs(u - uo) <= gate
+            self.wheel_consensus = abs(u - uo)
             if not agree and abs(u - pred) > abs(uo - pred):
                 slip = True
             uf, ur = (u_raw, other[1]) if which == "front" else (other[1], u_raw)

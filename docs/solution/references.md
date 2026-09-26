@@ -21,6 +21,14 @@ C. von Einem, A. Cramariuc, R. Siegwart, C. Cadena, F. Tschopp. Path-constrained
 
 Не взято: их EKF, перевод чужих измерений в одномерное пространство, несколько гипотез на стрелках, visual-inertial одометрия и постоянный GNSS. В ноде одно кольцо, после старта нет ни зрения, ни IMU, ни выбора ветки. Отдельный офлайн-прототип в [hypotheses.md](hypotheses.md) считает вес \(w_j\) на синтетической стрелке и в ноду не входит. RMSE 4.78 м и track selectivity 94.9 % — числа той статьи, не RailBreak.
 
+## Pichlík, Bauer, IEEE TVT 2021
+
+P. Pichlík, J. Bauer. Adhesion characteristic slope estimation for wheel slip control purpose based on UKF. *IEEE Transactions on Vehicular Technology*, vol. 70, no. 5, pp. 4303–4311, 2021. DOI [10.1109/TVT.2021.3072484](https://doi.org/10.1109/TVT.2021.3072484).
+
+Их метод считает наклон характеристики сцепления по возбуждению момента и угловой скорости колеса. В ноде этих входов нет, оценщик не перенесён.
+
+Не взято: их UKF, определение сдвига фазы между моментом и скоростью колеса, контур противоюза. Публикуется прокси невязок в [adhesion.md](adhesion.md): согласие тележек, невязка к модели, NIS, длительность общей моды, вырезка и скорость. `mu_estimate` всегда null.
+
 ## Palmer, Nourani-Vatani, IROS 2018
 
 A. W. Palmer, N. Nourani-Vatani. Robust odometry using sensor consensus analysis. *2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*, Madrid, 1–5 Oct. 2018, pp. 3167–3173. DOI [10.1109/IROS.2018.8594473](https://doi.org/10.1109/IROS.2018.8594473). Препринт [arXiv:1803.02237](https://arxiv.org/abs/1803.02237).

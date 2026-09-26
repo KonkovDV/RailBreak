@@ -5,6 +5,7 @@
 #include <limits>
 #include <string>
 
+#include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
 #include "railbreak_backup_odometry/integrity_monitor.hpp"
@@ -858,6 +859,75 @@ int main() {
     railbreak::IntegrityMonitor shadow;
     shadow.update(live);
     check(od.s() == s_before && od.n_anchor() == anchors, "the monitor does not move the filter");
+  }
+  {
+    railbreak::AdhesionObs o;
+    o.t = 10.0;
+    o.pair_fresh = true;
+    o.bogies_agree = true;
+    o.slip_front = true;
+    o.slip_rear = true;
+    o.have_consensus = true;
+    o.wheel_consensus_residual = 0.05;
+    o.have_model = true;
+    o.model_consistency_residual = -2.4;
+    o.front_nis = 40.0;
+    o.rear_nis = 36.0;
+    o.notch = 4;
+    o.speed = 8.5;
+    railbreak::AdhesionProxy proxy;
+    const auto first = proxy.update(o);
+    o.t = 11.7;
+    const auto second = proxy.update(o);
+    check(std::string(second.classification) == "COMMON_MODE_SUSPECTED",
+          "agreeing bogies that both leave the model are a suspected common mode");
+    check(std::string(second.mu_estimate) == "null", "mu is not estimated");
+    check(!second.mu_observable, "mu is not observable from these inputs");
+    check(std::string(second.reason) == "both bogies agree but differ from model",
+          "the reason names the residual pattern");
+    check(std::fabs(first.duration_s) < 1e-12, "the episode starts at zero duration");
+    check(std::fabs(second.duration_s - 1.7) < 1e-12, "duration is the length of this episode");
+    check(second.json().find("\"mu_estimate\":null") != std::string::npos, "the proxy json keeps mu null");
+    o.bogies_agree = false;
+    o.t = 12.0;
+    const auto split = proxy.update(o);
+    check(std::string(split.classification) == "BOGIES_DISAGREE", "a bogie split is not an adhesion estimate");
+    check(std::fabs(split.common_mode_duration_s) < 1e-12, "a split clears the common-mode clock");
+    auto line = flat_ring(500.0);
+    railbreak::TrackOdometer od(&line, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 2.0, 36.0);
+    const double v_before = od.v();
+    od.on_bogie(2.0, true, 36.0 * 0.7);
+    od.on_bogie(2.05, false, 36.0 * 0.7);
+    const double s_after = od.s();
+    const double v_after = od.v();
+    check(od.wheel_consensus_have() && od.wheel_consensus_residual() < 0.5,
+          "matched bogies keep a small consensus residual");
+    check(od.model_consistency_have() && od.model_consistency_residual() < -1.0,
+          "wheels below the model leave a negative consistency residual");
+    check(od.slip_front() && od.slip_rear(), "both low bogies are flagged");
+    check(od.v() != v_before, "the bogie callbacks themselves still update speed");
+    railbreak::AdhesionObs live;
+    live.t = od.time_s();
+    live.pair_fresh = od.pair_fresh();
+    live.bogies_agree = od.bogies_agree();
+    live.slip_front = od.slip_front();
+    live.slip_rear = od.slip_rear();
+    live.have_consensus = od.wheel_consensus_have();
+    live.wheel_consensus_residual = od.wheel_consensus_residual();
+    live.have_model = od.model_consistency_have();
+    live.model_consistency_residual = od.model_consistency_residual();
+    live.front_nis = od.slip_front_nis();
+    live.rear_nis = od.slip_rear_nis();
+    live.notch = od.notch();
+    live.speed = od.v();
+    const auto live_report = railbreak::AdhesionProxy{}.update(live);
+    check(std::string(live_report.classification) == "COMMON_MODE_SUSPECTED",
+          "the live pair is the common-mode pattern");
+    check(std::string(live_report.mu_estimate) == "null", "the live pair still has no mu");
+    check(od.s() == s_after && od.v() == v_after, "the proxy does not move the filter");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

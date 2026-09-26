@@ -270,6 +270,10 @@ class TrackOdometer {
     slip_front_run_ = slip_rear_run_ = 0;
     slip_front_nis_ = slip_rear_nis_ = 0.0;
     slip_since_ = -1.0;
+    front_model_resid_ = rear_model_resid_ = 0.0;
+    have_front_model_ = have_rear_model_ = false;
+    wheel_consensus_resid_ = 0.0;
+    wheel_consensus_have_ = false;
     mode_ = Mode::kWheels;
     n_anchor_ = n_rejected_ = n_gap_reset_ = n_guard_ = 0;
     have_v_ = false;
@@ -328,12 +332,19 @@ class TrackOdometer {
     const double r = r_;  // noise level before this pair is learned
     const double S = quad(h) + r;
     const double innov = u - pred;
+    // Copies for the adhesion proxy. predict and update do not read them.
+    if (std::isfinite(innov)) {
+      (is_front ? front_model_resid_ : rear_model_resid_) = innov;
+      (is_front ? have_front_model_ : have_rear_model_) = true;
+    }
     bool slip = innov * innov / S > p_.nis_gate;
     bool agree = false;
     if (fresh_other) {
       const double uo = corrected(!is_front, other.u);
       const double gate = std::max(p_.fr_floor, p_.fr_sigma_gate * std::sqrt(2.0 * r));
       agree = std::fabs(u - uo) <= gate;
+      wheel_consensus_resid_ = std::fabs(u - uo);
+      wheel_consensus_have_ = true;
       if (!agree && std::fabs(u - pred) > std::fabs(uo - pred)) slip = true;
       const double uf = is_front ? u_raw : other.u;
       const double ur = is_front ? other.u : u_raw;
@@ -471,6 +482,17 @@ class TrackOdometer {
     if (!pair_fresh()) return false;
     const double gate = std::max(p_.fr_floor, p_.fr_sigma_gate * std::sqrt(2.0 * r_));
     return std::fabs(corrected(true, front_.u) - corrected(false, rear_.u)) <= gate;
+  }
+  // Pre-update |u_front - u_rear| of the last fresh pair, m/s. Not a friction coefficient.
+  bool wheel_consensus_have() const { return wheel_consensus_have_; }
+  double wheel_consensus_residual() const { return wheel_consensus_resid_; }
+  // Mean of the stored bogie innovations u - v/k, m/s. Positive: the bogie is faster than the model.
+  bool model_consistency_have() const { return have_front_model_ || have_rear_model_; }
+  double model_consistency_residual() const {
+    if (have_front_model_ && have_rear_model_) return 0.5 * (front_model_resid_ + rear_model_resid_);
+    if (have_front_model_) return front_model_resid_;
+    if (have_rear_model_) return rear_model_resid_;
+    return 0.0;
   }
   // Same gate as anchor(), without applying it. 0, 1, or more.
   int station_candidates() const {
@@ -731,6 +753,12 @@ class TrackOdometer {
   double slip_front_nis_ = 0.0;
   double slip_rear_nis_ = 0.0;
   double slip_since_ = -1.0;
+  double front_model_resid_ = 0.0;
+  double rear_model_resid_ = 0.0;
+  bool have_front_model_ = false;
+  bool have_rear_model_ = false;
+  double wheel_consensus_resid_ = 0.0;
+  bool wheel_consensus_have_ = false;
   bool have_v_ = false;
   double disagree_since_ = -1.0;
   Mode mode_ = Mode::kWheels;
