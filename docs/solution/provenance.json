@@ -15,7 +15,8 @@
     "command"
   ],
   "filter_last_changed_commit": "8add7ae5543cf0142e56945041cb4c20badabb32",
-  "published_numbers_recomputed_after_filter_change": false,
+  "published_numbers_recomputed_after_filter_change": true,
+  "recheck_commit": "6af0037710baa3b67df2cc5720c6cc3272719712",
   "recordings_are_not_in_the_repo": true,
   "tree_sha256": {
     "tools/organizer/odometer.py": {
@@ -300,6 +301,92 @@
       "date": null,
       "command": null,
       "published": {"where": "docs/solution/form.md", "rate_hz": 37.9, "rmse_3d_m": 0.51, "rmse_v_m_s": 0.032}
+    },
+    {
+      "id": "offline-val-recheck",
+      "commit_sha": "6af0037710baa3b67df2cc5720c6cc3272719712",
+      "evaluator_sha256": {
+        "path": "tools/organizer/eval_odometer.py",
+        "commit": "6af0037710baa3b67df2cc5720c6cc3272719712",
+        "sha256": "adfb5c22fefd95932bdc222737c754adb89333321ead092104cc77ae10a4f997",
+        "role": "bytes of the evaluator that printed this recheck"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {"split": "val", "n": 21, "gnss_window_s": 3.0, "fault": "none"},
+      "frame": "along-track projection on the offline ring",
+      "gate": "master fix farther than 3 m from the ring is excluded",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/eval_odometer.py --split val",
+      "measured": {
+        "along_rmse_median_m": 1.4669102626296584,
+        "along_rmse_p95_m": 5.828408490526116,
+        "printed_median_m": 1.467,
+        "printed_p95_m": 5.828,
+        "exceeds_rollback": false
+      }
+    },
+    {
+      "id": "offline-val-scale-rear-recheck",
+      "commit_sha": "6af0037710baa3b67df2cc5720c6cc3272719712",
+      "evaluator_sha256": {
+        "path": "tools/organizer/eval_odometer.py",
+        "commit": "6af0037710baa3b67df2cc5720c6cc3272719712",
+        "sha256": "adfb5c22fefd95932bdc222737c754adb89333321ead092104cc77ae10a4f997",
+        "role": "bytes of the evaluator that printed this recheck"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {"split": "val", "n": 21, "fault": "scale_rear_5pct"},
+      "frame": "along-track projection on the offline ring",
+      "gate": "master fix farther than 3 m from the ring is excluded",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/eval_odometer.py --split val --fault scale_rear_5pct",
+      "measured": {"along_rmse_median_m": 83.99686278663455, "printed_median_m": 84.0, "exceeds_rollback": false}
+    },
+    {
+      "id": "ros-record-e9a34502-recheck",
+      "commit_sha": "6af0037710baa3b67df2cc5720c6cc3272719712",
+      "evaluator_sha256": null,
+      "bag_id": "30618_e9a34502",
+      "input_sha256": null,
+      "parameters": {
+        "scenario": "record",
+        "output_frame": "mgrs",
+        "n_behind_out": 9969,
+        "gnss_state": "closed",
+        "offline_same_ride_rmse_3d_m": 0.766653452496664
+      },
+      "frame": "mgrs",
+      "gate": "baseline 12.436 ± 2 m and antenna height split ≤ 1 m",
+      "playback_rate": 1,
+      "docker_image_digest": "sha256:5243786d2d94e394a8ae68ff4cba7fecbe3333aec3f78b1d1270d348b471ff5f",
+      "date": null,
+      "command": "powershell -NoProfile -File scripts/jury.ps1 record -Bag files/data/30618_e9a34502 -Msgs files/tram_vehicle_msgs",
+      "measured": {
+        "rmse_3d_m": 15.293376334883511,
+        "published_comparison_m": 0.77,
+        "matches_published_0_77": false
+      }
+    },
+    {
+      "id": "ros-rate10-e9a34502-recheck",
+      "commit_sha": "6af0037710baa3b67df2cc5720c6cc3272719712",
+      "evaluator_sha256": null,
+      "bag_id": "30618_e9a34502",
+      "input_sha256": null,
+      "parameters": {"output_frame": "mgrs", "n_behind_out": 6031, "gnss_state": "closed"},
+      "frame": "mgrs",
+      "gate": "baseline 12.436 ± 2 m and antenna height split ≤ 1 m",
+      "playback_rate": 10,
+      "docker_image_digest": "sha256:5243786d2d94e394a8ae68ff4cba7fecbe3333aec3f78b1d1270d348b471ff5f",
+      "date": null,
+      "command": "docker compose -f docker-compose.jury.yml run -T --rm jury",
+      "measured": {"rmse_3d_m": 2.6840233625058447, "matches_published_0_77": false}
     }
   ]
 }

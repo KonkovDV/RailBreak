@@ -64,12 +64,19 @@ def main() -> int:
     prov = data.get("metric_provenance") or {}
     if prov.get("status") != "author-local-run":
         errors.append("provenance status")
-    if prov.get("commands") != ["python tools/organizer/eval_odometer.py --split val"]:
+    if prov.get("commands") != [
+        "python tools/organizer/eval_odometer.py --split val",
+        "python tools/organizer/eval_odometer.py --split val --fault scale_rear_5pct",
+    ]:
         errors.append("provenance command")
-    if prov.get("published_numbers_recomputed_after_filter_change") is not False:
-        errors.append("manifest claims a rescore")
-    if prov.get("commit_sha") is not None or prov.get("bag_hashes_included") is not False:
-        errors.append("bag or metric commit was filled in")
+    if prov.get("published_numbers_recomputed_after_filter_change") is not True:
+        errors.append("manifest does not record the recheck")
+    if prov.get("commit_sha") != "6af0037710baa3b67df2cc5720c6cc3272719712":
+        errors.append("metric commit is not the recheck tree")
+    if prov.get("ros_record_matches_published_0_77") is not False:
+        errors.append("manifest treats the rate-1 record as 0.77")
+    if prov.get("bag_hashes_included") is not False:
+        errors.append("bag hash was filled in")
     blob = json.dumps(data)
     if "input_sha256" in blob or "bag_sha256" in blob:
         errors.append("a bag hash field is present")

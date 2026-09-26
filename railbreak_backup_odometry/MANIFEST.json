@@ -29,12 +29,18 @@
   },
   "metric_provenance": {
     "status": "author-local-run",
-    "commands": ["python tools/organizer/eval_odometer.py --split val"],
+    "commands": [
+      "python tools/organizer/eval_odometer.py --split val",
+      "python tools/organizer/eval_odometer.py --split val --fault scale_rear_5pct"
+    ],
     "split": "val",
     "n": 21,
     "published_where": "docs/solution/results.md",
-    "commit_sha": null,
-    "published_numbers_recomputed_after_filter_change": false,
+    "commit_sha": "6af0037710baa3b67df2cc5720c6cc3272719712",
+    "published_numbers_recomputed_after_filter_change": true,
+    "scale_rear_5pct_along_rmse_median_m": 83.99686278663455,
+    "ros_record_rate_1_rmse_3d_m": 15.293376334883511,
+    "ros_record_matches_published_0_77": false,
     "filter_last_changed_commit": "8add7ae5543cf0142e56945041cb4c20badabb32",
     "bag_hashes_included": false
   }

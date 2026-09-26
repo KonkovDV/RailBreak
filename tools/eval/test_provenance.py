@@ -50,8 +50,10 @@ def main() -> int:
     errors: list[str] = []
     if data.get("fields") != list(FIELDS):
         errors.append("manifest field list drifted")
-    if data.get("published_numbers_recomputed_after_filter_change") is not False:
-        errors.append("manifest claims a rescore that was not run")
+    if data.get("published_numbers_recomputed_after_filter_change") is not True:
+        errors.append("recheck flag is false after the val rerun")
+    if data.get("recheck_commit") != "6af0037710baa3b67df2cc5720c6cc3272719712":
+        errors.append("recheck commit is not the tree that was run")
     for path, spec in data.get("tree_sha256", {}).items():
         check_blob({**spec, "path": path}, f"tree {path}", errors)
     results = data.get("results") or []
@@ -81,6 +83,14 @@ def main() -> int:
         companion = row.get("filter_sha256_before_last_change")
         if companion is not None:
             check_blob(companion, f"{rid} filter", errors)
+        measured = row.get("measured") or {}
+        if rid == "ros-record-e9a34502-recheck" and measured.get("matches_published_0_77") is not False:
+            errors.append("record recheck hides the 0.77 miss")
+        if rid == "offline-val-recheck":
+            if not (measured.get("along_rmse_median_m") < 1.467):
+                errors.append("val recheck median is above 1.467")
+            if measured.get("printed_p95_m") != 5.828:
+                errors.append("val recheck print is not 5.828")
     for error in errors:
         print(error)
     if errors:
