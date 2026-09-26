@@ -1,5 +1,20 @@
 #!/usr/bin/env bash
 # Runs inside the Humble image. Host wrappers: scripts/jury.sh and scripts/jury.ps1.
+
+# Missing /result/position fails the scenario. no-assets sets REQUIRE_POSITION=0.
+position_required() {
+  local require="${1:-1}"
+  local pos_file="$2"
+  if [ "${require}" = "1" ] && ! grep -q "x:" "${pos_file}" 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+if [ "${JURY_POSITION_LIB:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 set -eo pipefail
 set +u
 source /opt/ros/humble/setup.bash
@@ -108,10 +123,16 @@ echo "----- node (tail) -----"
 tail -n 25 /tmp/node.log
 echo "----- first /result/position -----"
 head -n 40 /tmp/pos.txt || true
-if grep -q "x:" /tmp/pos.txt 2>/dev/null; then
-  echo "position: received"
+if position_required "${REQUIRE_POSITION:-1}" /tmp/pos.txt; then
+  if grep -q "x:" /tmp/pos.txt 2>/dev/null; then
+    echo "position: received"
+  else
+    echo "position: none (REQUIRE_POSITION=0, scenario no-assets). Velocity does not wait."
+  fi
 else
   echo "position: none. /result/position is published once a stamp passes gnss_init_window_s after the first fix, or gnss_wait_s with no fix. Velocity does not wait."
+  echo "no /result/position" >&2
+  exit 1
 fi
 if [ "${RECORD:-0}" = "1" ] && [ -f /out/result/metadata.yaml ]; then
   echo "----- recorded /result -----"
@@ -123,10 +144,6 @@ if [ "${SCORE:-0}" = "1" ] && [ -f /out/result/metadata.yaml ]; then
 fi
 if [ "${play_status}" -eq 124 ]; then
   play_status=0
-fi
-if [ "${REQUIRE_POSITION:-1}" = "1" ] && ! grep -q "x:" /tmp/pos.txt 2>/dev/null; then
-  echo "no /result/position" >&2
-  exit 1
 fi
 if [ "${score_status:-0}" -ne 0 ]; then
   exit "${score_status}"
