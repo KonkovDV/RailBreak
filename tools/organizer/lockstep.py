@@ -1,4 +1,6 @@
-"""Python twin vs C++ core on one bag. Writes the event CSV, runs replay_events.
+"""Python twin vs C++ core on one bag. Compares s and v, not diagnostic counters.
+
+Writes the event CSV, runs replay_events.
 
   python tools/organizer/lockstep.py <bag> <replay_events.exe> [--assets local/assets]
 """

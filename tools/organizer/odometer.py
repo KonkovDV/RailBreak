@@ -1,5 +1,9 @@
 """Reference along-track odometer (Python twin of the ROS core).
 
+Numerical state and filter decisions match track_odometer.hpp. lockstep.py
+compares s and v. Diagnostic counters are separate: a bad bogie sample and a
+stamp behind the filter are dropped here without an n_rejected counter.
+
 State x = [s, v, k, ba]
   s   coordinate on the track ring (m)
   v   speed (m/s)

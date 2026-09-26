@@ -1,5 +1,7 @@
 // Along-track backup odometer. No ROS, no GNSS after init, no allocation per step.
-// Mirrors tools/organizer/odometer.py; tools/organizer/lockstep.py compares the two.
+// Numerical state and filter decisions mirror tools/organizer/odometer.py.
+// lockstep.py compares s and v. Diagnostic counters are separate: n_rejected
+// is counted here and is not kept by the Python twin.
 //
 // State x = [s, v, k, ba]
 //   s   coordinate on the closed track ring (m)
