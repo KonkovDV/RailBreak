@@ -1,9 +1,13 @@
 """Pair an estimate to a reference the way the README describes the jury.
 
 Nearest header stamp, tolerance 0.05 s. One reference sample takes at most
-one estimate. The converse is not true: one estimate can pair to several
-reference samples inside the tolerance, so coverage can exceed the output rate.
-RMSE is over paired samples only; coverage is paired/reference.
+one estimate. There is no mask of an already used estimate, so the converse
+is false: one output can cover several references. At 5 Hz out and 20 Hz
+reference the coverage is 54 % (108/200), not the 25 % rate ratio, and one
+sample is used up to three times. A 10 m error is then RMSE 1.41 m against a
+matched 5 Hz reference and 1.67 m against the 20 Hz reference; two extra
+references 40 ms from that sample raise it to 2.40 m. Pairing is left as it
+is, so the published rides do not move.
 """
 
 from __future__ import annotations
