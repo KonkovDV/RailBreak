@@ -296,17 +296,39 @@ class BackupOdometryNode : public rclcpp::Node {
   void on_bogie(const VelocitySensor& m, bool front) {
     const auto t0 = std::chrono::steady_clock::now();
     const double t = stamp_s(m.header.stamp);
+    if (!stamp_forward(t)) {
+      od_->on_bogie(t, front, m.velocity);
+      return;
+    }
     touch(t);
     od_->on_bogie(t, front, m.velocity);
     publish(m.header.stamp, t0);
+    note_out(t);
   }
 
   void on_cmd(const DriverControllerCommand& m) {
     const auto t0 = std::chrono::steady_clock::now();
     const double t = stamp_s(m.header.stamp);
+    if (!stamp_forward(t)) {
+      od_->on_cmd(t, static_cast<int>(m.position));
+      return;
+    }
     touch(t);
     od_->on_cmd(t, static_cast<int>(m.position));
     publish(m.header.stamp, t0);
+    note_out(t);
+  }
+
+  // A stamp behind the last output is counted and dropped. It does not move the
+  // GNSS window and it is not published, so header.stamp does not go backwards.
+  // An equal stamp still passes: the two bogies can share one.
+  bool stamp_forward(double t) const {
+    return std::isfinite(t) && !(have_out_ && t < t_out_);
+  }
+
+  void note_out(double t) {
+    t_out_ = t;
+    have_out_ = true;
   }
 
   void touch(double t) {
@@ -433,6 +455,8 @@ class BackupOdometryNode : public rclcpp::Node {
   std::vector<double> m_lat_, m_lon_, m_alt_, r_lat_, r_lon_, r_alt_;
   bool initialised_ = false, relative_ = false;
   bool drain_gnss_queue_ = true;
+  bool have_out_ = false;
+  double t_out_ = 0.0;
   std::string gnss_note_ = "window open";
   int n_fix_used_ = 0;
   railbreak::OutputFrame frame_;

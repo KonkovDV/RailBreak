@@ -145,6 +145,36 @@ int main() {
     od.on_cmd(std::numeric_limits<double>::infinity(), 4);
     check(od.n_rejected() == mid + 3, "a zero, NaN or infinite stamp is dropped");
     check(od.notch() == notch, "a non-finite command does not change the notch");
+    // rear 10.10 then front 10.00, and a command walked backwards: no pair, no notch.
+    od.on_bogie(10.10, false, 36.0);
+    const double s2 = od.s();
+    const double rho = od.rear_front_ratio();
+    const int rej2 = od.n_rejected();
+    od.on_bogie(10.00, true, 50.0);
+    check(std::fabs(od.s() - s2) < 1e-9, "front at 10.00 after rear at 10.10 does not move s");
+    check(std::fabs(od.rear_front_ratio() - rho) < 1e-12, "a regressed bogie does not learn rho");
+    check(od.n_rejected() == rej2 + 1, "front at 10.00 is counted");
+    od.on_cmd(10.2, 4);
+    od.on_cmd(9.9, 8);
+    check(od.notch() == 4, "a command at 9.9 does not replace the notch");
+    check(od.n_rejected() == rej2 + 2, "the command at 9.9 is counted");
+    for (double skew : {0.05, 0.10, 0.30}) {
+      od.on_bogie(20.0, true, 36.0);
+      const double sb = od.s();
+      const double rb = od.rear_front_ratio();
+      const int nb = od.notch();
+      const int kb = od.n_rejected();
+      od.on_bogie(20.0 - skew, false, 50.0);
+      od.on_cmd(20.0 - skew, 7);
+      check(std::fabs(od.s() - sb) < 1e-9 && std::fabs(od.rear_front_ratio() - rb) < 1e-12 &&
+                od.notch() == nb && od.n_rejected() == kb + 2,
+            "a stamp 50/100/300 ms behind is not a pair and not a notch");
+    }
+    // 100 ms lag still applies when the later stamp is processed second.
+    const int before = od.n_rejected();
+    od.on_bogie(30.0, true, 36.0);
+    od.on_bogie(30.1, false, 36.0);
+    check(od.n_rejected() == before, "a bogie 100 ms later is not a regression");
   }
   {
     // Reference values: pyproj EPSG:4326 -> EPSG:32637 at the two route termini.
