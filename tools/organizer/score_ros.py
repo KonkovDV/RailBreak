@@ -2,14 +2,15 @@
 
 The organisers' tf in base_link (first-bogie yaw axis, wheel-rail contact):
 master (−9.873, 0, 3), rover (2.563, 0, 3). base_link is the point 0.794 of
-the way from master to rover, then 3 m down. rmse_3d_raw is the same chord
-with the baseline and height gates turned off; it is still time-paired and
-status-filtered, not the master antenna. A master fix is kept in rmse_3d only when
-the rover lies on that rigid body: planar baseline within 2 m of 12.436 m,
-and the two antenna heights within 1 m. On a clean recording the baseline
-residual is centimetres (max 0.1 m) and the height split stays under 0.5 m;
-a rover tens of metres away is not the antenna. Bogie pitch 7.55 m is not
-this baseline.
+the way from master to rover, then 3 m down. rmse_3d_raw is that same
+base_link chord with the baseline and height gates off. It still requires a
+rover, a time pair, a master status filter, an interpolated rover and the
+antenna-segment point. It is not a raw master GNSS metric. A master fix is
+kept in rmse_3d only when the rover lies on that rigid body: planar baseline
+within 2 m of 12.436 m, and the two antenna heights within 1 m. On a clean
+recording the baseline residual is centimetres (max 0.1 m) and the height
+split stays under 0.5 m; a rover tens of metres away is not the antenna.
+Bogie pitch 7.55 m is not this baseline.
 Default frame is absolute MGRS, matching the node. Pairs by header stamp,
 tolerance 0.05 s.
 """

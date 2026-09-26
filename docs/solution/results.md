@@ -140,6 +140,9 @@ GNSS тоже готов: на пяти подписках со ста сооб�
 `30618_a869780d` по-прежнему около 30 м: последний годный фикс, как и в таблице,
 сходит с кольца. В JSON рядом с отфильтрованным `rmse_3d` пишутся `rmse_3d_raw`,
 `coverage_raw`, `reference_retention`, `n_baseline_reject` и `n_height_reject`.
+`rmse_3d_raw` — парный прокси `base_link` без порога базы и высоты: rover,
+пара по времени, фильтр status master, интерполяция rover и точка на
+антенном отрезке остаются. Это не сырая метрика GNSS master.
 Coverage считается по оставшейся выборке. Рядом пишутся `time_pair_retention`
 (пара по времени к числу master), `rigid_body_retention` (база и высота
 к числу пар) и `total_retention` (все пороги к числу master).

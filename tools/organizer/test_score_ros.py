@@ -178,6 +178,40 @@ def main():
         fail("total retention is not n_fix/n_master")
     if abs(parts["time_pair_retention"] * parts["rigid_body_retention"] - parts["total_retention"]) > 1e-12:
         fail("the three ratios do not multiply")
+    # rmse_3d_raw keeps this call: gates off, still a paired base_link chord.
+    lon80 = lon_for_east(80.0, H0)
+    one = np.array([[0.0, 10.0, LAT0, LON0, H0, 2.0]])
+    far = np.array([[0.0, 10.0, LAT0, lon80, H0, 2.0]])
+    x, y, z, ok = base_link_xyz(one, far, "enu", START, baseline_tol=1e9, height_tol=1e9)
+    if not ok[0]:
+        fail("the ungated path dropped a time-paired rover")
+    _, _, _, gated = base_link_xyz(one, far, "enu", START, baseline_tol=2.0, height_tol=1.0)
+    if gated[0]:
+        fail("the gated path kept an 80 m chord")
+    mx, my, mz = to_frame(np.array([LAT0]), np.array([LON0]), np.array([H0]), START, "enu")
+    off = float(np.hypot(x[0] - mx[0], y[0] - my[0]))
+    if off < 1.0:
+        fail("the ungated chord sat on the master antenna")
+    if abs(off / BASE_FRAC - 80.0) > 2.0:
+        fail(f"the ungated point is not the antenna fraction, offset {off:.2f}")
+    if abs(float(z[0] - mz[0]) + 3.0) > 0.05:
+        fail("the ungated height is not the antenna point 3 m down")
+    _, _, _, alone = base_link_xyz(
+        np.array([[0.0, 20.0, LAT0, LON0, H0, 2.0]]), far, "enu", START,
+        baseline_tol=1e9, height_tol=1e9)
+    if alone[0]:
+        fail("the ungated path kept a master with no rover pair")
+    lon40 = lon_for_east(40.0, H0)
+    bracket = np.array([
+        [0.0, 9.9, LAT0, lon40, H0, 2.0],
+        [0.0, 10.1, LAT0, lon80, H0, 2.0],
+    ])
+    xi, yi, _, oki = base_link_xyz(one, bracket, "enu", START, baseline_tol=1e9, height_tol=1e9)
+    if not oki[0]:
+        fail("the ungated path did not interpolate a rover inside 0.25 s")
+    midi = float(np.hypot(xi[0] - mx[0], yi[0] - my[0]))
+    if not (off * 0.4 < midi < off * 0.8):
+        fail(f"the interpolated chord is not between the two rovers, offset {midi:.2f}")
     print("ok")
 
 
