@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
@@ -133,6 +134,17 @@ int main() {
     check(std::fabs(od.s() - s) < 1e-9, "a stamp behind the filter does not move the state");
     check(od.notch() == notch, "a stamp behind the filter does not change the notch");
     check(od.n_rejected() == rej + 2, "regressed stamps are counted and dropped");
+    const int mid = od.n_rejected();
+    const double t_now = 5.0;
+    od.on_bogie(t_now, true, 36.0);
+    od.on_bogie(t_now, false, 36.0);
+    od.on_cmd(t_now, notch);
+    check(od.n_rejected() == mid, "an equal stamp of the other bogie is applied");
+    od.on_bogie(0.0, true, 36.0);
+    od.on_bogie(std::numeric_limits<double>::quiet_NaN(), false, 36.0);
+    od.on_cmd(std::numeric_limits<double>::infinity(), 4);
+    check(od.n_rejected() == mid + 3, "a zero, NaN or infinite stamp is dropped");
+    check(od.notch() == notch, "a non-finite command does not change the notch");
   }
   {
     // Reference values: pyproj EPSG:4326 -> EPSG:32637 at the two route termini.

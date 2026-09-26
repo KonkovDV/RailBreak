@@ -282,10 +282,7 @@ class TrackOdometer {
   }
 
   void on_cmd(double t, int position) {
-    if (have_t_ && t < t_) {
-      ++n_rejected_;
-      return;
-    }
+    if (!stamp_ok(t)) return;
     predict(t);
     notch_ = std::clamp(position, kNotchMin, kNotchMax);
   }
@@ -293,10 +290,7 @@ class TrackOdometer {
   void on_bogie(double t, bool is_front, double raw) {
     // A stamp behind the filter is another subscription, not a step backward.
     // Equal stamps still apply: the two bogies can share a header stamp.
-    if (have_t_ && t < t_) {
-      ++n_rejected_;
-      return;
-    }
+    if (!stamp_ok(t)) return;
     predict(t);
     if (!std::isfinite(raw)) {
       ++n_rejected_;
@@ -374,6 +368,14 @@ class TrackOdometer {
   Mode mode() const { return mode_; }
   int notch() const { return notch_; }
   int n_anchor() const { return n_anchor_; }
+  bool stamp_ok(double t) {
+    if (!std::isfinite(t) || (have_t_ && t < t_)) {
+      ++n_rejected_;
+      return false;
+    }
+    return true;
+  }
+
   int n_rejected() const { return n_rejected_; }
   int n_gap_reset() const { return n_gap_reset_; }
   double a_model_now() const { return a_model(x_[IV], x_[IS]) + x_[IBA]; }

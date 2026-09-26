@@ -167,8 +167,11 @@ class Odometer:
         A = np.eye(N) - np.outer(K, h)
         self.P = A @ self.P @ A.T + r * np.outer(K, K)
 
+    def _stamp_ok(self, t: float) -> bool:
+        return math.isfinite(t) and (self.t is None or t >= self.t)
+
     def on_cmd(self, t: float, position: int) -> None:
-        if self.t is not None and t < self.t:
+        if not self._stamp_ok(t):
             return
         self.predict(t)
         self.notch = int(position)
@@ -196,7 +199,7 @@ class Odometer:
                 self.log_rho = max(-self.p.rho_max, min(self.p.rho_max, self.log_rho))
 
     def on_bogie(self, t: float, which: str, raw: float) -> None:
-        if self.t is not None and t < self.t:
+        if not self._stamp_ok(t):
             return
         self.predict(t)
         if not math.isfinite(raw):

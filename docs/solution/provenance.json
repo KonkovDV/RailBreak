@@ -1,0 +1,22 @@
+{
+  "filter_behavior_through": "cf7bb70",
+  "this_file_does_not_change_the_filter": true,
+  "recordings_are_not_in_the_repo": true,
+  "val_along": {
+    "command": "python tools/organizer/eval_odometer.py --split val",
+    "rmse_median_m": 1.467,
+    "p95_m": 5.828,
+    "n": 21,
+    "split": "object-separated val, recordings not in the repo"
+  },
+  "ros_mgrs_base_link_rate_10": [
+    {"bag": "30618_e9a34502", "rmse_3d_ungated_m": 0.771, "fixes": 60, "s0_m": 5632.874},
+    {"bag": "30618_01f73500", "rmse_3d_ungated_m": 10.837, "fixes": 60, "s0_m": 11023.874, "gated_3d_m": 4.970, "n_kept": 10017, "n_master": 11901},
+    {"bag": "30618_a869780d", "rmse_3d_ungated_m": 30.426, "fixes": 59, "s0_m": 143.000, "gated_3d_m": 3.396, "n_kept": 8195, "n_master": 10659}
+  ],
+  "smoke_30618_082f1d65": {"rate": 10, "fixes": 60, "s0_m": 44.0, "x": 103603.59376334609, "y": 86084.56737734191},
+  "historical_table": "results.md rows 6.07 / 5.35 / 0.77 are start-grid, master point, not the current frame",
+  "not_rerun_after_window_fix": "30639_927002c2 still cited as 1.992 m from before the GNSS-window fix",
+  "eight_callbacks": "heuristic, not a proof the DDS queue is empty",
+  "velocity_reference": "horizontal hypot of master velocity, not the along-track projection"
+}

@@ -40,6 +40,17 @@ HEIGHT_TOL_M = 1.0
 ANTENNA_UP_M = 3.0
 
 
+def output_rate_hz(stamps):
+    """Hz from unique finite stamps. Duplicate header stamps do not make dt zero."""
+    t = np.unique(np.asarray(stamps, float))
+    t = t[np.isfinite(t)]
+    dt = np.diff(t)
+    dt = dt[dt > 0]
+    if len(dt) == 0:
+        return float("nan"), float("nan")
+    return float(1.0 / np.median(dt)), float(dt.max())
+
+
 def load_source(path: Path) -> dict:
     """GNSS from an extracted npz or straight from the original rosbag2."""
     if path.suffix == ".npz":
@@ -192,7 +203,7 @@ def main() -> int:
     vt = np.array(vel_t)
     vest = {"t": vt, "x": np.zeros(len(vt)), "y": np.zeros(len(vt)), "z": np.zeros(len(vt)), "v": np.array(vel)}
     vs = score(vest, ref)
-    dt_out = np.diff(np.sort(vt))
+    rate_hz, max_gap_s = output_rate_hz(vt)
     # end drift: 3D error at the last paired reference sample over path length
     from judge import pair
     idx = pair(est["t"], ref["t"])
@@ -209,8 +220,8 @@ def main() -> int:
     out = {
         "n_position": len(pos_t),
         "n_velocity": len(vel_t),
-        "rate_hz": float(1.0 / np.median(dt_out)) if len(dt_out) else float("nan"),
-        "max_gap_s": float(dt_out.max()) if len(dt_out) else float("nan"),
+        "rate_hz": rate_hz,
+        "max_gap_s": max_gap_s,
         "coverage": pos["coverage"],
         "rmse_3d": pos["rmse_3d"],
         "rmse_3d_raw": raw_3d,
@@ -228,6 +239,8 @@ def main() -> int:
         "n_paired": n_paired,
         "n_baseline_reject": n_baseline_reject,
         "n_height_reject": n_height_reject,
+        "time_pair_retention": (float(n_paired) / n_master) if n_master else float("nan"),
+        "rigid_body_retention": (float(ok.sum()) / n_paired) if n_paired else float("nan"),
         "reference_retention": (float(ok.sum()) / n_master) if n_master else float("nan"),
         "min_status": args.min_status,
         "n_fix": int(len(g)),

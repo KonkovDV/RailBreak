@@ -80,6 +80,22 @@ def main():
     _, _, _, ok = base_link_xyz(master, rover_late, "enu", START)
     if ok[0]:
         fail("a rover 1 s away was interpolated")
+    from score_ros import output_rate_hz
+    from judge import pair as pair_estimates
+    hz, gap = output_rate_hz([0.0, 0.0, 0.1, 0.1, 0.2])
+    if not (abs(hz - 10.0) < 1e-9 and abs(gap - 0.1) < 1e-9):
+        fail(f"duplicate stamps changed the rate, hz={hz} gap={gap}")
+    if np.isfinite(output_rate_hz([1.0, 1.0])[0]):
+        fail("identical stamps produced a finite rate")
+    t_est = np.arange(0.0, 1.01, 0.2)
+    t_ref = np.arange(0.0, 1.01, 0.05)
+    idx = pair_estimates(t_est, t_ref, 0.05)
+    used = idx[idx >= 0]
+    coverage = len(used) / len(t_ref)
+    if coverage <= len(t_est) / len(t_ref) + 1e-9:
+        fail("one estimate did not cover several references")
+    if len(np.unique(used)) != len(t_est):
+        fail("estimate reuse test did not use every output sample")
     print("ok")
 
 
