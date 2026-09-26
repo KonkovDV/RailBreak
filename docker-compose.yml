@@ -1,5 +1,5 @@
-# docker compose up --build
-# BAG: rosbag2 directory (./data → /data).
+# Research image for tram_dr_localization. Not the scored package.
+# The submission is railbreak_backup_odometry; see its README.
 #   docker compose run --rm -e BAG=/data/bags/run01 tram_dr
 services:
   tram_dr:

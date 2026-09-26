@@ -88,19 +88,7 @@ Python physics-тесты отдельно проверяют None/пустой 
 силы с 85 до 6 в указанных линейных случаях — не замер WCET или точности
 вагона. Формулы, параметры witness и ограничения: [math.md](math.md), §8.
 
-Для prior фиксируются результат job и переход red→green; stdout с точным
-числом его проверок отдельно не извлечён. Нельзя выдавать предполагаемую
-строку лога за наблюдавшийся результат. При переносе полного UKF-файла в
-draft-ветке возникли дополнительные ошибки транскрипции; diff review их
-выявил и последующие commits устранили. Итоговый diff UKF относительно
-baseline — только перенос вызова prior и поясняющий комментарий.
-
-Все четыре job (cpp, asan, python, ros) подтверждены на Python-fix `faa4faeb`
-и затем на docs-checkpoint `908ca160`:
-[PR run](https://github.com/KonkovDV/RailBreak/actions/runs/34158342493),
-[push run](https://github.com/KonkovDV/RailBreak/actions/runs/34158338834).
-Статусы более ранних commits не являются подтверждением последнего HEAD;
-после следующих изменений checks проверяются заново.
+Число проверок prior берётся из кода теста, а не из предполагаемой строки лога.
 
 Локальная среда аудита не имела CMake, ROS, Docker/colcon и пригодного
 ASan runtime. Локально запускались перечисленные C++ binaries, 23 Python
@@ -154,7 +142,7 @@ CI выполняет эти команды. 23 metric tests покрывают 
 13 physics tests и 8 contact tests проверяют выбранные контракты Python-twin.
 Это не 36 новых сценариев движения и не новая таблица точности вагона.
 Структурный docs checker обходит `CURRENT_DOCS` в
-`tools/eval/test_docs.py` (включая refs.md и data-contract): относительные ссылки, некоторые пути
+`tools/eval/test_docs.py` (включая refs.md и документы сдачи): относительные ссылки, некоторые пути
 исходников, code fences, версии и список CTest. Он не проверяет внешние
 URL, heading anchors, LaTeX или истинность текста.
 
@@ -189,26 +177,8 @@ colcon test-result --all --verbose
 
 Сборка нод и library gtests **не** равны запуску реального ROS-графа.
 
-## 6. Открытая матрица испытаний
+## 6. Граница
 
-| Область | Следующая проверка / ограничение |
-| --- | --- |
-| Multirate | Время датчика против filter dt; ring/freeze/omega-dot/hold/quantization |
-| ROS input | В новом исходнике подтверждено отбрасывание NaN brake; нужны регрессии invalidation/recovery, stale/reordered и leftover catch-up |
-| ROS output | Identity quaternion и \(P=10^6\) на неоцениваемых осях подтверждены и в исходнике, и одним echo . После стопа `/clock` возраст растёт по `clock_stall_s` (не шаг фильтра). Полевой bag не прогонялся |
-| Bag/метрики | Интерполяция, экстраполяция и coverage bag-пути; time-weighted exposure; strict JSON и malformed input |
-| Статистика | Нормированность NIS/NEES, false alarms, exposure, независимые поездки |
-| Физика | Полевые m/r0/тяга/Дэвис/уклон; статическое удержание, WSP и joint faults |
-| Python generator | Полная валидация входов, clipping/корни и coupled-ODE convergence; не весь solver domain покрыт fixtures |
-| Источники | Выборочная проверка первоисточников выполнена; применимость к вагону из ссылки не следует |
-| Сдача | Пакет `railbreak_backup_odometry` и `docs/solution/`. Таблицы seed 42 к нему не относятся |
-| Производительность | WCET и latency на целевом контроллере, DDS/executor, HIL |
-| Safety | Независимый hazard analysis и действия потребителя, не только PL/HMI |
-
-Не все исходники/режимы имеют индивидуальные regression-тесты. Реальные
-записи заказчика, его контроллер и HIL здесь недоступны. Нельзя формулировать
-результат как «всё протестировано» или «готово к эксплуатации».
-
-Исторические audit/review-файлы сохраняют происхождение находок; актуальные
-контракты — [math.md](math.md), [architecture.md](architecture.md),
-[estimator-priors.md](estimator-priors.md), [integrity-risk.md](integrity-risk.md).
+Эти проверки относятся к `tramDR-0.0.11`. Сдача — пакет
+`railbreak_backup_odometry` и [`solution/results.md`](solution/results.md).
+Таблицы seed 42 к ней не относятся. Ядро не сертифицировано для управления движением.
