@@ -6,7 +6,7 @@
   <version>0.0.11</version>
   <description>Backup tram dead-reckoning from controller notch and wheel speeds. No GNSS/IMU/lidar in the filter.</description>
   <maintainer email="KonkovDV@users.noreply.github.com">KonkovDV</maintainer>
-  <license>MIT</license>
+  <license>Provided to the organisers</license>
   <url type="website">https://github.com/KonkovDV/RailBreak</url>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

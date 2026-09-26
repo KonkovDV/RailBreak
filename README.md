@@ -40,7 +40,8 @@ ctest --test-dir standalone/build --output-on-failure
 На Windows: `cmake --build standalone/build --config Release --parallel`,
 `ctest --test-dir standalone/build -C Release`.
 
-## Лицензии
+## Передача кода
 
-Код — [LICENSE](LICENSE) (MIT). Сторонние уведомления — [NOTICE](NOTICE).
-Записи организатора и выданные полилинии в репозиторий не входят.
+Отдельной публичной лицензии нет: код передаётся организаторам. Сторонние
+компоненты перечислены в [NOTICE](NOTICE). Записи организатора и выданные
+полилинии в репозиторий не входят.

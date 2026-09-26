@@ -21,4 +21,4 @@
 `/vehicle/driver_position_cmd`. Выходы: `/result/velocity` (м/с) и
 `/result/position` (точка `base_link` в MGRS). После начальной выставки GNSS в фильтр не входит.
 
-Код — MIT ([`LICENSE`](LICENSE)). Уведомления о сторонних материалах — [`NOTICE`](NOTICE).
+Отдельной публичной лицензии нет: код передаётся организаторам. Сторонние компоненты — [`NOTICE`](NOTICE).

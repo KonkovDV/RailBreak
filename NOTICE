@@ -1,6 +1,6 @@
 # Third-party notices
 
-Код репозитория — MIT (`LICENSE`).
+Своего лицензионного файла у репозитория нет: код передаётся организаторам.
 
 Ядро не вендорит Eigen, `mherb/kalman`, `robot_localization`.
 ROS 2 Humble — Apache 2.0 (upstream); ноды этого пакета его вызывают, не копируют.

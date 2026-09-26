@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>Backup tram odometry from two bogie speeds and the driver controller, along a track map. GNSS is read only in the start window.</description>
   <maintainer email="KonkovDV@users.noreply.github.com">KonkovDV</maintainer>
-  <license>MIT</license>
+  <license>Provided to the organisers</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
