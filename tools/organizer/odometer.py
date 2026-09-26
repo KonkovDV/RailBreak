@@ -74,6 +74,26 @@ class Params:
     davis_c: float = 0.0
 
 
+def _require_config(p: Params) -> None:
+    """Reject a configuration before the first step. The numerical guard is not a substitute."""
+    if not math.isfinite(p.unit) or not p.unit > 0.0:
+        raise ValueError("wheel_unit_scale must be > 0")
+    for name in ("q_s", "q_v", "q_k", "q_ba"):
+        value = getattr(p, name)
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError(f"{name} must be >= 0")
+    for name in ("r0", "r_min", "r_max", "r_bad"):
+        value = getattr(p, name)
+        if not math.isfinite(value) or not value > 0.0:
+            raise ValueError(f"{name} must be > 0")
+    if not math.isfinite(p.sigma_k0) or p.sigma_k0 == 0.0:
+        raise ValueError("sigma_k0 variance must be > 0")
+    if not math.isfinite(p.sigma_ba0) or p.sigma_ba0 == 0.0:
+        raise ValueError("sigma_ba0 variance must be > 0")
+    if not math.isfinite(p.k0) or not (0.5 < p.k0 < 1.5):
+        raise ValueError("initial k must be in (0.5, 1.5)")
+
+
 @dataclass
 class Odometer:
     branch_s: np.ndarray
@@ -111,9 +131,7 @@ class Odometer:
         self.have_v = False
         self.step_frozen = False
         self.disagree_since = None
-        if not math.isfinite(self.x[IK]) or self.x[IK] < 0.5 or self.x[IK] > 1.5:
-            self.x[IK] = 1.0
-            self.n_guard += 1
+        _require_config(self.p)
 
     # Numerical stops, not a physical scale or bias. 1/k stays in [2/3, 2].
     SCALE_MIN = 0.5

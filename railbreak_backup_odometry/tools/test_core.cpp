@@ -3,7 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <stdexcept>
 #include <string>
+#include <utility>
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
@@ -19,6 +21,18 @@ int g_fail = 0;
 void check(bool ok, const char* what) {
   std::printf("%s %s\n", ok ? "ok  " : "FAIL", what);
   if (!ok) ++g_fail;
+}
+
+template <class F>
+bool rejected(F&& fn, const char* fragment) {
+  try {
+    std::forward<F>(fn)();
+  } catch (const std::invalid_argument& e) {
+    return std::string(e.what()).find(fragment) != std::string::npos;
+  } catch (...) {
+    return false;
+  }
+  return false;
 }
 
 railbreak::Assets flat_ring(double length_m) {
@@ -204,13 +218,8 @@ int main() {
   {
     auto bad = flat_ring(100.0);
     bad.k0 = 0.0;
-    railbreak::TrackOdometer od(&bad, p);
-    check(od.k() == 1.0, "a zero scale prior is replaced before any division");
-    check(od.n_guard() >= 1, "the replacement is counted");
-    od.init(0.0, 0.5);
-    od.set_time(0.0);
-    od.on_bogie(0.0, true, 36.0);
-    check(std::isfinite(od.v()), "the first wheel step stays finite");
+    check(rejected([&] { railbreak::TrackOdometer od(&bad, p); }, "initial k"),
+          "a zero scale prior is rejected before any division");
   }
   {
     railbreak::TrackOdometer od(&assets, p);
@@ -719,9 +728,11 @@ int main() {
   {
     auto badk = assets;
     badk.k0 = 1e-6;
-    railbreak::TrackOdometer od(&badk, p);
-    check(std::fabs(od.k() - 1.0) < 1e-12 && od.n_guard() >= 1,
-          "k0 below 0.5 is replaced by 1 and counted");
+    check(rejected([&] { railbreak::TrackOdometer od(&badk, p); }, "initial k"),
+          "k0 below 0.5 is rejected before the first step");
+    badk.k0 = 0.5;
+    check(rejected([&] { railbreak::TrackOdometer od(&badk, p); }, "initial k"),
+          "k0 at 0.5 is outside the open initial interval");
     railbreak::Params neg = p;
     neg.sigma_k0 = -0.2;
     railbreak::Params pos = p;
@@ -741,85 +752,25 @@ int main() {
     nq.q_v = -100.0;
     nq.q_k = -1.0;
     nq.q_ba = -1.0;
-    railbreak::TrackOdometer guard(&assets, nq);
-    guard.init(10.0, 1.0);
-    guard.set_time(0.0);
-    guard.on_bogie(1.0, true, 36.0);
-    check(guard.n_guard() >= 1 && std::isfinite(guard.s()) && std::isfinite(guard.v()),
-          "negative process noise trips the PSD guard and stays finite");
-    check(std::fabs(guard.s() - 10.0) < 1e-6, "that rejected step does not move s");
-    check(guard.mode() == railbreak::Mode::kFreeze, "a guarded step is FREEZE, not recovered WHEELS");
-    check(std::string(railbreak::mode_name(guard.mode())) == "FREEZE" &&
-              std::string(guard.numerical_guard()) == "freeze",
-          "diagnostics name the freeze and not a successful recovery");
-    check(std::fabs(guard.time_s() - 1.0) < 1e-12,
-          "the clock moves and the dropped interval is not replayed");
-    const double s_frozen = guard.s();
-    const double v_frozen = guard.v();
-    const int guards = guard.n_guard();
-    guard.on_bogie(1.0, false, 36.0);  // equal stamp: predict does not run
-    check(guard.s() == s_frozen && guard.v() == v_frozen && guard.n_guard() == guards,
-          "a later callback does not reintegrate the frozen interval");
+    check(rejected([&] { railbreak::TrackOdometer guard(&assets, nq); }, "q_s"),
+          "negative process noise is rejected before the first step");
+    railbreak::Params zr = p;
+    zr.r0 = 0.0;
+    check(rejected([&] { railbreak::TrackOdometer guard(&assets, zr); }, "r0"),
+          "a zero measurement variance is rejected before the first step");
     auto hole = assets;
     hole.map.grade[20] = std::numeric_limits<double>::quiet_NaN();
-    railbreak::TrackOdometer nanmap(&hole, p);
-    nanmap.init(0.0, 0.5);
-    nanmap.set_time(0.0);
-    drive(nanmap, 0.0, 5.0, 36.0);
-    check(std::isfinite(nanmap.s()) && std::isfinite(nanmap.v()), "NaN in the grade column stays finite");
-    {
-      // Agreed wheels leave the model. Reacquisition writes P_vv = 0 and the
-      // guard must roll that write back instead of announcing WHEELS.
-      railbreak::Params rq = p;
-      rq.r0 = 0.0;
-      rq.r_min = 0.0;
-      rq.r_alpha = 0.0;
-      rq.r_alpha_grow = 0.0;
-      rq.recover_s = 0.25;
-      rq.zupt_hold_s = 10.0;
-      railbreak::TrackOdometer rec(&assets, rq);
-      rec.init(0.0, 0.5);
-      rec.set_time(0.0);
-      drive(rec, 0.0, 1.0, 36.0);
-      const int g0 = rec.n_guard();
-      bool froze = false;
-      for (double t = 1.0; t < 1.8; t += 0.1) {
-        const double s0 = rec.s();
-        const double v0 = rec.v();
-        const double k0 = rec.k();
-        const bool slip_f = rec.slip_front();
-        const bool slip_r = rec.slip_rear();
-        const int g = rec.n_guard();
-        rec.on_bogie(t, true, 0.0);
-        if (rec.n_guard() > g) {
-          // predict of this callback may move s. The rejected reacquisition
-          // must not replace v with the stopped wheels.
-          check(rec.k() == k0 && rec.v() > 1.0 && std::fabs(rec.v() - v0) < 1.0,
-                "a rejected reacquisition does not copy the wheels into the state");
-          check(rec.mode() == railbreak::Mode::kFreeze &&
-                    std::string(rec.numerical_guard()) == "freeze",
-                "a rejected reacquisition is FREEZE, not WHEELS");
-          check(rec.slip_front() == slip_f && rec.slip_rear() == slip_r,
-                "a rejected reacquisition does not clear the slip flags");
-          froze = true;
-          break;
-        }
-        rec.on_bogie(t + 0.05, false, 0.0);
-        if (rec.n_guard() > g) {
-          check(rec.mode() == railbreak::Mode::kFreeze, "the rear reacquisition is FREEZE");
-          froze = true;
-          break;
-        }
-      }
-      check(froze && rec.n_guard() > g0, "reacquisition with a singular covariance trips the guard");
-    }
+    check(rejected([&] { railbreak::TrackOdometer nanmap(&hole, p); }, "not finite"),
+          "NaN in the grade column is rejected before the first step");
+    railbreak::Params rq = p;
+    rq.r0 = 0.0;
+    rq.r_min = 0.0;
+    check(rejected([&] { railbreak::TrackOdometer rec(&assets, rq); }, "r0"),
+          "a zero measurement variance is rejected before a singular reacquisition");
     auto bent = assets;
     bent.map.s[3] = 1.0;
-    railbreak::TrackOdometer ring(&bent, p);
-    ring.init(0.0, 0.5);
-    ring.set_time(0.0);
-    drive(ring, 0.0, 2.0, 36.0);
-    check(std::isfinite(ring.s()) && ring.s() > 10.0, "a non-increasing ring sample does not stop the filter");
+    check(rejected([&] { railbreak::TrackOdometer ring(&bent, p); }, "strictly increasing"),
+          "a non-increasing ring sample is rejected before the first step");
     auto blank = assets;
     blank.table.a[15].clear();
     check(blank.table.lookup(0, 5.0) == 0.0, "an empty notch row looks up as zero acceleration");
@@ -830,20 +781,39 @@ int main() {
     check(std::fabs(coast.v() - 10.0) < 0.2, "that empty row does not throw and does not change coasting");
     railbreak::Params flip = p;
     flip.unit = -1.0 / 3.6;
-    railbreak::TrackOdometer negu(&assets, flip);
-    negu.init(0.0, 0.5);
-    negu.set_time(0.0);
-    drive(negu, 0.0, 2.0, 36.0);
-    std::printf("     neg unit s=%.3f v=%.3f\n", negu.s(), negu.v());
-    check(negu.v() < 0.05 && negu.s() > 1900.0,
-          "a negative wheel_unit_scale keeps speed at 0 and wraps a tiny backward step");
+    check(rejected([&] { railbreak::TrackOdometer negu(&assets, flip); }, "wheel_unit_scale"),
+          "a negative wheel_unit_scale is rejected before it can wrap the ring");
     railbreak::TrackOdometer far(&assets, p);
-    far.init(1e8, 1.0);
-    far.set_time(0.0);
-    drive(far, 0.0, 1.0, 36.0);
-    std::printf("     huge s=%.3f v=%.3f\n", far.s(), far.v());
-    check(std::isfinite(far.s()) && far.s() > 30.0 && far.s() < 40.0 && std::fabs(far.v() - 10.0) < 0.2,
-          "a huge initial_s_m is wrapped onto the ring and speed is still tracked");
+    check(rejected([&] { far.init(1e8, 1.0); }, "initial s"),
+          "a huge initial_s_m is rejected instead of being wrapped onto the ring");
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    check(rejected([&] {
+            railbreak::validate_geometry(0.0, 10.0, 9.873, -3.0, 12.436, nan, 1000.0, true);
+          }, "gnss_init_window_s"),
+          "a GNSS window of 0 is rejected");
+    check(rejected([&] {
+            railbreak::validate_geometry(3.0, -1.0, 9.873, -3.0, 12.436, nan, 1000.0, true);
+          }, "gnss_wait_s"),
+          "a negative GNSS wait is rejected");
+    check(rejected([&] {
+            railbreak::validate_geometry(3.0, 10.0, nan, -3.0, 12.436, nan, 1000.0, true);
+          }, "output offsets"),
+          "a NaN geometric offset is rejected");
+    check(rejected([&] {
+            railbreak::validate_geometry(3.0, 10.0, 9.873, -3.0, 0.0, nan, 1000.0, true);
+          }, "rover_baseline_m"),
+          "a zero rover baseline is rejected");
+    check(rejected([&] {
+            railbreak::validate_geometry(3.0, 10.0, 9.873, -3.0, 12.436, 1e8, 1000.0, true);
+          }, "initial_s_m"),
+          "initial_s_m far outside the ring is rejected");
+    bool geometry_ok = true;
+    try {
+      railbreak::validate_geometry(3.0, 10.0, 9.873, -3.0, 12.436, nan, 1000.0, true);
+    } catch (...) {
+      geometry_ok = false;
+    }
+    check(geometry_ok, "the default window, wait and offsets are accepted");
   }
   {
     railbreak::TrackOdometer both(&assets, p);

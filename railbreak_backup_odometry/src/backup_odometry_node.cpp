@@ -110,14 +110,22 @@ class BackupOdometryNode : public rclcpp::Node {
     try {
       assets_ = railbreak::load_assets(dir);
     } catch (const std::exception& e) {
-      // Keep running: speed from the bogies and relative odometry from the start
-      // point. No track map means no grade, no notch table and no anchors.
+      // A missing directory is relative odometry. A map that opened and then
+      // failed validation is a bad configuration: do not start on it.
+      const std::string msg = e.what();
+      if (msg.find("cannot open") == std::string::npos) {
+        RCLCPP_FATAL(get_logger(), "assets rejected (%s)", e.what());
+        throw;
+      }
       RCLCPP_ERROR(get_logger(), "assets not loaded (%s): speed and relative odometry only", e.what());
       assets_ = railbreak::Assets{};
       assets_.k0 = 1.0;
       assets_ok_ = false;
     }
     if (wheel_r_ > 0.0 && wheel_r0_ > 0.0) assets_.k0 *= wheel_r_ / wheel_r0_;
+    const bool have_ring = assets_ok_ && !assets_.map.empty();
+    railbreak::validate_geometry(win_.window_s, win_.wait_s, off_along_, off_up_, rover_baseline_m_,
+                                 initial_s_, have_ring ? assets_.map.ring_len : 0.0, have_ring);
     od_ = std::make_unique<railbreak::TrackOdometer>(&assets_, p);
 
     // Depth 10 dropped the start window at ros2 bag play --rate 10 (~400 msg/s)

@@ -82,6 +82,45 @@ struct Params {
   double davis_c = 0.0;
 };
 
+// Configuration is rejected before the first step. The numerical guard is not
+// a substitute: a negative wheel scale stays finite and still walks the ring.
+inline void validate_params(const Params& p) {
+  if (!std::isfinite(p.unit) || !(p.unit > 0.0))
+    throw std::invalid_argument("wheel_unit_scale must be > 0");
+  if (!std::isfinite(p.q_s) || p.q_s < 0.0) throw std::invalid_argument("q_s must be >= 0");
+  if (!std::isfinite(p.q_v) || p.q_v < 0.0) throw std::invalid_argument("q_v must be >= 0");
+  if (!std::isfinite(p.q_k) || p.q_k < 0.0) throw std::invalid_argument("q_k must be >= 0");
+  if (!std::isfinite(p.q_ba) || p.q_ba < 0.0) throw std::invalid_argument("q_ba must be >= 0");
+  if (!std::isfinite(p.r0) || !(p.r0 > 0.0)) throw std::invalid_argument("r0 must be > 0");
+  if (!std::isfinite(p.r_min) || !(p.r_min > 0.0)) throw std::invalid_argument("r_min must be > 0");
+  if (!std::isfinite(p.r_max) || !(p.r_max > 0.0)) throw std::invalid_argument("r_max must be > 0");
+  if (!std::isfinite(p.r_bad) || !(p.r_bad > 0.0)) throw std::invalid_argument("r_bad must be > 0");
+  if (!std::isfinite(p.sigma_k0) || p.sigma_k0 == 0.0)
+    throw std::invalid_argument("sigma_k0 variance must be > 0");
+  if (!std::isfinite(p.sigma_ba0) || p.sigma_ba0 == 0.0)
+    throw std::invalid_argument("sigma_ba0 variance must be > 0");
+}
+
+// have_ring is false when the map is absent: relative odometry has no loop to wrap.
+// NaN initial_s_m means the parameter is unset. A loaded ring keeps a set arc in
+// [-L, 2L]; outside that the wrap would look like a different point on the loop.
+inline void validate_geometry(double gnss_window_s, double gnss_wait_s, double offset_along_m,
+                              double offset_up_m, double rover_baseline_m, double initial_s_m,
+                              double ring_len, bool have_ring) {
+  if (!std::isfinite(gnss_window_s) || !(gnss_window_s > 0.0))
+    throw std::invalid_argument("gnss_init_window_s must be > 0");
+  if (!std::isfinite(gnss_wait_s) || !(gnss_wait_s > 0.0))
+    throw std::invalid_argument("gnss_wait_s must be > 0");
+  if (!std::isfinite(offset_along_m) || !std::isfinite(offset_up_m))
+    throw std::invalid_argument("output offsets must be finite");
+  if (!std::isfinite(rover_baseline_m) || !(rover_baseline_m > 0.0))
+    throw std::invalid_argument("rover_baseline_m must be > 0");
+  if (std::isnan(initial_s_m)) return;
+  if (!std::isfinite(initial_s_m)) throw std::invalid_argument("initial_s_m must be finite or unset");
+  if (have_ring && !(initial_s_m >= -ring_len && initial_s_m <= 2.0 * ring_len))
+    throw std::invalid_argument("initial_s_m is outside the ring and would wrap");
+}
+
 
 struct Stop {
   double s_m;
@@ -186,6 +225,8 @@ struct Assets {
   double k0 = 1.0;
 };
 
+inline void validate_assets(const Assets& a);
+
 inline Assets load_assets(const std::string& dir) {
   Assets a;
   for (const auto& r : detail::read_csv(dir + "/ring.csv")) {
@@ -216,7 +257,41 @@ inline Assets load_assets(const std::string& dir) {
     a.stops.push_back({r[0], r[1], static_cast<int>(r[2])});
   }
   if (a.map.empty()) throw std::runtime_error("empty ring");
+  validate_assets(a);
   return a;
+}
+
+inline void validate_assets(const Assets& a) {
+  if (!std::isfinite(a.k0) || !(a.k0 > 0.5 && a.k0 < 1.5))
+    throw std::invalid_argument("initial k must be in (0.5, 1.5)");
+  const TrackMap& m = a.map;
+  if (m.s.size() < 2) return;
+  if (!std::isfinite(m.ring_len) || !(m.ring_len > 0.0))
+    throw std::invalid_argument("ring_len must be > 0");
+  if (!std::isfinite(m.lat0) || !std::isfinite(m.lon0) || !std::isfinite(m.off_ks))
+    throw std::invalid_argument("map origin is not finite");
+  const std::vector<double>* cols[] = {&m.s, &m.x, &m.y, &m.h, &m.grade};
+  for (const std::vector<double>* col : cols) {
+    if (col->size() != m.s.size()) throw std::invalid_argument("map columns differ in length");
+    for (double v : *col) {
+      if (!std::isfinite(v)) throw std::invalid_argument("map value is not finite");
+    }
+  }
+  for (std::size_t i = 1; i < m.s.size(); ++i) {
+    if (!(m.s[i] > m.s[i - 1])) throw std::invalid_argument("map s is not strictly increasing");
+  }
+  for (double v : a.table.v_centre) {
+    if (!std::isfinite(v)) throw std::invalid_argument("notch speed is not finite");
+  }
+  for (const auto& row : a.table.a) {
+    for (double v : row) {
+      if (!std::isfinite(v)) throw std::invalid_argument("notch acceleration is not finite");
+    }
+  }
+  for (const Stop& st : a.stops) {
+    if (!std::isfinite(st.s_m) || !std::isfinite(st.sd_m))
+      throw std::invalid_argument("stop is not finite");
+  }
 }
 
 enum class Mode : std::uint8_t { kUninit = 0, kWheels = 1, kModel = 2, kZupt = 3, kFreeze = 4 };
@@ -248,6 +323,8 @@ class TrackOdometer {
 
   TrackOdometer(const Assets* assets, Params p) : a_(assets), p_(p) {
     p_.k0 = assets->k0;
+    validate_params(p_);
+    validate_assets(*assets);
     reset();
   }
 
@@ -279,13 +356,14 @@ class TrackOdometer {
     n_anchor_ = n_rejected_ = n_gap_reset_ = n_guard_ = 0;
     have_v_ = false;
     disagree_since_ = -1.0;
-    if (!std::isfinite(x_[IK]) || x_[IK] < kScaleMin || x_[IK] > kScaleMax) {
-      x_[IK] = 1.0;
-      ++n_guard_;
-    }
   }
 
   void init(double s0, double sigma_s0) {
+    if (!std::isfinite(s0) || !std::isfinite(sigma_s0))
+      throw std::invalid_argument("initial s must be finite");
+    if (!a_->map.empty() && a_->map.ring_len > 0.0 &&
+        !(s0 >= -a_->map.ring_len && s0 <= 2.0 * a_->map.ring_len))
+      throw std::invalid_argument("initial s is outside the ring and would wrap");
     x_[IS] = s0;
     P_[IS][IS] = sigma_s0 * sigma_s0;
   }
