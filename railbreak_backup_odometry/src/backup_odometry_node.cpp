@@ -26,6 +26,7 @@
 #include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
 
+#include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
 using tram_vehicle_msgs::msg::DriverControllerCommand;
@@ -53,8 +54,8 @@ class BackupOdometryNode : public rclcpp::Node {
     if (dir.empty()) {
       dir = ament_index_cpp::get_package_share_directory("railbreak_backup_odometry") + "/assets";
     }
-    window_s_ = declare_parameter("gnss_init_window_s", 3.0);
-    wait_s_ = declare_parameter("gnss_wait_s", 10.0);
+    win_.window_s = declare_parameter("gnss_init_window_s", 3.0);
+    win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
     diag_every_ = std::max<int64_t>(1, declare_parameter("diagnostics_every_n", 20));
     frame_id_ = declare_parameter("frame_id", std::string("map"));
     child_frame_id_ = declare_parameter("child_frame_id", std::string("base_link"));
@@ -140,70 +141,46 @@ class BackupOdometryNode : public rclcpp::Node {
         "/sensing/gnss/rover/fix", in_qos,
         [this](const sensor_msgs::msg::NavSatFix& m) { on_fix(m, false); });
     RCLCPP_INFO(get_logger(), "assets %s: ring %.1f m, %zu stops, k0 %.5f; GNSS window %.1f s",
-                dir.c_str(), assets_.map.ring_len, assets_.stops.size(), assets_.k0, window_s_);
+                dir.c_str(), assets_.map.ring_len, assets_.stops.size(), assets_.k0, win_.window_s);
   }
 
  private:
   // --- start window --------------------------------------------------------
   void on_fix(const sensor_msgs::msg::NavSatFix& m, bool master) {
-    if (gnss_closed_) return;
+    if (win_.closed) return;
     const double t = stamp_s(m.header.stamp);
-    if (m.status.status < sensor_msgs::msg::NavSatStatus::STATUS_FIX ||
-        !std::isfinite(m.latitude) || !std::isfinite(m.longitude)) {
-      return;
-    }
-    if (master) {
-      if (t_first_fix_ < 0.0) t_first_fix_ = t;
-      if (t <= t_first_fix_ + window_s_) {
+    const bool valid = m.status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
+                       std::isfinite(m.latitude) && std::isfinite(m.longitude);
+    const auto action = win_.on_fix(master, t, valid);
+    if (valid) {
+      const double t_open = win_.t_first_fix >= 0.0 ? win_.t_first_fix : win_.t_first_rover;
+      const bool in_window = t_open >= 0.0 && t <= t_open + win_.window_s;
+      if (master && in_window) {
         m_lat_.push_back(m.latitude);
         m_lon_.push_back(m.longitude);
         m_alt_.push_back(m.altitude);
-      }
-    } else {
-      if (t_first_rover_ < 0.0) t_first_rover_ = t;
-      const bool in_window = t_first_fix_ < 0.0
-                                 ? t <= t_first_rover_ + window_s_
-                                 : t <= t_first_fix_ + window_s_;
-      if (in_window) {
+      } else if (!master && in_window) {
         r_lat_.push_back(m.latitude);
         r_lon_.push_back(m.longitude);
         r_alt_.push_back(m.altitude);
       }
     }
-    // Per topic the queue is FIFO, so a stamp past the window means every
-    // earlier fix on that antenna was already handled. Closing from a wheel
-    // callback instead drops both queues: at --rate 10 the wheel stamp is
-    // delivered first.
-    const double t_open = t_first_fix_ >= 0.0 ? t_first_fix_ : t_first_rover_;
-    if (t_open >= 0.0 && t > t_open + window_s_) {
-      if (master) master_past_ = true;
-      else rover_past_ = true;
-      const bool master_done = t_first_fix_ < 0.0 || master_past_;
-      const bool rover_done = t_first_rover_ < 0.0 || rover_past_;
-      if (master_done && rover_done) finish_init();
-    }
+    if (action == railbreak::GnssWindow::Action::kFinish) finish_init();
   }
 
-  void maybe_close_window(double t) {
-    if (gnss_closed_) return;
-    if (t_first_fix_ < 0.0 && t_first_rover_ < 0.0 && t_first_input_ >= 0.0 &&
-        t > t_first_input_ + wait_s_) {
+  void on_window_input(double t) {
+    const auto action = win_.on_input(t);
+    if (action == railbreak::GnssWindow::Action::kRelative) {
       if (manual_start()) return;
-      // No GNSS and no initial position: relative odometry (allowed by the case text).
       relative_ = true;
       close_gnss("no fix within gnss_wait_s; relative odometry from the start point");
-      return;
-    }
-    // One antenna went silent inside the window. Stamp grace, not the first
-    // wheel sample past the window: that sample races the GNSS queue.
-    const double t_open = t_first_fix_ >= 0.0 ? t_first_fix_ : t_first_rover_;
-    if (t_open >= 0.0 && (master_past_ || rover_past_) &&
-        t > t_open + window_s_ + wait_s_)
+    } else if (action == railbreak::GnssWindow::Action::kFinish) {
       finish_init();
+    }
   }
 
   void finish_init() {
-    if (gnss_closed_) return;
+    if (win_.closed) return;
     const bool master = !m_lat_.empty();
     const bool rover_only = !master && !r_lat_.empty();
     const double lat = master ? median(m_lat_) : median(r_lat_);
@@ -272,7 +249,7 @@ class BackupOdometryNode : public rclcpp::Node {
   }
 
   void close_gnss(const char* why) {
-    gnss_closed_ = true;
+    win_.closed = true;
     sub_gm_.reset();
     sub_gr_.reset();
     gnss_note_ = why;
@@ -297,20 +274,20 @@ class BackupOdometryNode : public rclcpp::Node {
   }
 
   void touch(double t) {
-    if (t_first_input_ < 0.0) {
-      t_first_input_ = t;
+    if (win_.t_first_input < 0.0) {
+      win_.t_first_input = t;
       od_->set_time(t);
       s_rel_origin_ = od_->s();
     }
     // Anchor the carried path to the antenna that will define the origin.
     // A later master replaces an earlier rover anchor.
-    if (t_first_fix_ >= 0.0 && !s_anchored_to_master_) {
+    if (win_.t_first_fix >= 0.0 && !s_anchored_to_master_) {
       s_at_first_fix_ = od_->s();
       s_anchored_to_master_ = true;
-    } else if (!s_anchored_to_master_ && t_first_rover_ >= 0.0 && s_at_first_fix_ < -1e8) {
+    } else if (!s_anchored_to_master_ && win_.t_first_rover >= 0.0 && s_at_first_fix_ < -1e8) {
       s_at_first_fix_ = od_->s();
     }
-    maybe_close_window(t);
+    on_window_input(t);
   }
 
   void out_point(double s, double& x, double& y, double& z) const {
@@ -390,7 +367,7 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("notch", std::to_string(od_->notch()));
     kv("n_anchor", std::to_string(od_->n_anchor()));
     kv("n_rejected", std::to_string(od_->n_rejected()));
-    kv("gnss", gnss_closed_ ? "closed" : "open");
+    kv("gnss", win_.closed ? "closed" : "open");
     kv("gnss_note", gnss_note_);
     kv("gnss_fixes_used", std::to_string(n_fix_used_));
     kv("relative", relative_ ? "true" : "false");
@@ -411,16 +388,14 @@ class BackupOdometryNode : public rclcpp::Node {
   railbreak::Assets assets_;
   bool assets_ok_ = true;
   std::unique_ptr<railbreak::TrackOdometer> od_;
-  double window_s_ = 3.0, wait_s_ = 10.0;
+  railbreak::GnssWindow win_;
   int64_t diag_every_ = 20;
   std::string frame_id_, child_frame_id_;
 
-  double t_first_fix_ = -1.0, t_first_rover_ = -1.0, t_first_input_ = -1.0;
   bool s_anchored_to_master_ = false;
   double s_at_first_fix_ = -1e9, s_rel_origin_ = 0.0;
   std::vector<double> m_lat_, m_lon_, m_alt_, r_lat_, r_lon_, r_alt_;
-  bool gnss_closed_ = false, initialised_ = false, relative_ = false;
-  bool master_past_ = false, rover_past_ = false;
+  bool initialised_ = false, relative_ = false;
   std::string gnss_note_ = "window open";
   int n_fix_used_ = 0;
   railbreak::OutputFrame frame_;

@@ -150,9 +150,17 @@ def main() -> int:
         return 2
     rover = rover[rover[:, 5] >= 0] if rover.shape[1] > 5 else rover
     n_master = int(len(g))
-    rx, ry, rz, ok = base_link_xyz(g, rover, args.frame, (lat0, lon0, h0),
-                                   baseline_tol=args.baseline_tol,
-                                   height_tol=args.height_tol)
+    start = (lat0, lon0, h0)
+    rx_raw, ry_raw, rz_raw, ok_time = base_link_xyz(
+        g, rover, args.frame, start, baseline_tol=1e9, height_tol=1e9)
+    _, _, _, ok_base = base_link_xyz(
+        g, rover, args.frame, start, baseline_tol=args.baseline_tol, height_tol=1e9)
+    rx, ry, rz, ok = base_link_xyz(
+        g, rover, args.frame, start, baseline_tol=args.baseline_tol, height_tol=args.height_tol)
+    n_paired = int(ok_time.sum())
+    n_baseline_reject = int((ok_time & ~ok_base).sum())
+    n_height_reject = int((ok_base & ~ok).sum())
+    g_raw, rx_raw, ry_raw, rz_raw = g[ok_time], rx_raw[ok_time], ry_raw[ok_time], rz_raw[ok_time]
     g = g[ok]
     rx, ry, rz = rx[ok], ry[ok], rz[ok]
     if len(g) < 2:
@@ -166,6 +174,19 @@ def main() -> int:
     ref = {"t": g[after, 1], "x": rx[after], "y": ry[after], "z": rz[after], "v": ref_v[after]}
     est = {"t": np.array(pos_t), "x": np.array(px), "y": np.array(py), "z": np.array(pz), "v": np.array(pv)}
     pos = score(est, ref)
+    raw_3d = float("nan")
+    raw_coverage = float("nan")
+    if len(g_raw) >= 2:
+        after_raw = g_raw[:, 1] > t0 + args.window
+        v_raw = np.full(len(g_raw), np.nan)
+        if "sensing_gnss_master_vel" in z:
+            v_raw = np.interp(g_raw[:, 1], mv[:, 1], np.hypot(mv[:, 2], mv[:, 3]), left=np.nan, right=np.nan)
+        ref_raw = {"t": g_raw[after_raw, 1], "x": rx_raw[after_raw], "y": ry_raw[after_raw],
+                   "z": rz_raw[after_raw], "v": v_raw[after_raw]}
+        if len(ref_raw["t"]) >= 2:
+            pos_raw = score(est, ref_raw)
+            raw_3d = pos_raw["rmse_3d"]
+            raw_coverage = pos_raw["coverage"]
     vt = np.array(vel_t)
     vest = {"t": vt, "x": np.zeros(len(vt)), "y": np.zeros(len(vt)), "z": np.zeros(len(vt)), "v": np.array(vel)}
     vs = score(vest, ref)
@@ -190,6 +211,8 @@ def main() -> int:
         "max_gap_s": float(dt_out.max()) if len(dt_out) else float("nan"),
         "coverage": pos["coverage"],
         "rmse_3d": pos["rmse_3d"],
+        "rmse_3d_raw": raw_3d,
+        "coverage_raw": raw_coverage,
         "rmse_x": pos["rmse_x"], "rmse_y": pos["rmse_y"], "rmse_z": pos["rmse_z"],
         "rmse_v_result_velocity": vs["rmse_v"],
         "rmse_v_odometry_twist": pos["rmse_v"],
@@ -200,6 +223,10 @@ def main() -> int:
         "baseline_tol_m": args.baseline_tol,
         "height_tol_m": args.height_tol,
         "n_master": n_master,
+        "n_paired": n_paired,
+        "n_baseline_reject": n_baseline_reject,
+        "n_height_reject": n_height_reject,
+        "reference_retention": (float(ok.sum()) / n_master) if n_master else float("nan"),
         "min_status": args.min_status,
         "n_fix": int(len(g)),
         "status_counts": status_counts,

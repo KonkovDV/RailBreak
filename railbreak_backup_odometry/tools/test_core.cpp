@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
 namespace {
@@ -139,6 +140,96 @@ int main() {
     // the sphere of radius a gives 624.7 m.
     check(std::fabs(x - 627.0) < 0.01 && std::fabs(y - 0.045) < 0.005,
           "ENU east uses the WGS84 prime-vertical radius");
+  }
+  {
+    using Act = railbreak::GnssWindow::Action;
+    const int q = railbreak::GnssWindow::kQuietInputs;
+    auto silent_closes = [q](railbreak::GnssWindow& w, double t0) {
+      Act last = Act::kWait;
+      for (int i = 0; i < q + 2; ++i) {
+        last = w.on_input(t0 + 0.05 * i);
+        if (last == Act::kFinish) return i == q;
+      }
+      return false;
+    };
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(false, 0.0, true);
+      w.on_fix(true, 2.9, true);
+      w.on_fix(false, 2.9, true);
+      check(w.on_input(3.05) == Act::kWait, "one late wheel does not close the GNSS window");
+    }
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(false, 0.0, true);
+      w.on_fix(true, 2.9, true);
+      w.on_fix(false, 2.9, true);
+      check(silent_closes(w, 3.05), "both antennas silent inside the window still initialise");
+    }
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(true, 2.5, true);
+      check(silent_closes(w, 3.10), "master only inside the window initialises");
+    }
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(false, 0.0, true);
+      w.on_fix(false, 2.5, true);
+      check(silent_closes(w, 3.10), "rover only inside the window initialises");
+    }
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(false, 0.0, true);
+      check(w.on_fix(true, 3.2, true) == Act::kWait, "one antenna past the window waits for the other");
+      check(w.on_fix(false, 3.2, true) == Act::kFinish, "fixes past the window close from GNSS, not from a wheel");
+    }
+    {
+      railbreak::GnssWindow w;
+      for (int i = 0; i < 6; ++i) {
+        w.on_fix(true, 0.1 * i, true);
+        w.on_fix(false, 0.1 * i, true);
+      }
+      check(w.on_input(3.2) == Act::kWait, "a wheel ahead of the GNSS queue does not close");
+      bool early = false;
+      for (int i = 0; i < 20; ++i) {
+        w.on_fix(true, 2.0, true);
+        w.on_fix(false, 2.0, true);
+        if (w.on_input(3.3 + 0.05 * i) == Act::kFinish) early = true;
+      }
+      check(!early, "queued fixes inside the window keep the window open");
+      Act last = Act::kWait;
+      int at = -1;
+      for (int i = 0; i < q + 1; ++i) {
+        last = w.on_input(6.0 + 0.05 * i);
+        if (last == Act::kFinish) {
+          at = i;
+          break;
+        }
+      }
+      check(at == q - 1, "the window closes once the GNSS queue has gone quiet");
+    }
+    {
+      railbreak::GnssWindow w;
+      w.on_fix(true, 0.0, true);
+      w.on_fix(false, 0.0, true);
+      check(w.on_fix(true, 3.2, true) == Act::kWait, "master past, rover silent: not closed yet");
+      Act last = Act::kWait;
+      for (int i = 0; i < q + 2; ++i) {
+        w.on_fix(true, 3.3 + 0.05 * i, true);  // master keeps publishing
+        last = w.on_input(3.4 + 0.05 * i);
+        if (last == Act::kFinish) break;
+      }
+      check(last == Act::kFinish, "a live antenna does not hold the silent one open");
+    }
+    {
+      railbreak::GnssWindow w;
+      check(w.on_input(0.0) == Act::kWait, "no fix yet: the wait has not expired");
+      check(w.on_input(10.01) == Act::kRelative, "no fix within gnss_wait_s goes relative");
+    }
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;
