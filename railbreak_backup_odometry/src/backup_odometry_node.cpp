@@ -486,7 +486,7 @@ class BackupOdometryNode : public rclcpp::Node {
     diagnostic_msgs::msg::DiagnosticStatus st;
     st.name = "railbreak_backup_odometry";
     st.hardware_id = "tram";
-    st.level = (od_->slip_front() || od_->slip_rear())
+    st.level = (od_->mode() == railbreak::Mode::kFreeze || od_->slip_front() || od_->slip_rear())
                    ? diagnostic_msgs::msg::DiagnosticStatus::WARN
                    : diagnostic_msgs::msg::DiagnosticStatus::OK;
     st.message = railbreak::mode_name(od_->mode());
@@ -511,6 +511,8 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("a_model_mps2", std::to_string(od_->a_model_now()));
     kv("notch", std::to_string(od_->notch()));
     kv("n_anchor", std::to_string(od_->n_anchor()));
+    kv("n_guard", std::to_string(od_->n_guard()));
+    kv("numerical_guard", od_->numerical_guard());
     kv("n_rejected", std::to_string(od_->n_rejected()));
     kv("n_pub_front", std::to_string(n_pub_front_));
     kv("n_pub_rear", std::to_string(n_pub_rear_));

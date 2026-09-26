@@ -109,6 +109,7 @@ class Odometer:
         self.n_guard = 0
         self.anchor_log: list[tuple[float, float, float, float]] = []
         self.have_v = False
+        self.step_frozen = False
         self.disagree_since = None
         if not math.isfinite(self.x[IK]) or self.x[IK] < 0.5 or self.x[IK] > 1.5:
             self.x[IK] = 1.0
@@ -199,9 +200,10 @@ class Odometer:
             self.P = F @ self.P @ F.T + Q
             dt_all -= dt
         if not self._state_numerical():
+            # Freeze. The clock still moves, so this interval is not integrated later.
             self.x = x_keep
             self.P = p_keep
-            self.n_guard += 1
+            self._note_freeze()
         self.t = t
 
     def _update_scalar(self, h: np.ndarray, innov: float, r: float, consider_k: bool = False) -> None:
@@ -221,7 +223,12 @@ class Odometer:
         if not self._state_numerical():
             self.x = x_keep
             self.P = p_keep
-            self.n_guard += 1
+            self._note_freeze()
+
+    def _note_freeze(self) -> None:
+        self.n_guard += 1
+        self.step_frozen = True
+        self.mode = "FREEZE"
 
     def _stamp_ok(self, t: float) -> bool:
         return math.isfinite(t) and (self.t is None or t >= self.t)
@@ -229,7 +236,12 @@ class Odometer:
     def on_cmd(self, t: float, position: int) -> None:
         if not self._stamp_ok(t):
             return
+        self.step_frozen = False
         self.predict(t)
+        if self.step_frozen:
+            self.mode = "FREEZE"
+        elif self.mode == "FREEZE":
+            self.mode = "WHEELS"
         self.notch = int(position)
 
     def _learn_pair(self, uf: float, ur: float) -> None:
@@ -258,6 +270,7 @@ class Odometer:
     def on_bogie(self, t: float, which: str, raw: float) -> None:
         if not self._stamp_ok(t):
             return
+        self.step_frozen = False
         self.predict(t)
         if not math.isfinite(raw):
             return
@@ -307,7 +320,9 @@ class Odometer:
                 if not self._state_numerical():
                     self.x = x_keep
                     self.P = p_keep
-                    self.n_guard += 1
+                    self._note_freeze()
+                    self.disagree_since = None
+                    return
                 self.disagree_since = None
                 slip = False
                 self._note_slip(which, False, t, innov * innov / S)
@@ -321,6 +336,10 @@ class Odometer:
         self._update_scalar(h, innov, self.p.r_bad if slip else r, consider_k=True)
         self.x[IV] = max(0.0, self.x[IV])
         self._zupt(t)
+        if self.step_frozen:
+            self.mode = "FREEZE"
+        elif self.mode == "FREEZE":
+            self.mode = "WHEELS"
 
     def _zupt(self, t: float) -> None:
         f, r = self.last["front"], self.last["rear"]

@@ -748,6 +748,18 @@ int main() {
     check(guard.n_guard() >= 1 && std::isfinite(guard.s()) && std::isfinite(guard.v()),
           "negative process noise trips the PSD guard and stays finite");
     check(std::fabs(guard.s() - 10.0) < 1e-6, "that rejected step does not move s");
+    check(guard.mode() == railbreak::Mode::kFreeze, "a guarded step is FREEZE, not recovered WHEELS");
+    check(std::string(railbreak::mode_name(guard.mode())) == "FREEZE" &&
+              std::string(guard.numerical_guard()) == "freeze",
+          "diagnostics name the freeze and not a successful recovery");
+    check(std::fabs(guard.time_s() - 1.0) < 1e-12,
+          "the clock moves and the dropped interval is not replayed");
+    const double s_frozen = guard.s();
+    const double v_frozen = guard.v();
+    const int guards = guard.n_guard();
+    guard.on_bogie(1.0, false, 36.0);  // equal stamp: predict does not run
+    check(guard.s() == s_frozen && guard.v() == v_frozen && guard.n_guard() == guards,
+          "a later callback does not reintegrate the frozen interval");
     auto hole = assets;
     hole.map.grade[20] = std::numeric_limits<double>::quiet_NaN();
     railbreak::TrackOdometer nanmap(&hole, p);
@@ -755,6 +767,52 @@ int main() {
     nanmap.set_time(0.0);
     drive(nanmap, 0.0, 5.0, 36.0);
     check(std::isfinite(nanmap.s()) && std::isfinite(nanmap.v()), "NaN in the grade column stays finite");
+    {
+      // Agreed wheels leave the model. Reacquisition writes P_vv = 0 and the
+      // guard must roll that write back instead of announcing WHEELS.
+      railbreak::Params rq = p;
+      rq.r0 = 0.0;
+      rq.r_min = 0.0;
+      rq.r_alpha = 0.0;
+      rq.r_alpha_grow = 0.0;
+      rq.recover_s = 0.25;
+      rq.zupt_hold_s = 10.0;
+      railbreak::TrackOdometer rec(&assets, rq);
+      rec.init(0.0, 0.5);
+      rec.set_time(0.0);
+      drive(rec, 0.0, 1.0, 36.0);
+      const int g0 = rec.n_guard();
+      bool froze = false;
+      for (double t = 1.0; t < 1.8; t += 0.1) {
+        const double s0 = rec.s();
+        const double v0 = rec.v();
+        const double k0 = rec.k();
+        const bool slip_f = rec.slip_front();
+        const bool slip_r = rec.slip_rear();
+        const int g = rec.n_guard();
+        rec.on_bogie(t, true, 0.0);
+        if (rec.n_guard() > g) {
+          // predict of this callback may move s. The rejected reacquisition
+          // must not replace v with the stopped wheels.
+          check(rec.k() == k0 && rec.v() > 1.0 && std::fabs(rec.v() - v0) < 1.0,
+                "a rejected reacquisition does not copy the wheels into the state");
+          check(rec.mode() == railbreak::Mode::kFreeze &&
+                    std::string(rec.numerical_guard()) == "freeze",
+                "a rejected reacquisition is FREEZE, not WHEELS");
+          check(rec.slip_front() == slip_f && rec.slip_rear() == slip_r,
+                "a rejected reacquisition does not clear the slip flags");
+          froze = true;
+          break;
+        }
+        rec.on_bogie(t + 0.05, false, 0.0);
+        if (rec.n_guard() > g) {
+          check(rec.mode() == railbreak::Mode::kFreeze, "the rear reacquisition is FREEZE");
+          froze = true;
+          break;
+        }
+      }
+      check(froze && rec.n_guard() > g0, "reacquisition with a singular covariance trips the guard");
+    }
     auto bent = assets;
     bent.map.s[3] = 1.0;
     railbreak::TrackOdometer ring(&bent, p);

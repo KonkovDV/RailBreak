@@ -219,7 +219,7 @@ inline Assets load_assets(const std::string& dir) {
   return a;
 }
 
-enum class Mode : std::uint8_t { kUninit = 0, kWheels = 1, kModel = 2, kZupt = 3 };
+enum class Mode : std::uint8_t { kUninit = 0, kWheels = 1, kModel = 2, kZupt = 3, kFreeze = 4 };
 
 inline const char* mode_name(Mode m) {
   switch (m) {
@@ -227,6 +227,7 @@ inline const char* mode_name(Mode m) {
     case Mode::kWheels: return "WHEELS";
     case Mode::kModel: return "MODEL";
     case Mode::kZupt: return "ZUPT";
+    case Mode::kFreeze: return "FREEZE";
   }
   return "?";
 }
@@ -296,7 +297,10 @@ class TrackOdometer {
 
   void on_cmd(double t, int position) {
     if (!stamp_ok(t)) return;
+    step_frozen_ = false;
     predict(t);
+    if (step_frozen_) mode_ = Mode::kFreeze;
+    else if (mode_ == Mode::kFreeze) mode_ = Mode::kWheels;
     notch_ = std::clamp(position, kNotchMin, kNotchMax);
   }
 
@@ -304,6 +308,7 @@ class TrackOdometer {
     // A stamp behind the filter is another subscription, not a step backward.
     // Equal stamps still apply: the two bogies can share a header stamp.
     if (!stamp_ok(t)) return;
+    step_frozen_ = false;
     predict(t);
     if (!std::isfinite(raw)) {
       ++n_rejected_;
@@ -363,9 +368,13 @@ class TrackOdometer {
         for (int i = 0; i < N; ++i) P_[IV][i] = P_[i][IV] = 0.0;
         P_[IV][IV] = r * k * k;
         if (!state_numerical()) {
+          // The bogies were not copied into the state. Leave the slip flags
+          // as they were: this is not a recovered WHEELS step.
           x_ = x_keep;
           P_ = p_keep;
-          ++n_guard_;
+          note_freeze();
+          disagree_since_ = -1.0;
+          return;
         }
         disagree_since_ = -1.0;
         note_slip(is_front, false, t, innov * innov / S);
@@ -382,7 +391,8 @@ class TrackOdometer {
     update_scalar(h, innov, slip ? p_.r_bad : r, true);
     x_[IV] = std::max(0.0, x_[IV]);
     zupt(t);
-    if (mode_ != Mode::kZupt) mode_ = slip ? Mode::kModel : Mode::kWheels;
+    if (step_frozen_) mode_ = Mode::kFreeze;
+    else if (mode_ != Mode::kZupt) mode_ = slip ? Mode::kModel : Mode::kWheels;
   }
 
   double s() const { return a_->map.wrap(x_[IS]); }
@@ -438,6 +448,8 @@ class TrackOdometer {
 
   int n_rejected() const { return n_rejected_; }
   int n_guard() const { return n_guard_; }
+  // "freeze" on the step that rolled x/P back. "ok" otherwise. Diagnostics publish this with n_guard.
+  const char* numerical_guard() const { return mode_ == Mode::kFreeze ? "freeze" : "ok"; }
   int n_gap_reset() const { return n_gap_reset_; }
   double a_model_now() const { return a_model(x_[IV], x_[IS]) + x_[IBA]; }
 
@@ -617,9 +629,11 @@ class TrackOdometer {
       dt_all -= dt;
     }
     if (!state_numerical()) {
+      // Freeze, do not integrate this interval. The clock still moves to t,
+      // so the dropped motion is not applied on a later step.
       x_ = x_keep;
       P_ = p_keep;
-      ++n_guard_;
+      note_freeze();
     }
     t_ = t;
   }
@@ -653,8 +667,14 @@ class TrackOdometer {
     if (!state_numerical()) {
       x_ = x_keep;
       P_ = p_keep;
-      ++n_guard_;
+      note_freeze();
     }
+  }
+
+  void note_freeze() {
+    ++n_guard_;
+    step_frozen_ = true;
+    mode_ = Mode::kFreeze;
   }
 
   void zupt(double t) {
@@ -741,6 +761,7 @@ class TrackOdometer {
   double wheel_consensus_resid_ = 0.0;
   bool wheel_consensus_have_ = false;
   bool have_v_ = false;
+  bool step_frozen_ = false;
   double disagree_since_ = -1.0;
   Mode mode_ = Mode::kWheels;
   int n_anchor_ = 0;
