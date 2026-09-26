@@ -48,6 +48,8 @@ jobs:
         run: python tools/organizer/test_fault_campaign.py
       - name: integrity monitor
         run: python tools/organizer/test_integrity.py
+      - name: path hypothesis prototype
+        run: python tools/organizer/test_path_hypotheses.py
       - name: jury position is required
         run: bash scripts/test_jury_position.sh
 
