@@ -18,6 +18,9 @@ GNSS читается только в окне старта: 3 с от перв�
 (`tram_vehicle_msgs/VelocitySensor`), `/vehicle/driver_position_cmd`
 (`DriverControllerCommand`). В записях поле `velocity` тележки ведёт себя как
 км/ч; в ноде оно переводится параметром `wheel_unit_scale` (по умолчанию 1/3.6).
+README датасета называет это поле м/с; на проверочной записи деление на 3.6
+совпадает со скоростью `/localization/kinematic_state`. Штампы тележек и ручки
+удерживаются `stamp_reorder_s` (0.10 с) и применяются по `header.stamp`.
 Выход `/result/velocity` — м/с.
 
 ## Сборка (без интернета)

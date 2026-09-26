@@ -31,6 +31,7 @@
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
+#include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
 #include "railbreak_backup_odometry/start_epoch.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
@@ -60,6 +61,10 @@ class BackupOdometryNode : public rclcpp::Node {
     }
     win_.window_s = declare_parameter("gnss_init_window_s", 3.0);
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
+    // rosbag play delivers bogies and the notch in receive order. Their header
+    // stamps step backwards by tens of milliseconds. Hold this long, then apply
+    // in stamp order. A stamp still behind the filter after the wait is dropped.
+    reorder_.set_hold(declare_parameter("stamp_reorder_s", 0.10));
     diag_every_ = std::max<int64_t>(1, declare_parameter("diagnostics_every_n", 20));
     frame_id_ = declare_parameter("frame_id", std::string("map"));
     child_frame_id_ = declare_parameter("child_frame_id", std::string("base_link"));
@@ -322,48 +327,83 @@ class BackupOdometryNode : public rclcpp::Node {
   }
 
   // --- main loop -----------------------------------------------------------
+  struct VehicleSample {
+    bool cmd = false;
+    bool front = false;
+    double value = 0.0;
+    builtin_interfaces::msg::Time stamp;
+  };
+
   void on_bogie(const VelocitySensor& m, bool front) {
-    const auto t0 = std::chrono::steady_clock::now();
-    const double t = stamp_s(m.header.stamp);
+    const auto t_in = std::chrono::steady_clock::now();
+    VehicleSample sample;
+    sample.front = front;
+    sample.value = m.velocity;
+    sample.stamp = m.header.stamp;
+    enqueue(stamp_s(m.header.stamp), std::move(sample), t_in);
+  }
+
+  void on_cmd(const DriverControllerCommand& m) {
+    const auto t_in = std::chrono::steady_clock::now();
+    VehicleSample sample;
+    sample.cmd = true;
+    sample.value = static_cast<double>(m.position);
+    sample.stamp = m.header.stamp;
+    enqueue(stamp_s(m.header.stamp), std::move(sample), t_in);
+  }
+
+  void enqueue(double t, VehicleSample sample, std::chrono::steady_clock::time_point t_in) {
+    if (!std::isfinite(t)) {
+      if (sample.cmd) apply_cmd(t, sample, t_in);
+      else apply_bogie(t, sample, t_in);
+      return;
+    }
+    reorder_.push(t, std::move(sample));
+    for (auto item : reorder_.drain()) {
+      if (item.payload.cmd) apply_cmd(item.t, item.payload, t_in);
+      else apply_bogie(item.t, item.payload, t_in);
+    }
+  }
+
+  void apply_bogie(double t, const VehicleSample& sample, std::chrono::steady_clock::time_point t_in) {
     if (!stamp_forward(t)) {
       if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
-      od_->on_bogie(t, front, m.velocity);
+      od_->on_bogie(t, sample.front, sample.value);
       note_integrity(true);
-      publish_diag(m.header.stamp);
+      publish_diag(sample.stamp);
       return;
     }
     if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
-    od_->on_bogie(t, front, m.velocity);
+    od_->on_bogie(t, sample.front, sample.value);
     note_integrity(false);
-    publish(m.header.stamp, t0);
-    if (front) ++n_pub_front_;
+    publish(sample.stamp, t_in);
+    if (sample.front) ++n_pub_front_;
     else ++n_pub_rear_;
     note_out(t);
   }
 
-  void on_cmd(const DriverControllerCommand& m) {
-    const auto t0 = std::chrono::steady_clock::now();
-    const double t = stamp_s(m.header.stamp);
+  void apply_cmd(double t, const VehicleSample& sample, std::chrono::steady_clock::time_point t_in) {
     if (!stamp_forward(t)) {
       if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
-      od_->on_cmd(t, static_cast<int>(m.position));
+      od_->on_cmd(t, static_cast<int>(sample.value));
       note_integrity(true);
-      publish_diag(m.header.stamp);
+      publish_diag(sample.stamp);
       return;
     }
     if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
-    od_->on_cmd(t, static_cast<int>(m.position));
+    od_->on_cmd(t, static_cast<int>(sample.value));
     note_integrity(false);
-    publish(m.header.stamp, t0);
+    publish(sample.stamp, t_in);
     ++n_pub_cmd_;
     note_out(t);
   }
 
-  // A stamp behind the last output is counted and dropped. It does not move the
-  // GNSS window and it is not published, so header.stamp does not go backwards.
-  // An equal stamp still passes: the two bogies can share one.
+  // A stamp that is still behind the last output after stamp_reorder_s is
+  // counted and dropped. It does not move the GNSS window and it is not
+  // published, so header.stamp does not go backwards. An equal stamp still
+  // passes: the two bogies can share one.
   bool stamp_forward(double t) const {
     return std::isfinite(t) && !(have_out_ && t < t_out_);
   }
@@ -599,6 +639,7 @@ class BackupOdometryNode : public rclcpp::Node {
   railbreak::AdhesionReport last_adhesion_{};
   bool have_adhesion_ = false;
   railbreak::GnssWindow win_;
+  railbreak::InputReorder<VehicleSample> reorder_;
   int64_t diag_every_ = 20;
   std::string frame_id_, child_frame_id_;
 

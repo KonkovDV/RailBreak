@@ -9,6 +9,7 @@
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
+#include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
 #include "railbreak_backup_odometry/integrity_monitor.hpp"
 #include "railbreak_backup_odometry/start_epoch.hpp"
@@ -1124,6 +1125,21 @@ int main() {
           "anchoring the later master sample at the first master stamp is not base_link");
     check(sample_at_rover - physical > 20.0,
           "anchoring the later master sample at the rover stamp is ahead by the travelled section");
+  }
+  {
+    railbreak::InputReorder<int> q;
+    q.set_hold(0.10);
+    q.push(1.20, 20);
+    q.push(1.05, 5);
+    q.push(1.12, 12);
+    const auto first = q.drain();
+    check(first.size() == 1 && first[0].payload == 5 && first[0].t == 1.05,
+          "only a stamp at least 0.10 s behind the newest is released");
+    q.push(1.30, 30);
+    const auto next = q.drain();
+    check(next.size() == 2 && next[0].payload == 12 && next[1].payload == 20,
+          "held bogie and notch stamps are released in stamp order");
+    check(q.pending() == 1, "the newest stamp stays until a later one arrives");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

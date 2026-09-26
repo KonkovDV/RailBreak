@@ -7,6 +7,9 @@ backup_odometry:
     gnss_init_window_s: 3.0
     # No fix this long after the first input: publish relative odometry from the start point.
     gnss_wait_s: 10.0
+    # Bogie and notch headers arrive out of stamp order. Hold this long, then
+    # apply them by header.stamp. A stamp still behind the filter is dropped.
+    stamp_reorder_s: 0.10
     # Bogie field to m/s. Recordings are km/h (ratio to GNSS speed 3.6).
     wheel_unit_scale: 0.2777777777777778
     # /result/position axes. mgrs: UTM 37N minus the square corner
