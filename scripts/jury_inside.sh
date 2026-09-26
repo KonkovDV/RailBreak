@@ -26,9 +26,19 @@ fi
 cd /ws
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
+set +u
 source /ws/install/setup.bash
+set -u
 
-args=(-p "output_frame:=${OUTPUT_FRAME:-mgrs}" -p "gnss_init_window_s:=${GNSS_WINDOW:-3.0}")
+# rclcpp rejects an integer token for a double parameter ("2" is not "2.0").
+as_double() {
+  case "$1" in
+    *.*) printf '%s' "$1" ;;
+    *) printf '%s.0' "$1" ;;
+  esac
+}
+
+args=(-p "output_frame:=${OUTPUT_FRAME:-mgrs}" -p "gnss_init_window_s:=$(as_double "${GNSS_WINDOW:-3.0}")")
 if [ "${CLOCK:-0}" = "1" ]; then
   args+=(-p use_sim_time:=true)
 fi
@@ -36,10 +46,10 @@ if [ -n "${ASSETS_DIR:-}" ]; then
   args+=(-p "assets_dir:=${ASSETS_DIR}")
 fi
 if [ -n "${GNSS_WAIT:-}" ]; then
-  args+=(-p "gnss_wait_s:=${GNSS_WAIT}")
+  args+=(-p "gnss_wait_s:=$(as_double "${GNSS_WAIT}")")
 fi
 if [ -n "${INITIAL_S:-}" ]; then
-  args+=(-p "initial_s_m:=${INITIAL_S}")
+  args+=(-p "initial_s_m:=$(as_double "${INITIAL_S}")")
 fi
 
 ros2 run railbreak_backup_odometry backup_odometry_node --ros-args "${args[@]}" \
@@ -92,11 +102,18 @@ kill -INT "${echo_pid}" 2>/dev/null || true
 pkill -INT -f lib/railbreak_backup_odometry/backup_odometry_node 2>/dev/null || true
 wait "${node_pid}" 2>/dev/null || true
 
-echo "----- node -----"
-head -n 25 /tmp/node.log
+echo "----- node (head) -----"
+head -n 15 /tmp/node.log
+echo "----- node (tail) -----"
+tail -n 25 /tmp/node.log
 echo "----- first /result/position -----"
 head -n 40 /tmp/pos.txt || true
-if [ -f /out/result/metadata.yaml ]; then
+if grep -q "x:" /tmp/pos.txt 2>/dev/null; then
+  echo "position: received"
+else
+  echo "position: none. /result/position is published once a stamp passes gnss_init_window_s after the first fix, or gnss_wait_s with no fix. Velocity does not wait."
+fi
+if [ "${RECORD:-0}" = "1" ] && [ -f /out/result/metadata.yaml ]; then
   echo "----- recorded /result -----"
   ros2 bag info /out/result | head -n 25
 fi

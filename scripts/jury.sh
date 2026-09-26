@@ -27,9 +27,15 @@ MSGS=""
 INITIAL_S_ARG="0"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --bag) BAG=$2; shift 2 ;;
-    --msgs) MSGS=$2; shift 2 ;;
-    --initial-s) INITIAL_S_ARG=$2; shift 2 ;;
+    --bag|--msgs|--initial-s)
+      if [ $# -lt 2 ]; then echo "missing value for $1" >&2; usage; exit 2; fi
+      case "$1" in
+        --bag) BAG=$2 ;;
+        --msgs) MSGS=$2 ;;
+        --initial-s) INITIAL_S_ARG=$2 ;;
+      esac
+      shift 2
+      ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
@@ -106,4 +112,4 @@ esac
 
 export RATE CLOCK OUTPUT_FRAME ASSETS_DIR TOPICS GNSS_WINDOW GNSS_WAIT INITIAL_S DURATION RECORD SCORE
 cd "${ROOT}"
-docker compose -f docker-compose.jury.yml run --rm --build jury
+docker compose -f docker-compose.jury.yml run -T --rm --build jury

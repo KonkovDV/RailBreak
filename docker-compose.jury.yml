@@ -3,15 +3,15 @@
 services:
   jury:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.jury
+      context: docker
+      dockerfile: Dockerfile.jury
     working_dir: /ws
     volumes:
       - ./railbreak_backup_odometry:/opt/src/railbreak_backup_odometry:ro
       - ./scripts/jury_inside.sh:/opt/jury_inside.sh:ro
       - ./tools:/opt/tools:ro
-      - ${MSGS_DIR}:/org_msgs:ro
-      - ${BAG}:/bag:ro
+      - ${MSGS_DIR:?set MSGS_DIR}:/org_msgs:ro
+      - ${BAG:?set BAG}:/bag
       - ${OUT:-./jury_out}:/out
       - jury_ws:/ws
     environment:
@@ -26,8 +26,6 @@ services:
       DURATION: ${DURATION:-}
       RECORD: ${RECORD:-0}
       SCORE: ${SCORE:-0}
-    stdin_open: true
-    tty: true
     command: ["bash", "/opt/jury_inside.sh"]
 
 volumes:

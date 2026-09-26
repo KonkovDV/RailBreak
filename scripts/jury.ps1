@@ -15,8 +15,11 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 function Invoke-Core {
     cmake -S (Join-Path $Root 'railbreak_backup_odometry/tools') -B (Join-Path $Root 'build/rbo')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     cmake --build (Join-Path $Root 'build/rbo') --config Release --parallel
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     ctest --test-dir (Join-Path $Root 'build/rbo') -C Release --output-on-failure
+    exit $LASTEXITCODE
 }
 
 if ($Scenario -eq 'core') {
@@ -31,10 +34,10 @@ if (-not $Msgs) {
     }
 }
 if (-not $Msgs -or -not (Test-Path (Join-Path $Msgs 'package.xml'))) {
-    throw 'Pass -Msgs path\to\tram_vehicle_msgs'
+    throw 'Pass -Msgs, the tram_vehicle_msgs directory (package.xml inside)'
 }
 if (-not $Bag -or -not (Test-Path (Join-Path $Bag 'metadata.yaml'))) {
-    throw 'Pass -Bag path\to\rosbag2 directory that contains metadata.yaml'
+    throw 'Pass -Bag, a rosbag2 directory that contains metadata.yaml'
 }
 
 $env:MSGS_DIR = (Resolve-Path $Msgs).Path.Replace('\', '/')
@@ -72,7 +75,8 @@ switch ($Scenario) {
 
 Push-Location $Root
 try {
-    docker compose -f docker-compose.jury.yml run --rm --build jury
+    docker compose -f docker-compose.jury.yml run -T --rm --build jury
+    exit $LASTEXITCODE
 } finally {
     Pop-Location
 }
