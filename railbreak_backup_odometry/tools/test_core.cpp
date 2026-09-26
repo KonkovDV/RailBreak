@@ -83,6 +83,84 @@ int main() {
     check(std::fabs(gained - 100.0) < 5.0, "model carries the path through a 10 s double dropout");
   }
   {
+    // b_a has no hard bound. A short agreed spike barely trains it. A sustained
+    // regime does, and silence keeps that value. Wheels matching the table again
+    // pull it back, but not to zero in one minute.
+    railbreak::TrackOdometer od(&assets, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 30.0, 36.0);
+    double t = 30.0;
+    for (int i = 0; i < 5; ++i) {
+      od.on_bogie(t, true, 36.0 + 36.0);
+      od.on_bogie(t + 0.05, false, 36.0 + 36.0);
+      t += 0.1;
+    }
+    const double ba_spike = od.model_bias();
+    for (int i = 0; i < 50; ++i) {
+      od.on_cmd(t, 0);
+      t += 0.1;
+    }
+    std::printf("     spike ba=%.4f v=%.3f\n", ba_spike, od.v());
+    check(std::fabs(ba_spike) < 0.01, "a 0.5 s agreed spike barely moves b_a");
+    check(std::fabs(od.model_bias() - ba_spike) < 1e-12, "silence does not change b_a");
+  }
+  {
+    railbreak::TrackOdometer od(&assets, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 30.0, 36.0);
+    double t = 30.0;
+    for (int i = 0; i < 80; ++i) {
+      const double v_kmh = 36.0 + 0.4 * (i * 0.1) * 3.6;
+      od.on_bogie(t, true, v_kmh);
+      od.on_bogie(t + 0.05, false, v_kmh);
+      od.on_cmd(t + 0.025, 0);
+      t += 0.1;
+    }
+    const double ba = od.model_bias();
+    const double v1 = od.v();
+    std::printf("     trained ba=%.4f v=%.3f\n", ba, v1);
+    check(ba > 0.04, "eight seconds of shared acceleration the table lacks moves b_a");
+    for (int i = 0; i < 50; ++i) {
+      od.on_cmd(t, 0);
+      t += 0.1;
+    }
+    const double ba_silent = od.model_bias();
+    std::printf("     silent ba=%.4f v=%.3f dv=%.3f\n", ba_silent, od.v(), od.v() - v1);
+    check(std::fabs(ba_silent - ba) < 1e-12, "b_a stays at the trained value while both bogies are silent");
+    check(std::fabs((od.v() - v1) - ba * 5.0) < 0.05, "the silent interval integrates the contaminated b_a");
+    const double v_hold = od.v();
+    for (int i = 0; i < 600; ++i) {
+      const double kmh = v_hold * 3.6;
+      od.on_bogie(t, true, kmh);
+      od.on_bogie(t + 0.05, false, kmh);
+      od.on_cmd(t + 0.025, 0);
+      t += 0.1;
+    }
+    std::printf("     returned ba=%.4f\n", od.model_bias());
+    check(od.model_bias() < ba_silent * 0.6, "b_a moves back once the wheels match the table");
+    check(od.model_bias() > 0.005, "one minute does not clear b_a");
+  }
+  {
+    auto accel = flat_ring(2000.0);
+    for (double& a : accel.table.a[static_cast<std::size_t>(7 - railbreak::kNotchMin)]) a = 0.8;
+    railbreak::TrackOdometer od(&accel, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 30.0, 36.0);
+    const double v_pre = od.v();
+    od.on_cmd(30.0, 7);
+    od.on_bogie(30.0, true, 36.0);
+    od.on_bogie(30.05, false, 36.0);
+    const double ba = od.model_bias();
+    for (double t = 30.1; t < 35.0 - 1e-9; t += 0.1) od.on_cmd(t, 7);
+    std::printf("     notch ba=%.4f v_pre=%.3f v_end=%.3f\n", ba, v_pre, od.v());
+    check(std::fabs(ba) < 0.01, "one notch change does not train b_a");
+    check(std::fabs(od.model_bias() - ba) < 1e-12, "b_a stays put through the following silence");
+    check(od.v() > v_pre + 3.5 && od.v() < v_pre + 4.5, "silence after a notch change integrates the table, not b_a");
+  }
+  {
     railbreak::TrackOdometer od(&assets, p);
     od.init(0.0, 0.5);
     od.set_time(0.0);
