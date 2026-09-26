@@ -287,6 +287,56 @@ int main() {
     check(std::fabs(od.v()) < 1e-9, "ZUPT holds zero speed");
   }
   {
+    // The anchor is ZUPT plus a unique station inside the gate. No stop id,
+    // heading, schedule or previous-stop sequence. A wrong unique station locks.
+    auto line = flat_ring(2000.0);
+    line.stops.clear();
+    line.stops.push_back({100.0, 0.5, 10});
+    railbreak::TrackOdometer wrong(&line, p);
+    wrong.init(98.0, 5.0);
+    wrong.set_time(0.0);
+    for (double t = 0.0; t < 2.0 - 1e-9; t += 0.1) {
+      wrong.on_bogie(t, true, 0.0);
+      wrong.on_bogie(t + 0.05, false, 0.0);
+    }
+    std::printf("     wrong-station s=%.2f anchors=%d\n", wrong.s(), wrong.n_anchor());
+    check(wrong.n_anchor() == 1, "one unique station in the gate is taken");
+    check(wrong.s() > 99.5, "that station pulls s off the place the filter was standing");
+
+    line.stops.push_back({104.0, 0.5, 10});
+    railbreak::TrackOdometer two(&line, p);
+    two.init(100.0, 5.0);
+    two.set_time(0.0);
+    for (double t = 0.0; t < 2.0 - 1e-9; t += 0.1) {
+      two.on_bogie(t, true, 0.0);
+      two.on_bogie(t + 0.05, false, 0.0);
+    }
+    check(two.n_anchor() == 0, "two stations in the gate are not a guess");
+    check(std::fabs(two.s() - 100.0) < 0.05, "an ambiguous dwell does not move s");
+
+    line.stops.clear();
+    line.stops.push_back({200.0, 0.5, 10});
+    railbreak::TrackOdometer far(&line, p);
+    far.init(100.0, 1.0);
+    far.set_time(0.0);
+    for (double t = 0.0; t < 2.0 - 1e-9; t += 0.1) {
+      far.on_bogie(t, true, 0.0);
+      far.on_bogie(t + 0.05, false, 0.0);
+    }
+    check(far.n_anchor() == 0, "a station outside the gate is not used");
+
+    line.stops.clear();
+    line.stops.push_back({100.0, 12.0, 10});
+    railbreak::TrackOdometer loose(&line, p);
+    loose.init(100.0, 1.0);
+    loose.set_time(0.0);
+    for (double t = 0.0; t < 2.0 - 1e-9; t += 0.1) {
+      loose.on_bogie(t, true, 0.0);
+      loose.on_bogie(t + 0.05, false, 0.0);
+    }
+    check(loose.n_anchor() == 0, "a stop wider than 3 m is not a station anchor");
+  }
+  {
     railbreak::TrackOdometer od(&assets, p);
     od.init(0.0, 0.5);
     od.set_time(0.0);
