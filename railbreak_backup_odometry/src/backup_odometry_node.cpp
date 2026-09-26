@@ -297,12 +297,16 @@ class BackupOdometryNode : public rclcpp::Node {
     const auto t0 = std::chrono::steady_clock::now();
     const double t = stamp_s(m.header.stamp);
     if (!stamp_forward(t)) {
+      if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
       od_->on_bogie(t, front, m.velocity);
       return;
     }
+    if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
     od_->on_bogie(t, front, m.velocity);
     publish(m.header.stamp, t0);
+    if (front) ++n_pub_front_;
+    else ++n_pub_rear_;
     note_out(t);
   }
 
@@ -310,12 +314,15 @@ class BackupOdometryNode : public rclcpp::Node {
     const auto t0 = std::chrono::steady_clock::now();
     const double t = stamp_s(m.header.stamp);
     if (!stamp_forward(t)) {
+      if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
       od_->on_cmd(t, static_cast<int>(m.position));
       return;
     }
+    if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
     od_->on_cmd(t, static_cast<int>(m.position));
     publish(m.header.stamp, t0);
+    ++n_pub_cmd_;
     note_out(t);
   }
 
@@ -432,6 +439,11 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("notch", std::to_string(od_->notch()));
     kv("n_anchor", std::to_string(od_->n_anchor()));
     kv("n_rejected", std::to_string(od_->n_rejected()));
+    kv("n_pub_front", std::to_string(n_pub_front_));
+    kv("n_pub_rear", std::to_string(n_pub_rear_));
+    kv("n_pub_cmd", std::to_string(n_pub_cmd_));
+    kv("n_dup_out", std::to_string(n_dup_out_));
+    kv("n_behind_out", std::to_string(n_behind_out_));
     kv("gnss", win_.closed ? "closed" : "open");
     kv("gnss_note", gnss_note_);
     kv("gnss_fixes_used", std::to_string(n_fix_used_));
@@ -474,6 +486,8 @@ class BackupOdometryNode : public rclcpp::Node {
   double wheel_r_ = 0.0, wheel_r0_ = 0.0;
   double lat_max_us_ = 0.0;
   int64_t n_out_ = 0;
+  int64_t n_pub_front_ = 0, n_pub_rear_ = 0, n_pub_cmd_ = 0;
+  int64_t n_dup_out_ = 0, n_behind_out_ = 0;
 
   rclcpp::Publisher<VelocitySensor>::SharedPtr pub_v_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_p_;

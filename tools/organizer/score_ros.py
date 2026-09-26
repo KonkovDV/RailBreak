@@ -41,14 +41,68 @@ ANTENNA_UP_M = 3.0
 
 
 def output_rate_hz(stamps):
-    """Hz from unique finite stamps. Duplicate header stamps do not make dt zero."""
-    t = np.unique(np.asarray(stamps, float))
-    t = t[np.isfinite(t)]
-    dt = np.diff(t)
+    """Hz from unique finite stamps. Duplicate header stamps do not make dt zero.
+
+    Near-duplicates still shrink the median gap. rate_record_hz in
+    output_rate_report is the message count over the header span.
+    """
+    report = output_rate_report(stamps)
+    return report["rate_hz"], report["max_gap_s"]
+
+
+def output_rate_report(stamps, log_stamps=None) -> dict:
+    """Separate the quantities a single median dt mixes together.
+
+    rate_hz is 1/median(diff(unique header stamps)). Exact duplicates do not
+    make it infinite. Stamps a fraction of a millisecond apart still do.
+    rate_record_hz is (N-1) over the header span. rate_wall_hz is the same
+    over bag log time. n_duplicate counts exact repeats. n_regressed counts
+    steps that go backwards in arrival order.
+    """
+    t = np.asarray(stamps, float)
+    finite = t[np.isfinite(t)]
+    n = int(finite.size)
+    uniq = np.unique(finite)
+    n_unique = int(uniq.size)
+    dt = np.diff(uniq)
     dt = dt[dt > 0]
-    if len(dt) == 0:
-        return float("nan"), float("nan")
-    return float(1.0 / np.median(dt)), float(dt.max())
+    span = float(uniq[-1] - uniq[0]) if n_unique >= 2 else float("nan")
+    wall = float("nan")
+    if log_stamps is not None:
+        w = np.asarray(log_stamps, float)
+        w = w[np.isfinite(w)]
+        if w.size >= 2 and float(w[-1] - w[0]) > 0.0:
+            wall = float((w.size - 1) / (w[-1] - w[0]))
+    return {
+        "n_stamp": n,
+        "n_unique": n_unique,
+        "n_duplicate": n - n_unique,
+        "n_regressed": int(np.sum(np.diff(finite) < 0)) if n > 1 else 0,
+        "rate_hz": float(1.0 / np.median(dt)) if dt.size else float("nan"),
+        "max_gap_s": float(dt.max()) if dt.size else float("nan"),
+        "rate_record_hz": float((n - 1) / span) if span > 0.0 else float("nan"),
+        "rate_unique_hz": float((n_unique - 1) / span) if span > 0.0 else float("nan"),
+        "rate_wall_hz": wall,
+        "span_s": span,
+    }
+
+
+def _diag_count(diag: dict, key: str):
+    raw = diag.get(key, "")
+    if raw == "" or raw is None:
+        return None
+    return int(float(raw))
+
+
+def source_rates(counts: dict, span_s: float) -> dict:
+    """Publishes of one callback divided by the output header span."""
+    out = {}
+    for key, n in counts.items():
+        if n is None or not (span_s > 0.0):
+            out[key] = float("nan")
+        else:
+            out[key] = float(n) / float(span_s)
+    return out
 
 
 def load_source(path: Path) -> dict:
@@ -134,15 +188,15 @@ def main() -> int:
     args = ap.parse_args()
     pos_t, px, py, pz, pv = [], [], [], [], []
     diag_last: dict[str, str] = {}
-    vel_t, vel = [], []
-    for _ts, topic, typ, blob in iter_messages(args.result_bag):
+    vel_t, vel, vel_log = [], [], []
+    for ts, topic, typ, blob in iter_messages(args.result_bag):
         rec = decode_message(typ, blob)
         if rec is None:
             continue
         if topic == "/result/position":
             pos_t.append(rec["stamp_s"]); px.append(rec["s"]); py.append(rec["y"]); pz.append(rec["z"]); pv.append(rec["v"])
         elif topic == "/result/velocity":
-            vel_t.append(rec["stamp_s"]); vel.append(rec["velocity"])
+            vel_t.append(rec["stamp_s"]); vel.append(rec["velocity"]); vel_log.append(ts * 1e-9)
         elif topic == "/result/diagnostics":
             vals = rec.get("values", {})
             if "callback_max_us" in vals:
@@ -204,7 +258,16 @@ def main() -> int:
     vt = np.array(vel_t)
     vest = {"t": vt, "x": np.zeros(len(vt)), "y": np.zeros(len(vt)), "z": np.zeros(len(vt)), "v": np.array(vel)}
     vs = score(vest, ref)
-    rate_hz, max_gap_s = output_rate_hz(vt)
+    rates = output_rate_report(vt, vel_log)
+    rate_hz, max_gap_s = rates["rate_hz"], rates["max_gap_s"]
+    src = source_rates(
+        {
+            "front": _diag_count(diag_last, "n_pub_front"),
+            "rear": _diag_count(diag_last, "n_pub_rear"),
+            "cmd": _diag_count(diag_last, "n_pub_cmd"),
+        },
+        rates["span_s"],
+    )
     # end drift: 3D error at the last paired reference sample over path length
     from judge import pair
     idx = pair(est["t"], ref["t"])
@@ -223,6 +286,12 @@ def main() -> int:
         "n_velocity": len(vel_t),
         "rate_hz": rate_hz,
         "max_gap_s": max_gap_s,
+        "n_unique": rates["n_unique"],
+        "n_duplicate": rates["n_duplicate"],
+        "n_regressed": rates["n_regressed"],
+        "rate_record_hz": rates["rate_record_hz"],
+        "rate_unique_hz": rates["rate_unique_hz"],
+        "rate_wall_hz": rates["rate_wall_hz"],
         "coverage": pos["coverage"],
         "rmse_3d": pos["rmse_3d"],
         "rmse_3d_raw": raw_3d,
@@ -251,6 +320,14 @@ def main() -> int:
         "path_m": path,
         "end_drift_pct": 100.0 * end_err / path if path > 0 else float("nan"),
         "callback_max_us": float(diag_last.get("callback_max_us", "nan")),
+        "n_pub_front": _diag_count(diag_last, "n_pub_front"),
+        "n_pub_rear": _diag_count(diag_last, "n_pub_rear"),
+        "n_pub_cmd": _diag_count(diag_last, "n_pub_cmd"),
+        "n_dup_out": _diag_count(diag_last, "n_dup_out"),
+        "n_behind_out": _diag_count(diag_last, "n_behind_out"),
+        "rate_front_hz": src["front"],
+        "rate_rear_hz": src["rear"],
+        "rate_cmd_hz": src["cmd"],
         "n_anchor": int(float(diag_last.get("n_anchor", "0"))),
         "gnss_state": diag_last.get("gnss", ""),
         "gnss_note": diag_last.get("gnss_note", ""),

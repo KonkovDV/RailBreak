@@ -87,6 +87,38 @@ def main():
         fail(f"duplicate stamps changed the rate, hz={hz} gap={gap}")
     if np.isfinite(output_rate_hz([1.0, 1.0])[0]):
         fail("identical stamps produced a finite rate")
+    from score_ros import output_rate_report, source_rates
+    # Three callbacks, 0.1 ms apart, for 10 s at 10 Hz. Exact duplicates are
+    # absent, so the unique-stamp median is the 0.1 ms gap.
+    near = []
+    for i in range(100):
+        base = i / 10.0
+        near.extend((base, base + 1e-4, base + 2e-4))
+    near_rep = output_rate_report(near, near)
+    if not (near_rep["rate_hz"] > 1000.0):
+        fail(f"near-duplicate median did not inflate, hz={near_rep['rate_hz']}")
+    if not (29.0 < near_rep["rate_record_hz"] < 31.0):
+        fail(f"record-duration rate left the publish rate, hz={near_rep['rate_record_hz']}")
+    if near_rep["n_unique"] != 300 or near_rep["n_duplicate"] != 0:
+        fail("near-duplicates were counted as exact copies")
+    if abs(near_rep["rate_wall_hz"] - near_rep["rate_record_hz"]) > 1e-9:
+        fail("wall rate disagreed with the record when log time matches the header")
+    exact = np.repeat(np.arange(100) / 10.0, 3)
+    exact_rep = output_rate_report(exact)
+    if abs(exact_rep["rate_hz"] - 10.0) > 1e-6:
+        fail(f"exact duplicates changed the unique rate, hz={exact_rep['rate_hz']}")
+    if exact_rep["n_unique"] != 100 or exact_rep["n_duplicate"] != 200:
+        fail("exact duplicate count is wrong")
+    if not (29.0 < exact_rep["rate_record_hz"] < 31.0):
+        fail("exact duplicates did not raise the message rate over the record")
+    back = output_rate_report([0.0, 0.2, 0.1, 0.3])
+    if back["n_regressed"] != 1:
+        fail("a backward step was not counted")
+    src = source_rates({"front": 1000, "rear": 1000, "cmd": 500}, 100.0)
+    if abs(src["front"] - 10.0) > 1e-9 or abs(src["cmd"] - 5.0) > 1e-9:
+        fail("per-source rate is not the count over the span")
+    if np.isfinite(source_rates({"front": None}, 100.0)["front"]):
+        fail("a missing source produced a finite rate")
     t_est = np.arange(0.0, 1.01, 0.2)
     t_ref = np.arange(0.0, 1.01, 0.05)
     idx = pair_estimates(t_est, t_ref, 0.05)
