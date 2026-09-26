@@ -94,6 +94,20 @@ def _diag_count(diag: dict, key: str):
     return int(float(raw))
 
 
+def retention_parts(n_master: int, n_paired: int, n_fix: int) -> dict:
+    """Three ratios. One n_fix/n_master mixes a missing rover pair, the baseline
+    and the height gate. n_fix is the count after all three."""
+
+    def div(num: int, den: int) -> float:
+        return float(num) / float(den) if den else float("nan")
+
+    return {
+        "time_pair_retention": div(n_paired, n_master),
+        "rigid_body_retention": div(n_fix, n_paired),
+        "total_retention": div(n_fix, n_master),
+    }
+
+
 def source_rates(counts: dict, span_s: float) -> dict:
     """Publishes of one callback divided by the output header span."""
     out = {}
@@ -227,6 +241,8 @@ def main() -> int:
     n_paired = int(ok_time.sum())
     n_baseline_reject = int((ok_time & ~ok_base).sum())
     n_height_reject = int((ok_base & ~ok).sum())
+    n_fix = int(ok.sum())
+    kept = retention_parts(n_master, n_paired, n_fix)
     g_raw, rx_raw, ry_raw, rz_raw = g[ok_time], rx_raw[ok_time], ry_raw[ok_time], rz_raw[ok_time]
     g = g[ok]
     rx, ry, rz = rx[ok], ry[ok], rz[ok]
@@ -309,9 +325,10 @@ def main() -> int:
         "n_paired": n_paired,
         "n_baseline_reject": n_baseline_reject,
         "n_height_reject": n_height_reject,
-        "time_pair_retention": (float(n_paired) / n_master) if n_master else float("nan"),
-        "rigid_body_retention": (float(ok.sum()) / n_paired) if n_paired else float("nan"),
-        "reference_retention": (float(ok.sum()) / n_master) if n_master else float("nan"),
+        "time_pair_retention": kept["time_pair_retention"],
+        "rigid_body_retention": kept["rigid_body_retention"],
+        "total_retention": kept["total_retention"],
+        "reference_retention": kept["total_retention"],
         "min_status": args.min_status,
         "n_fix": int(len(g)),
         "status_counts": status_counts,

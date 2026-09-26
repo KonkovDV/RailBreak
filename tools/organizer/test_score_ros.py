@@ -145,6 +145,39 @@ def main():
         fail("a cross-track component did not raise the module")
     if abs(par[3]) > 1e-12 or abs(mod[3] - 4.0) > 1e-12:
         fail("pure cross-track speed still had an along-track part")
+    from score_ros import retention_parts
+    lon_ok = lon_for_east(BASELINE_M, H0)
+    lon_far = lon_for_east(80.0, H0)
+    masters = np.array([
+        [0.0, 10.0, LAT0, LON0, H0, 2.0],
+        [0.0, 11.0, LAT0, LON0, H0, 2.0],
+        [0.0, 12.0, LAT0, LON0, H0, 2.0],
+        [0.0, 13.0, LAT0, LON0, H0, 2.0],
+    ])
+    rovers = np.array([
+        [0.0, 10.0, LAT0, lon_ok, H0, 2.0],
+        [0.0, 12.0, LAT0, lon_far, H0, 2.0],
+        [0.0, 13.0, LAT0, lon_ok, H0 + 3.0, 2.0],
+    ])
+    _, _, _, ok_time = base_link_xyz(masters, rovers, "enu", START, baseline_tol=1e9, height_tol=1e9)
+    _, _, _, ok_base = base_link_xyz(masters, rovers, "enu", START, baseline_tol=2.0, height_tol=1e9)
+    _, _, _, ok_all = base_link_xyz(masters, rovers, "enu", START, baseline_tol=2.0, height_tol=1.0)
+    n_master = len(masters)
+    n_paired = int(ok_time.sum())
+    n_kept = int(ok_all.sum())
+    parts = retention_parts(n_master, n_paired, n_kept)
+    if n_paired != 3 or n_kept != 1:
+        fail(f"the four causes were not separated, paired={n_paired} fix={n_kept}")
+    if int((ok_time & ~ok_base).sum()) != 1 or int((ok_base & ~ok_all).sum()) != 1:
+        fail("baseline and height rejects were not one each")
+    if abs(parts["time_pair_retention"] - 0.75) > 1e-12:
+        fail("time-pair retention is not n_paired/n_master")
+    if abs(parts["rigid_body_retention"] - 1.0 / 3.0) > 1e-12:
+        fail("rigid-body retention is not n_fix/n_paired")
+    if abs(parts["total_retention"] - 0.25) > 1e-12:
+        fail("total retention is not n_fix/n_master")
+    if abs(parts["time_pair_retention"] * parts["rigid_body_retention"] - parts["total_retention"]) > 1e-12:
+        fail("the three ratios do not multiply")
     print("ok")
 
 

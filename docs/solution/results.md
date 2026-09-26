@@ -141,8 +141,10 @@ GNSS тоже готов: на пяти подписках со ста сооб�
 сходит с кольца. В JSON рядом с отфильтрованным `rmse_3d` пишутся `rmse_3d_raw`,
 `coverage_raw`, `reference_retention`, `n_baseline_reject` и `n_height_reject`.
 Coverage считается по оставшейся выборке. Рядом пишутся `time_pair_retention`
-(пара по времени к числу master), `rigid_body_retention` (порог базы и высоты
-к числу пар) и `reference_retention` (все пороги к числу master). `rate_hz`
+(пара по времени к числу master), `rigid_body_retention` (база и высота
+к числу пар) и `total_retention` (все пороги к числу master).
+`reference_retention` — то же число, что `total_retention`. `n_baseline_reject`
+и `n_height_reject` разделяют два порога внутри `rigid_body_retention`. `rate_hz`
 берёт уникальные штампы: точные совпадения тележки и ручки не делают частоту
 бесконечной. Три одинаковых штампа на шаге 10 Гц дают `rate_hz` 10 Гц,
 200 дублей и `rate_record_hz` 30.2 Гц. Штампы 0 / 0.1 / 0.2 мс дают
