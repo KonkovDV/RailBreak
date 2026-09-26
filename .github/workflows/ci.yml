@@ -44,6 +44,8 @@ jobs:
         run: python tools/eval/test_provenance.py
       - name: submission package manifest
         run: python tools/organizer/test_package_manifest.py
+      - name: jury demo script
+        run: python tools/organizer/test_demo_script.py
       - name: score_ros reference gate
         run: python tools/organizer/test_score_ros.py
       - name: latency probe
