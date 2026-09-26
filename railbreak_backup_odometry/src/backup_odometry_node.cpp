@@ -170,24 +170,36 @@ class BackupOdometryNode : public rclcpp::Node {
         r_alt_.push_back(m.altitude);
       }
     }
-    if (t_first_fix_ >= 0.0 && t > t_first_fix_ + window_s_) finish_init();
-    else if (t_first_fix_ < 0.0 && t_first_rover_ >= 0.0 && t > t_first_rover_ + window_s_)
-      finish_init();
+    // Per topic the queue is FIFO, so a stamp past the window means every
+    // earlier fix on that antenna was already handled. Closing from a wheel
+    // callback instead drops both queues: at --rate 10 the wheel stamp is
+    // delivered first.
+    const double t_open = t_first_fix_ >= 0.0 ? t_first_fix_ : t_first_rover_;
+    if (t_open >= 0.0 && t > t_open + window_s_) {
+      if (master) master_past_ = true;
+      else rover_past_ = true;
+      const bool master_done = t_first_fix_ < 0.0 || master_past_;
+      const bool rover_done = t_first_rover_ < 0.0 || rover_past_;
+      if (master_done && rover_done) finish_init();
+    }
   }
 
   void maybe_close_window(double t) {
     if (gnss_closed_) return;
-    if (t_first_fix_ >= 0.0 && t > t_first_fix_ + window_s_) {
-      finish_init();
-    } else if (t_first_fix_ < 0.0 && t_first_rover_ >= 0.0 && t > t_first_rover_ + window_s_) {
-      finish_init();
-    } else if (t_first_fix_ < 0.0 && t_first_rover_ < 0.0 && t_first_input_ >= 0.0 &&
-               t > t_first_input_ + wait_s_) {
+    if (t_first_fix_ < 0.0 && t_first_rover_ < 0.0 && t_first_input_ >= 0.0 &&
+        t > t_first_input_ + wait_s_) {
       if (manual_start()) return;
       // No GNSS and no initial position: relative odometry (allowed by the case text).
       relative_ = true;
       close_gnss("no fix within gnss_wait_s; relative odometry from the start point");
+      return;
     }
+    // One antenna went silent inside the window. Stamp grace, not the first
+    // wheel sample past the window: that sample races the GNSS queue.
+    const double t_open = t_first_fix_ >= 0.0 ? t_first_fix_ : t_first_rover_;
+    if (t_open >= 0.0 && (master_past_ || rover_past_) &&
+        t > t_open + window_s_ + wait_s_)
+      finish_init();
   }
 
   void finish_init() {
@@ -408,6 +420,7 @@ class BackupOdometryNode : public rclcpp::Node {
   double s_at_first_fix_ = -1e9, s_rel_origin_ = 0.0;
   std::vector<double> m_lat_, m_lon_, m_alt_, r_lat_, r_lon_, r_alt_;
   bool gnss_closed_ = false, initialised_ = false, relative_ = false;
+  bool master_past_ = false, rover_past_ = false;
   std::string gnss_note_ = "window open";
   int n_fix_used_ = 0;
   railbreak::OutputFrame frame_;
