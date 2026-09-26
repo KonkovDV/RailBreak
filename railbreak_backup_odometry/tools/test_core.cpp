@@ -268,10 +268,30 @@ int main() {
     check(!od.slip(), "the published slip flag is the last callback");
     check(od.slip_front() && !od.slip_rear(), "a healthy rear does not clear the front channel");
     check(od.slip_front_run() >= 2, "consecutive front anomalies are counted");
-    check(od.slip_age_s() > 0.1, "the front channel keeps its age across the rear callback");
+    check(od.slip_front_age_s() > 0.1 && od.slip_rear_age_s() == 0.0,
+          "the front channel keeps its own age across the rear callback");
+    check(std::fabs(od.slip_age_s() - od.slip_front_age_s()) < 1e-9,
+          "one slipping channel is the whole any-slip age");
     check(od.slip_front_nis() > 16.0, "the channel keeps the gate statistic, not a probability");
     od.on_bogie(30.2, true, 36.0);
-    check(!od.slip_front() && od.slip_front_run() == 0, "a healthy front callback clears only the front channel");
+    check(!od.slip_front() && od.slip_front_run() == 0 && od.slip_front_age_s() == 0.0,
+          "a healthy front callback clears only the front channel");
+  }
+  {
+    railbreak::TrackOdometer od(&assets, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 30.0, 36.0);
+    od.on_bogie(30.0, true, 36.0 * 1.2);
+    od.on_bogie(30.4, false, 36.0 * 1.2);
+    od.on_bogie(30.5, true, 36.0);
+    std::printf("     handoff any=%.3f front=%.3f rear=%.3f\n",
+                od.slip_age_s(), od.slip_front_age_s(), od.slip_rear_age_s());
+    check(!od.slip_front() && od.slip_rear(), "the rear is the only channel still slipping");
+    check(od.slip_front_age_s() == 0.0, "the recovered front does not keep an age");
+    check(od.slip_rear_age_s() > 0.05 && od.slip_rear_age_s() < 0.2,
+          "the rear age starts when the rear enters, not at the earlier front");
+    check(od.slip_age_s() > 0.4, "slip_age_s stays the continuous any-slip age");
   }
   {
     railbreak::TrackOdometer od(&assets, p);

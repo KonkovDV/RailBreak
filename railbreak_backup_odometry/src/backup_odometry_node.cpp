@@ -509,6 +509,8 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("slip_front", od_->slip_front() ? "true" : "false");
     kv("slip_rear", od_->slip_rear() ? "true" : "false");
     kv("slip_age_s", std::to_string(od_->slip_age_s()));
+    kv("slip_front_age_s", std::to_string(od_->slip_front_age_s()));
+    kv("slip_rear_age_s", std::to_string(od_->slip_rear_age_s()));
     kv("slip_front_run", std::to_string(od_->slip_front_run()));
     kv("slip_rear_run", std::to_string(od_->slip_rear_run()));
     kv("slip_front_nis", std::to_string(od_->slip_front_nis()));

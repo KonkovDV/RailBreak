@@ -347,7 +347,7 @@ class TrackOdometer {
     slip_front_ = slip_rear_ = false;
     slip_front_run_ = slip_rear_run_ = 0;
     slip_front_nis_ = slip_rear_nis_ = 0.0;
-    slip_since_ = -1.0;
+    slip_since_ = slip_front_since_ = slip_rear_since_ = -1.0;
     front_model_resid_ = rear_model_resid_ = 0.0;
     have_front_model_ = have_rear_model_ = false;
     wheel_consensus_resid_ = 0.0;
@@ -510,9 +510,11 @@ class TrackOdometer {
   int slip_rear_run() const { return slip_rear_run_; }
   double slip_front_nis() const { return slip_front_nis_; }
   double slip_rear_nis() const { return slip_rear_nis_; }
-  double slip_age_s() const {
-    return slip_since_ < 0.0 || !have_t_ ? 0.0 : std::max(0.0, t_ - slip_since_);
-  }
+  // Age of the continuous any-slip state: from the first flagged channel until both are clear.
+  double slip_age_s() const { return age_since(slip_since_); }
+  // Age of that bogie's own flag. A recovered channel is 0; the other does not inherit its start.
+  double slip_front_age_s() const { return slip_front_ ? age_since(slip_front_since_) : 0.0; }
+  double slip_rear_age_s() const { return slip_rear_ ? age_since(slip_rear_since_) : 0.0; }
   Mode mode() const { return mode_; }
   int notch() const { return notch_; }
   int n_anchor() const { return n_anchor_; }
@@ -605,11 +607,21 @@ class TrackOdometer {
     (is_front ? slip_front_nis_ : slip_rear_nis_) = nis;
     int& run = is_front ? slip_front_run_ : slip_rear_run_;
     run = flagged ? run + 1 : 0;
+    double& channel_since = is_front ? slip_front_since_ : slip_rear_since_;
+    if (flagged) {
+      if (channel_since < 0.0) channel_since = t;
+    } else {
+      channel_since = -1.0;
+    }
     if (slip_front_ || slip_rear_) {
       if (slip_since_ < 0.0) slip_since_ = t;
     } else {
       slip_since_ = -1.0;
     }
+  }
+
+  double age_since(double since) const {
+    return since < 0.0 || !have_t_ ? 0.0 : std::max(0.0, t_ - since);
   }
 
   void learn_pair(double uf, double ur) {
@@ -832,6 +844,8 @@ class TrackOdometer {
   double slip_front_nis_ = 0.0;
   double slip_rear_nis_ = 0.0;
   double slip_since_ = -1.0;
+  double slip_front_since_ = -1.0;
+  double slip_rear_since_ = -1.0;
   double front_model_resid_ = 0.0;
   double rear_model_resid_ = 0.0;
   bool have_front_model_ = false;

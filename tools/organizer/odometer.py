@@ -121,6 +121,7 @@ class Odometer:
         self.slip_run = {"front": 0, "rear": 0}
         self.slip_nis = {"front": 0.0, "rear": 0.0}
         self.slip_since = None
+        self.slip_channel_since = {"front": None, "rear": None}
         # Pre-update copies for the adhesion proxy. predict and update do not read them.
         self.model_resid = {"front": None, "rear": None}
         self.wheel_consensus = None
@@ -159,6 +160,11 @@ class Odometer:
         self.slip_side[which] = flagged
         self.slip_nis[which] = nis
         self.slip_run[which] = self.slip_run[which] + 1 if flagged else 0
+        if flagged:
+            if self.slip_channel_since[which] is None:
+                self.slip_channel_since[which] = t
+        else:
+            self.slip_channel_since[which] = None
         if self.slip_side["front"] or self.slip_side["rear"]:
             if self.slip_since is None:
                 self.slip_since = t
