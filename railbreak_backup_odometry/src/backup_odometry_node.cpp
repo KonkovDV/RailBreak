@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,7 @@
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
 
 #include "railbreak_backup_odometry/gnss_window.hpp"
+#include "railbreak_backup_odometry/integrity_bound.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
 using tram_vehicle_msgs::msg::DriverControllerCommand;
@@ -302,11 +304,14 @@ class BackupOdometryNode : public rclcpp::Node {
     if (!stamp_forward(t)) {
       if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
       od_->on_bogie(t, front, m.velocity);
+      note_integrity(true);
+      publish_diag(m.header.stamp);
       return;
     }
     if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
     od_->on_bogie(t, front, m.velocity);
+    note_integrity(false);
     publish(m.header.stamp, t0);
     if (front) ++n_pub_front_;
     else ++n_pub_rear_;
@@ -319,11 +324,14 @@ class BackupOdometryNode : public rclcpp::Node {
     if (!stamp_forward(t)) {
       if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
       od_->on_cmd(t, static_cast<int>(m.position));
+      note_integrity(true);
+      publish_diag(m.header.stamp);
       return;
     }
     if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
     od_->on_cmd(t, static_cast<int>(m.position));
+    note_integrity(false);
     publish(m.header.stamp, t0);
     ++n_pub_cmd_;
     note_out(t);
@@ -410,6 +418,41 @@ class BackupOdometryNode : public rclcpp::Node {
     if (++n_out_ % diag_every_ == 0) publish_diag(stamp);
   }
 
+  void note_integrity(bool stamp_regressed) {
+    last_integrity_ = integrity_.update(integrity_obs(stamp_regressed));
+    have_integrity_ = true;
+  }
+
+  railbreak::IntegrityObs integrity_obs(bool stamp_regressed) const {
+    railbreak::IntegrityObs o;
+    o.stamp_regressed = stamp_regressed;
+    o.absolute_start = initialised_ && !relative_;
+    o.map_in_domain = assets_ok_ &&
+                      gnss_note_.find("not on the track map") == std::string::npos;
+    o.nis_gate = od_->nis_gate();
+    o.wheel_stale_s = od_->wheel_stale_s();
+    o.max_gap_s = od_->max_gap_s();
+    o.recover_s = od_->recover_s();
+    o.n_anchor = od_->n_anchor();
+    o.sigma_s = od_->sigma_s();
+    o.t = od_->have_time() ? od_->time_s() : 0.0;
+    o.dwell = od_->mode() == railbreak::Mode::kZupt;
+    o.slip_front = od_->slip_front();
+    o.slip_rear = od_->slip_rear();
+    o.nis_front = od_->slip_front_nis();
+    o.nis_rear = od_->slip_rear_nis();
+    auto age = [&](bool have, double ts) {
+      if (!have || !od_->have_time()) return 1.0e9;
+      return std::max(0.0, od_->time_s() - ts);
+    };
+    o.front_age_s = age(od_->front_have(), od_->front_t());
+    o.rear_age_s = age(od_->rear_have(), od_->rear_t());
+    o.pair_fresh = od_->pair_fresh();
+    o.bogies_agree = od_->bogies_agree();
+    o.station_candidates = od_->station_candidates();
+    return o;
+  }
+
   void publish_diag(const builtin_interfaces::msg::Time& stamp) {
     diagnostic_msgs::msg::DiagnosticArray a;
     a.header.stamp = stamp;
@@ -461,6 +504,25 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("bogie_noise_sd_mps", std::to_string(od_->noise_sd()));
     kv("model_bias_mps2", std::to_string(od_->model_bias()));
     kv("callback_max_us", std::to_string(lat_max_us_));
+    const railbreak::IntegrityReport ir = have_integrity_
+                                               ? last_integrity_
+                                               : integrity_.update(integrity_obs(false));
+    kv("integrity_status", ir.status);
+    kv("integrity_reasons", ir.reasons.empty() ? "" : ir.reasons);
+    if (ir.bound_valid) {
+      std::ostringstream bound;
+      bound.setf(std::ios::fixed);
+      bound.precision(3);
+      bound << ir.along_bound_m;
+      kv("integrity_along_bound_m", bound.str());
+    } else {
+      kv("integrity_along_bound_m", "null");
+    }
+    kv("integrity_calibrated_coverage", ir.calibrated_coverage);
+    kv("integrity_calibration_split", ir.calibration_split);
+    kv("integrity_certification_claim", "false");
+    kv("integrity_use_position", ir.use_position ? "true" : "false");
+    kv("integrity_bound_name", ir.bound_name);
     a.status.push_back(st);
     pub_d_->publish(a);
   }
@@ -468,6 +530,9 @@ class BackupOdometryNode : public rclcpp::Node {
   railbreak::Assets assets_;
   bool assets_ok_ = true;
   std::unique_ptr<railbreak::TrackOdometer> od_;
+  railbreak::IntegrityMonitor integrity_{railbreak::empirical_bound()};
+  railbreak::IntegrityReport last_integrity_{};
+  bool have_integrity_ = false;
   railbreak::GnssWindow win_;
   int64_t diag_every_ = 20;
   std::string frame_id_, child_frame_id_;

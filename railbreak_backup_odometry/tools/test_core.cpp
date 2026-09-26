@@ -3,8 +3,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <string>
 
 #include "railbreak_backup_odometry/gnss_window.hpp"
+#include "railbreak_backup_odometry/integrity_bound.hpp"
+#include "railbreak_backup_odometry/integrity_monitor.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
 namespace {
@@ -787,6 +790,74 @@ int main() {
     miss.set_time(0.0);
     drive(miss, 0.0, 20.0, 36.0);
     check(miss.n_anchor() == 0, "driving past the only station does not anchor");
+  }
+  {
+    railbreak::IntegrityObs o;
+    o.t = 10.0;
+    o.sigma_s = 2.0;
+    o.front_age_s = 0.05;
+    o.rear_age_s = 0.05;
+    o.pair_fresh = true;
+    o.bogies_agree = true;
+    o.absolute_start = true;
+    o.map_in_domain = true;
+    railbreak::IntegrityMonitor mon;
+    const auto nominal = mon.update(o);
+    check(std::string(nominal.status) == "NOMINAL", "fresh agreeing bogies are nominal");
+    check(nominal.reasons.empty(), "nominal has no reason");
+    check(nominal.use_position, "nominal may be used");
+    check(!nominal.certification_claim, "the bound is not a certificate");
+    o.nis_front = 20.0;
+    o.slip_front = true;
+    const auto one = railbreak::IntegrityMonitor{}.update(o);
+    check(std::string(one.status) == "DEGRADED_SINGLE_BOGIE", "one high NIS is a single bogie");
+    check(one.reasons.find("FRONT_NIS_HIGH") != std::string::npos, "front NIS is named");
+    o.front_age_s = 31.0;
+    o.rear_age_s = 31.0;
+    o.pair_fresh = false;
+    o.bogies_agree = false;
+    o.slip_front = false;
+    o.nis_front = 0.0;
+    const auto gap = railbreak::IntegrityMonitor{}.update(o);
+    check(std::string(gap.status) == "POSITION_UNTRUSTED", "a gap past the clock reset is refused");
+    check(!gap.use_position, "an untrusted position is not for use");
+    railbreak::BoundCoeff c;
+    c.calibrated = true;
+    c.q99 = 2.5;
+    c.b_single = 4.0;
+    railbreak::IntegrityObs fresh = o;
+    fresh.front_age_s = 0.05;
+    fresh.rear_age_s = 0.05;
+    fresh.pair_fresh = true;
+    fresh.bogies_agree = true;
+    fresh.slip_front = true;
+    fresh.nis_front = 20.0;
+    fresh.sigma_s = 2.0;
+    const auto bound = railbreak::IntegrityMonitor{c}.update(fresh);
+    check(std::fabs(bound.along_bound_m - 9.0) < 1e-9, "bound is q * sigma + B_mode");
+    check(std::string(railbreak::empirical_bound().coverage) == "0.99", "coverage target stays 0.99");
+    check(!railbreak::empirical_bound().calibrated || railbreak::empirical_bound().q99 > 0.0,
+          "a fitted multiplier is positive");
+    auto line = flat_ring(500.0);
+    railbreak::TrackOdometer od(&line, railbreak::Params{});
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    drive(od, 0.0, 2.0, 36.0);
+    const double s_before = od.s();
+    const int anchors = od.n_anchor();
+    railbreak::IntegrityObs live;
+    live.t = od.time_s();
+    live.sigma_s = od.sigma_s();
+    live.absolute_start = true;
+    live.map_in_domain = true;
+    live.front_age_s = 0.05;
+    live.rear_age_s = 0.05;
+    live.pair_fresh = od.pair_fresh();
+    live.bogies_agree = od.bogies_agree();
+    live.n_anchor = od.n_anchor();
+    railbreak::IntegrityMonitor shadow;
+    shadow.update(live);
+    check(od.s() == s_before && od.n_anchor() == anchors, "the monitor does not move the filter");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

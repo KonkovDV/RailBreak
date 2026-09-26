@@ -449,6 +449,43 @@ class TrackOdometer {
   int n_gap_reset() const { return n_gap_reset_; }
   double a_model_now() const { return a_model(x_[IV], x_[IS]) + x_[IBA]; }
 
+  // Read-only views for the shadow integrity monitor. They do not update x or P.
+  bool have_time() const { return have_t_; }
+  double time_s() const { return t_; }
+  double nis_gate() const { return p_.nis_gate; }
+  double wheel_stale_s() const { return p_.wheel_stale_s; }
+  double max_gap_s() const { return p_.max_gap_s; }
+  double recover_s() const { return p_.recover_s; }
+  bool front_have() const { return front_.have; }
+  bool rear_have() const { return rear_.have; }
+  double front_t() const { return front_.t; }
+  double rear_t() const { return rear_.t; }
+  double front_u() const { return front_.u; }
+  double rear_u() const { return rear_.u; }
+  bool pair_fresh() const {
+    return front_.have && rear_.have && have_t_ &&
+           std::fabs(front_.t - rear_.t) < p_.wheel_stale_s &&
+           std::isfinite(front_.u) && std::isfinite(rear_.u);
+  }
+  bool bogies_agree() const {
+    if (!pair_fresh()) return false;
+    const double gate = std::max(p_.fr_floor, p_.fr_sigma_gate * std::sqrt(2.0 * r_));
+    return std::fabs(corrected(true, front_.u) - corrected(false, rear_.u)) <= gate;
+  }
+  // Same gate as anchor(), without applying it. 0, 1, or more.
+  int station_candidates() const {
+    const double s = a_->map.wrap(x_[IS]);
+    const double sig = std::sqrt(std::max(P_[IS][IS], 0.0));
+    int n_cand = 0;
+    for (const auto& st : a_->stops) {
+      if (st.sd_m > p_.stop_sd_max) continue;
+      const double r_sd = std::max(st.sd_m, p_.stop_sigma_floor);
+      const double gate = p_.stop_gate * std::sqrt(sig * sig + r_sd * r_sd);
+      if (std::fabs(ring_delta(st.s_m, s)) <= gate) ++n_cand;
+    }
+    return n_cand;
+  }
+
  private:
   double corrected(bool is_front, double u) const {
     const double half = 0.5 * log_rho_;

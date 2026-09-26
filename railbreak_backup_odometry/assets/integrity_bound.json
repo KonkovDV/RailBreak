@@ -1,0 +1,44 @@
+{
+ "name": "empirical along-track integrity bound",
+ "name_ru": "экспериментальная граница ошибки",
+ "certification_claim": false,
+ "calibrated": true,
+ "calibrated_coverage": "0.99",
+ "calibration_split": "train",
+ "q_0_99": 8.264474,
+ "q_definition": "pooled 99th percentile of |e_s|/sigma_s on clean train fixes with status NOMINAL and sigma_s >= 0.05 m",
+ "sigma_floor_m": 0.05,
+ "b_mode_m": {
+  "NOMINAL": 0.0,
+  "DEGRADED_SINGLE_BOGIE": 10.018627,
+  "DEGRADED_MODEL_CARRY": 0.0,
+  "DEGRADED_COMMON_MODE_UNOBSERVABLE": 32.605727,
+  "DEGRADED_NO_MAP": 0.0,
+  "DEGRADED_RELATIVE_ONLY": 0.0,
+  "POSITION_UNTRUSTED": 0.0
+ },
+ "b_mode_counts": {
+  "NOMINAL": 400344,
+  "DEGRADED_SINGLE_BOGIE": 22333,
+  "DEGRADED_MODEL_CARRY": 10,
+  "DEGRADED_COMMON_MODE_UNOBSERVABLE": 149,
+  "DEGRADED_NO_MAP": 0,
+  "DEGRADED_RELATIVE_ONLY": 0,
+  "POSITION_UNTRUSTED": 0
+ },
+ "b_time_m": 0.0,
+ "b_time_stale_fixes": 1723,
+ "b_map_m": 0.0,
+ "b_map_identified": false,
+ "formula": "q_0.99 * sigma_s + B_mode + B_time + B_map",
+ "n_train_rides": 39,
+ "n_train_nominal_fixes": 400344,
+ "n_val_rides": 21,
+ "val_fraction_inside": 0.972172,
+ "val_fraction_inside_median_ride": 1.0,
+ "notes": {
+  "scale_rear_5pct_nominal_fixes": 378410,
+  "scale_rear_5pct_nominal_abs_e_p99_m": 230.631799
+ },
+ "errors": []
+}
