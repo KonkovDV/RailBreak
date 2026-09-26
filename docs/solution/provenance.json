@@ -1,22 +1,305 @@
 {
-  "filter_behavior_through": "cf7bb70",
-  "this_file_does_not_change_the_filter": true,
-  "recordings_are_not_in_the_repo": true,
-  "val_along": {
-    "command": "python tools/organizer/eval_odometer.py --split val",
-    "rmse_median_m": 1.467,
-    "p95_m": 5.828,
-    "n": 21,
-    "split": "object-separated val, recordings not in the repo"
-  },
-  "ros_mgrs_base_link_rate_10": [
-    {"bag": "30618_e9a34502", "rmse_3d_ungated_m": 0.771, "fixes": 60, "s0_m": 5632.874},
-    {"bag": "30618_01f73500", "rmse_3d_ungated_m": 10.837, "fixes": 60, "s0_m": 11023.874, "gated_3d_m": 4.970, "n_kept": 10017, "n_master": 11901},
-    {"bag": "30618_a869780d", "rmse_3d_ungated_m": 30.426, "fixes": 59, "s0_m": 143.000, "gated_3d_m": 3.396, "n_kept": 8195, "n_master": 10659}
+  "schema": "railbreak.result-provenance.v1",
+  "null_means": "not stored with the run and not reconstructed afterwards",
+  "fields": [
+    "commit_sha",
+    "evaluator_sha256",
+    "bag_id",
+    "input_sha256",
+    "parameters",
+    "frame",
+    "gate",
+    "playback_rate",
+    "docker_image_digest",
+    "date",
+    "command"
   ],
-  "smoke_30618_082f1d65": {"rate": 10, "fixes": 60, "s0_m": 44.0, "x": 103603.59376334609, "y": 86084.56737734191},
-  "historical_table": "results.md rows 6.07 / 5.35 / 0.77 are start-grid, master point, not the current frame",
-  "not_rerun_after_window_fix": "30639_927002c2 still cited as 1.992 m from before the GNSS-window fix",
-  "eight_callbacks": "heuristic, not a proof the DDS queue is empty",
-  "velocity_reference": "horizontal hypot of master velocity, not the along-track projection"
+  "filter_last_changed_commit": "8add7ae5543cf0142e56945041cb4c20badabb32",
+  "published_numbers_recomputed_after_filter_change": false,
+  "recordings_are_not_in_the_repo": true,
+  "tree_sha256": {
+    "tools/organizer/odometer.py": {
+      "commit": "8add7ae5543cf0142e56945041cb4c20badabb32",
+      "sha256": "68f8411d22d3983999bd820b5b3c54d08154cf3d5b29b5c769bd656a6ca1b38a"
+    },
+    "railbreak_backup_odometry/include/railbreak_backup_odometry/track_odometer.hpp": {
+      "commit": "8add7ae5543cf0142e56945041cb4c20badabb32",
+      "sha256": "48cb455e57aa6642399b77150642547ebb8e3f116b9d6ec426166f1e58df9c1f"
+    },
+    "tools/organizer/eval_odometer.py": {
+      "commit": "HEAD",
+      "sha256": "adfb5c22fefd95932bdc222737c754adb89333321ead092104cc77ae10a4f997"
+    },
+    "tools/organizer/score_ros.py": {
+      "commit": "HEAD",
+      "sha256": "6517124b795b29d46c3a8c6259f76741e05d75f9c8ab82459f5dd306110079d1"
+    },
+    "tools/organizer/speed_reference.py": {
+      "commit": "HEAD",
+      "sha256": "c3e498946efabebfdfd23856fe6feb0a5181035afad8fd9ea9cdc601938285fb"
+    },
+    "railbreak_backup_odometry/assets/ring.csv": {
+      "commit": "HEAD",
+      "sha256": "a3429f1fdc23c96a1caf25d9f0d891cd217df119bcf1a2414f8943cfcf6ecc14"
+    },
+    "railbreak_backup_odometry/assets/stops.csv": {
+      "commit": "HEAD",
+      "sha256": "274a938317d1de5724b570b8671f3c31bfacab0e2a20e199334f9e0e037406a9"
+    },
+    "railbreak_backup_odometry/assets/notch.csv": {
+      "commit": "HEAD",
+      "sha256": "7012ffd73a4603b908e58234aaa374c7f7b51cd59b211754794278a19c50f173"
+    },
+    "railbreak_backup_odometry/assets/meta.yaml": {
+      "commit": "HEAD",
+      "sha256": "a04a3f3ad7242c1b028112f4b91dafeed83d58b1812b6108f4d1f3bc0710c7c2"
+    },
+    "railbreak_backup_odometry/config/params.yaml": {
+      "commit": "HEAD",
+      "sha256": "5633058f68cd5b27042cb2189698d5f74ecc4d89c414df1ab2cd3b412408fb42"
+    }
+  },
+  "results": [
+    {
+      "id": "offline-val",
+      "commit_sha": null,
+      "evaluator_sha256": {
+        "path": "tools/organizer/eval_odometer.py",
+        "commit": "7362107b14fd75ec2f1d37df9689fefaac41c1ef",
+        "sha256": "f657d720b9822985fbd33f570e5a91f2a70bc765d0735dbdd6efa3e16b306444",
+        "role": "file bytes in the commit that published the number, not a hash taken during the run"
+      },
+      "filter_sha256_before_last_change": {
+        "path": "tools/organizer/odometer.py",
+        "commit": "fa757cae9799bf81a457bee613eac08475829a40",
+        "sha256": "bac188e9135170019ab63882a59827702080464b89494f9b199521a4dfb56586"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {
+        "split": "val",
+        "n": 21,
+        "gnss_window_s": 3.0,
+        "anchors": true,
+        "fault": "none",
+        "map": "local/map/july27_arc.npz",
+        "model": "local/model_arc",
+        "map_sha256": null,
+        "model_sha256": null
+      },
+      "frame": "along-track projection on the offline ring",
+      "gate": "master fix farther than 3 m from the ring is excluded",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/eval_odometer.py --split val",
+      "published": {
+        "where": "docs/solution/results.md",
+        "rmse_along_median_m": 1.47,
+        "rmse_along_p95_m": 5.83,
+        "form_unrounded_median_m": 1.467,
+        "form_unrounded_p95_m": 5.828
+      }
+    },
+    {
+      "id": "offline-train",
+      "commit_sha": null,
+      "evaluator_sha256": {
+        "path": "tools/organizer/eval_odometer.py",
+        "commit": "7362107b14fd75ec2f1d37df9689fefaac41c1ef",
+        "sha256": "f657d720b9822985fbd33f570e5a91f2a70bc765d0735dbdd6efa3e16b306444",
+        "role": "file bytes in the commit that published the number, not a hash taken during the run"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {"split": "train", "n": 39, "gnss_window_s": 3.0, "anchors": true, "map_sha256": null},
+      "frame": "along-track projection on the offline ring",
+      "gate": "master fix farther than 3 m from the ring is excluded",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/eval_odometer.py --split train",
+      "published": {"where": "docs/solution/results.md", "rmse_along_median_m": 2.23, "rmse_3d_median_m": 2.24}
+    },
+    {
+      "id": "offline-stress",
+      "commit_sha": null,
+      "evaluator_sha256": {
+        "path": "tools/organizer/eval_odometer.py",
+        "commit": "7362107b14fd75ec2f1d37df9689fefaac41c1ef",
+        "sha256": "f657d720b9822985fbd33f570e5a91f2a70bc765d0735dbdd6efa3e16b306444",
+        "role": "file bytes in the commit that published the number, not a hash taken during the run"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {"split": "stress", "n": 4, "gnss_window_s": 3.0, "anchors": true, "map_sha256": null},
+      "frame": "along-track projection on the offline ring",
+      "gate": "master fix farther than 3 m from the ring is excluded",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/eval_odometer.py --split stress",
+      "published": {"where": "docs/solution/results.md", "rmse_along_median_m": 11.5, "rmse_3d_median_m": 4.34}
+    },
+    {
+      "id": "offline-val-no-anchors",
+      "commit_sha": null,
+      "evaluator_sha256": {
+        "path": "tools/organizer/eval_odometer.py",
+        "commit": "7362107b14fd75ec2f1d37df9689fefaac41c1ef",
+        "sha256": "f657d720b9822985fbd33f570e5a91f2a70bc765d0735dbdd6efa3e16b306444",
+        "role": "file bytes in the commit that published the number, not a hash taken during the run"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {"split": "val", "n": 21, "anchors": false, "map_sha256": null},
+      "frame": "along-track projection on the offline ring",
+      "gate": "master fix farther than 3 m from the ring is excluded",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/eval_odometer.py --split val --no-anchor",
+      "published": {"where": "docs/solution/results.md", "rmse_along_median_m": 12.6}
+    },
+    {
+      "id": "offline-val-faults",
+      "commit_sha": null,
+      "evaluator_sha256": {
+        "path": "tools/organizer/eval_odometer.py",
+        "commit": "7362107b14fd75ec2f1d37df9689fefaac41c1ef",
+        "sha256": "f657d720b9822985fbd33f570e5a91f2a70bc765d0735dbdd6efa3e16b306444",
+        "role": "file bytes in the commit that published the number, not a hash taken during the run"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {"split": "val", "n": 21, "command_pattern": "python tools/organizer/eval_odometer.py --split val --fault <name>", "map_sha256": null},
+      "frame": "along-track projection on the offline ring",
+      "gate": "master fix farther than 3 m from the ring is excluded",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/eval_odometer.py --split val --fault <name>",
+      "published": {
+        "where": "docs/solution/results.md",
+        "rmse_along_median_m": {
+          "none": 1.47,
+          "front_dropout_20s": 1.60,
+          "both_dropout_20s": 1.76,
+          "rear_freeze_30s": 3.90,
+          "front_slip_10pct_30s": 1.93,
+          "both_slide_20pct_8s": 5.51,
+          "noise_2kmh": 4.60,
+          "rear_scale_5pct": 84.0
+        }
+      }
+    },
+    {
+      "id": "ros-historical-start-grid",
+      "commit_sha": null,
+      "evaluator_sha256": null,
+      "bag_id": [
+        "30618_01f73500",
+        "30618_a869780d",
+        "30618_e9a34502",
+        "30618_e9a34502+both_dropout_20s",
+        "30618_e9a34502+slip_10pct",
+        "30639_927002c2"
+      ],
+      "input_sha256": null,
+      "parameters": {
+        "image_tag": "osrf/ros:humble-desktop",
+        "output": "start grid, master point",
+        "heldout_gnss_s": 3
+      },
+      "frame": "start grid, master point",
+      "gate": "antenna baseline gate was not applied; table not recomputed",
+      "playback_rate": 10,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "ros2 bag play --rate 10 <held-out bag>; ros2 bag record /result/*; python3 tools/organizer/score_ros.py",
+      "published": {
+        "where": "docs/solution/results.md",
+        "first_published_commit": "c155520010608be8cd923d66a5adc03358ebe47c",
+        "rmse_3d_m": [6.07, 5.35, 0.77, 1.40, 0.80, 1.93]
+      }
+    },
+    {
+      "id": "ros-mgrs-base-link-rate-10",
+      "commit_sha": null,
+      "evaluator_sha256": {
+        "path": "tools/organizer/score_ros.py",
+        "commit": "7362107b14fd75ec2f1d37df9689fefaac41c1ef",
+        "sha256": "7845ffbc69715187754327f092faf724e3029332771d053a659adcf91c6dd059",
+        "role": "file bytes in the commit that published 0.771, not a hash taken during the run"
+      },
+      "bag_id": ["30618_e9a34502", "30618_01f73500", "30618_a869780d"],
+      "input_sha256": null,
+      "parameters": {"output_frame": "mgrs", "point": "base_link", "heldout_gnss_s": 3},
+      "frame": "mgrs",
+      "gate": "ungated chord and, separately, baseline 12.436 ± 2 m and height difference ≤ 1 m",
+      "playback_rate": 10,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/score_ros.py <result-bag> <source-bag> --frame mgrs",
+      "published": {
+        "where": "docs/solution/results.md",
+        "publication_commit": "7362107b14fd75ec2f1d37df9689fefaac41c1ef",
+        "bags": [
+          {"bag_id": "30618_e9a34502", "rmse_3d_ungated_m": 0.771, "fixes_in_window": 60, "s0_m": 5632.874, "gated_3d_m": 0.775},
+          {"bag_id": "30618_01f73500", "rmse_3d_ungated_m": 10.837, "s0_m": 11023.874, "gated_3d_m": 4.970, "n_kept": 10017, "n_master": 11901},
+          {"bag_id": "30618_a869780d", "rmse_3d_ungated_m": 30.426, "s0_m": 143.0, "gated_3d_m": 3.396, "n_kept": 8195, "n_master": 10659}
+        ]
+      }
+    },
+    {
+      "id": "ros-30639-927002c2-before-window-fix",
+      "commit_sha": null,
+      "evaluator_sha256": null,
+      "bag_id": "30639_927002c2",
+      "input_sha256": null,
+      "parameters": {"output_frame": "mgrs", "note": "cited from before the GNSS-window fix; not rerun"},
+      "frame": "mgrs",
+      "gate": null,
+      "playback_rate": 10,
+      "docker_image_digest": null,
+      "date": null,
+      "command": null,
+      "published": {"where": "docs/solution/results.md", "rmse_3d_m": 1.992, "rerun": false}
+    },
+    {
+      "id": "speed-hypot-gap-val",
+      "commit_sha": null,
+      "evaluator_sha256": {
+        "path": "tools/organizer/speed_reference.py",
+        "commit": "HEAD",
+        "sha256": "c3e498946efabebfdfd23856fe6feb0a5181035afad8fd9ea9cdc601938285fb",
+        "role": "bytes of the script in this tree; the published gap was not remeasured for this manifest"
+      },
+      "bag_id": null,
+      "input_sha256": null,
+      "parameters": {"split": "val", "n": 21, "rtk_within_ring_m": 3},
+      "frame": "horizontal hypot(vx, vy) of master velocity minus along-track projection",
+      "gate": "RTK within 3 m of the ring",
+      "playback_rate": null,
+      "docker_image_digest": null,
+      "date": null,
+      "command": "python tools/organizer/speed_reference.py",
+      "published": {"where": "docs/solution/results.md", "median_abs_gap_m_s": 0.0002, "median_p95_m_s": 0.013}
+    },
+    {
+      "id": "ros-realtime-300s",
+      "commit_sha": null,
+      "evaluator_sha256": null,
+      "bag_id": "30618_e9a34502",
+      "input_sha256": null,
+      "parameters": {"duration_s": 300, "gnss_s": 3},
+      "frame": null,
+      "gate": null,
+      "playback_rate": 1,
+      "docker_image_digest": null,
+      "date": null,
+      "command": null,
+      "published": {"where": "docs/solution/form.md", "rate_hz": 37.9, "rmse_3d_m": 0.51, "rmse_v_m_s": 0.032}
+    }
+  ]
 }
