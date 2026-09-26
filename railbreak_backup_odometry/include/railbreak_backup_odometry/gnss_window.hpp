@@ -23,6 +23,7 @@ struct GnssWindow {
   double wait_s = 10.0;
   double t_first_fix = -1.0;
   double t_first_rover = -1.0;
+  double t_open = -1.0;
   double t_first_input = -1.0;
   bool master_past = false;
   bool rover_past = false;
@@ -33,6 +34,8 @@ struct GnssWindow {
   Action on_fix(bool master, double t, bool valid) {
     if (closed) return Action::kWait;
     if (!valid) return Action::kWait;
+    // The sample set starts at the first valid fix of either antenna and does not move.
+    if (t_open < 0.0) t_open = t;
     if (master) ++n_master_cb_;
     else ++n_rover_cb_;
     if (master) {
@@ -40,7 +43,6 @@ struct GnssWindow {
     } else if (t_first_rover < 0.0) {
       t_first_rover = t;
     }
-    const double t_open = t_first_fix >= 0.0 ? t_first_fix : t_first_rover;
     if (t_open >= 0.0 && t > t_open + window_s) {
       if (master) master_past = true;
       else rover_past = true;
@@ -56,7 +58,6 @@ struct GnssWindow {
     if (t_first_input < 0.0) t_first_input = t;
     if (t_first_fix < 0.0 && t_first_rover < 0.0 && t > t_first_input + wait_s)
       return Action::kRelative;
-    const double t_open = t_first_fix >= 0.0 ? t_first_fix : t_first_rover;
     if (t_open < 0.0 || t <= t_open + window_s) return Action::kWait;
 
     const bool pending_master = t_first_fix >= 0.0 && !master_past;

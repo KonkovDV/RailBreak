@@ -287,6 +287,17 @@ int main() {
       check(w.master_fixes() == m + 1, "that fix is counted");
       check(w.on_input(4.0) == Act::kWait, "a counted fix resets the quiet drain");
     }
+    {
+      railbreak::GnssWindow w;
+      check(w.on_fix(false, 0.0, true) == Act::kWait, "the first rover opens the window");
+      check(w.t_open == 0.0, "the origin is that rover stamp");
+      check(w.on_fix(true, 2.5, true) == Act::kWait, "a later master stays inside the original window");
+      check(w.t_open == 0.0, "a later master does not move the origin");
+      check(4.0 > w.t_open + w.window_s, "a rover at 4 s is outside the frozen window");
+      check(w.on_fix(false, 4.0, true) == Act::kWait, "that rover is past the window and waits for master");
+      check(w.on_fix(true, 3.1, true) == Act::kFinish, "master past the original end closes the window");
+      check(w.t_open == 0.0, "the origin is still the first rover");
+    }
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

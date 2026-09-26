@@ -166,8 +166,7 @@ class BackupOdometryNode : public rclcpp::Node {
                        std::isfinite(m.latitude) && std::isfinite(m.longitude);
     const auto action = win_.on_fix(master, t, valid);
     if (valid) {
-      const double t_open = win_.t_first_fix >= 0.0 ? win_.t_first_fix : win_.t_first_rover;
-      const bool in_window = t_open >= 0.0 && t <= t_open + win_.window_s;
+      const bool in_window = win_.t_open >= 0.0 && t <= win_.t_open + win_.window_s;
       if (master && in_window) {
         m_lat_.push_back(m.latitude);
         m_lon_.push_back(m.longitude);
