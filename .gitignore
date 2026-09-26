@@ -30,6 +30,7 @@ htmlcov/
 *.log
 
 # Organiser bags. Keep the drop-slot README.
+jury_out/
 data/bags/*
 !data/bags/README.md
 files/

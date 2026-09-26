@@ -5,9 +5,40 @@ ROS 2 Humble считает скорость и положение трамва�
 контроллера. GNSS читается только первые 3 с и нужен для выставки на карту,
 дальше подписка снимается.
 
-Поддерживаемый запуск для жюри — Ubuntu 22.04 и ROS 2 Humble.
-Запись организатора и пакет `tram_vehicle_msgs` в этот репозиторий не входят:
-их нужно положить рядом при сборке. Карта маршрута уже в пакете.
+Запустить можно на Windows, Linux и macOS. Нода живёт в одном контейнере
+Humble: Docker Desktop или Docker Engine, сеть хоста не нужна. Запись и пакет
+`tram_vehicle_msgs` в репозиторий не входят, карта маршрута уже в пакете.
+Без Docker и без ROS собирается только ядро, сценарий `core`.
+
+```text
+scripts/jury.sh  <сценарий> --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
+scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_vehicle_msgs>
+```
+
+| Сценарий | Что делает |
+|---|---|
+| `smoke` | 25 с записи, чтобы увидеть первый `/result/position` |
+| `play` | вся запись, кадр MGRS, без `/clock` |
+| `clock` | `use_sim_time` и `ros2 bag play --clock` |
+| `fast` | `--rate 10` |
+| `frame` | `output_frame:=mkrs_start` |
+| `no-gnss` | в проигрыватель не попадают топики GNSS, выход относительный |
+| `no-assets` | каталог карты подменён, нода не падает |
+| `arc` | без GNSS, дуга старта `-InitialS` / `--initial-s` (по умолчанию 0) |
+| `record` | пишет `/result/*` в `jury_out/result` и вызывает `score_ros.py` |
+| `core` | CMake и тест ядра, без Docker, без записи и без сообщений |
+
+Пример на Windows:
+
+```text
+.\scripts\jury.ps1 smoke -Bag D:\bags\30618_01f73500 -Msgs D:\dataset\tram_vehicle_msgs
+```
+
+Тот же вызов в bash. Первый запуск скачивает образ и собирает пакеты, это несколько минут.
+Дальше сборка инкрементальная. `docker compose` из корня репозитория,
+файл [`docker-compose.jury.yml`](docker-compose.jury.yml).
+
+Ниже те же сценарии командами Humble на Ubuntu, если Docker нет.
 
 | Что читать | Файл |
 |---|---|
@@ -57,16 +88,19 @@ rover `(2.563, 0, 3)`. Если в окне есть только rover, дуг�
 
 ## Что должно быть установлено
 
-- Ubuntu 22.04, ROS 2 Humble (`rclcpp`, `nav_msgs`, `sensor_msgs`, `diagnostic_msgs`, `ament_index_cpp`, `launch_ros`, `rosbag2`)
-- компилятор C++17, `colcon`, CMake
-- каталог rosbag2: внутри `metadata.yaml` и файл sqlite, не один `.db3` без метаданных
-- пакет сообщений `tram_vehicle_msgs` из выдачи
+Универсальный путь: Docker. Образ ставит Humble сам. На Windows и macOS это Docker Desktop,
+на Linux — Docker Engine и плагин Compose. Каталог записи содержит `metadata.yaml`.
 
-Интернет после установки Humble не нужен. `rosdep` для этого пакета не требуется.
+Путь без Docker — только Ubuntu 22.04 с уже установленным ROS 2 Humble
+(`rclcpp`, `nav_msgs`, `sensor_msgs`, `diagnostic_msgs`, `ament_index_cpp`, `launch_ros`, `ros2 bag`).
+`rosdep` для пакета сдачи не нужен.
 
-## 1. Сборка
+Сценарий `core` на любой ОС: CMake 3.16+, компилятор C++17. ROS не нужен.
+
+## 1. Сборка на Ubuntu без Docker
 
 Из корня клона. `<датасет>` — каталог выдачи, где лежит `tram_vehicle_msgs`.
+Контейнерный путь этот шаг делает сам.
 
 ```bash
 mkdir -p ~/ws/src
@@ -270,7 +304,14 @@ ros2 run railbreak_backup_odometry backup_odometry_node --ros-args \
 
 ## 9. Ядро без ROS
 
-Так проверяется то же ядро, без Humble и без записи. Из корня репозитория.
+Так проверяется то же ядро, без Humble и без записи. Это сценарий `core`:
+
+```text
+scripts/jury.sh core
+.\scripts\jury.ps1 core
+```
+
+Вручную из корня репозитория:
 
 Linux:
 

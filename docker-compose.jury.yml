@@ -1,0 +1,34 @@
+# One container runs the node and the bag. Host networking is not used:
+# Docker Desktop on Windows and macOS does not provide it.
+services:
+  jury:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.jury
+    working_dir: /ws
+    volumes:
+      - ./railbreak_backup_odometry:/opt/src/railbreak_backup_odometry:ro
+      - ./scripts/jury_inside.sh:/opt/jury_inside.sh:ro
+      - ./tools:/opt/tools:ro
+      - ${MSGS_DIR}:/org_msgs:ro
+      - ${BAG}:/bag:ro
+      - ${OUT:-./jury_out}:/out
+      - jury_ws:/ws
+    environment:
+      RATE: ${RATE:-1}
+      CLOCK: ${CLOCK:-0}
+      OUTPUT_FRAME: ${OUTPUT_FRAME:-mgrs}
+      ASSETS_DIR: ${ASSETS_DIR:-}
+      TOPICS: ${TOPICS:-}
+      GNSS_WINDOW: ${GNSS_WINDOW:-3.0}
+      GNSS_WAIT: ${GNSS_WAIT:-}
+      INITIAL_S: ${INITIAL_S:-}
+      DURATION: ${DURATION:-}
+      RECORD: ${RECORD:-0}
+      SCORE: ${SCORE:-0}
+    stdin_open: true
+    tty: true
+    command: ["bash", "/opt/jury_inside.sh"]
+
+volumes:
+  jury_ws:

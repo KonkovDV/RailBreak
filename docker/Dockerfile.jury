@@ -1,0 +1,14 @@
+# Humble userspace for the scored package. Same image on Linux, Windows and macOS.
+FROM osrf/ros:humble-ros-base
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-humble-nav-msgs \
+        ros-humble-sensor-msgs \
+        ros-humble-diagnostic-msgs \
+        ros-humble-ament-index-cpp \
+        ros-humble-launch-ros \
+        ros-humble-ros2bag \
+        ros-humble-rosbag2-storage-default-plugins \
+        ros-humble-rosbag2-py \
+        python3-numpy \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /ws
