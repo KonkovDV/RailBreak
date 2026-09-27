@@ -1,6 +1,4 @@
-// White-hat regression counterexamples.
-// Extends cases independently observed in audit/safety-contracts
-// (92d2cd94). These are software contracts, not a railway safety certificate.
+// Software contracts, not a railway safety certificate.
 // Deliberately uses no assert(): checks must run in Release / NDEBUG too.
 #include "tram_dr_localization/lin_alg.hpp"
 #include "tram_dr_localization/ukf.hpp"

@@ -126,38 +126,12 @@ jobs:
     # no organiser tram_vehicle_msgs, no rosbag playback, no MGRS base_link
     # 3D, no --rate 10 GNSS check on a recording, no RSS/CPU limits, and no
     # replay of 1.467 / 5.828 / 84.0 m.
-    # Compiles the four ROS nodes and runs ament gtests. Previously invisible
-    # (F-19). The job used to die on `source setup.bash` under `set -u`
-    # (AMENT_TRACE_SETUP_FILES unbound). Do not wrap the source with nounset.
+    # source setup.bash runs with nounset off: AMENT_TRACE_SETUP_FILES is unbound.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
       image: ros:humble-ros-base
     steps:
-      - name: container diagnostics
-        shell: bash
-        run: |
-          set +e
-          {
-            echo "### ros job container diagnostics"
-            echo
-            echo '```'
-            echo "ROS_DISTRO = ${ROS_DISTRO:-<unset>}"
-            echo "whoami     = $(whoami 2>&1)"
-            echo "pwd        = $(pwd 2>&1)"
-            echo "workspace  = ${GITHUB_WORKSPACE:-<unset>}"
-            for tool in git c++ cmake colcon rosdep python3; do
-              printf '%-8s -> %s\n' "$tool" "$(command -v "$tool" 2>&1 || echo MISSING)"
-            done
-            echo
-            echo "-- os-release --"
-            cat /etc/os-release 2>&1 | head -4
-            echo
-            echo "-- ros setup --"
-            ls -la "/opt/ros/${ROS_DISTRO:-humble}/setup.bash" 2>&1
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY" 2>&1
-          exit 0
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

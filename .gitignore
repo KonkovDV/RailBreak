@@ -19,6 +19,8 @@ CMakeFiles/
 .vs/
 synth/runs/
 synth/runs_route10/
+synth/sample/
+reports/
 *.db3
 compile_commands.json
 .cache/
