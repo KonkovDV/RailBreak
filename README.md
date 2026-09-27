@@ -1,5 +1,7 @@
 <p align="center"><img src="Logo.png" alt="RailBreak" width="280"></p>
 
+<p align="center"><a href="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml"><img src="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml/badge.svg" alt="Тесты CI"></a></p>
+
 # RailBreak: резервная одометрия для автономного трамвая Москвы
 
 Резервный канал скорости и пути для маршрута 10. Пакет [`railbreak_backup_odometry`](railbreak_backup_odometry/) на ROS 2 Humble считает продольную скорость и положение по двум тележкам и ручке контроллера. GNSS читается только 3 с на старте, чтобы поставить вагон на карту, затем подписка снимается. IMU, лидар и камеры не используются. Это не замена основного стека и не сертифицированный контур остановки.
