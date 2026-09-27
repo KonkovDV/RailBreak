@@ -31,7 +31,7 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 
 ## Итог проверки
 
-Коммит `5cd35fa`, 2026-09-27, ROS 2 Humble в Docker, `ros2 bag play --rate 1`, полный пакет сообщений организатора.
+Коммит `5cd35fa`, 2026-09-27, ROS 2 Humble в Docker, `ros2 bag play --rate 1`, полный пакет сообщений организатора. Дальше менялись только документы.
 
 | Проверка | Итог |
 |---|---|
