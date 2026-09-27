@@ -151,7 +151,7 @@ ros2 topic echo /result/diagnostics --field status[0].values
 
 - `callback_max_us` — максимальное время обработки одного входа, мкс.
 - `gnss` = `closed` и `gnss_note` — подтверждение, что GNSS больше не читается.
-- `slip` = `true` — флаг последнего колбэка. Режим `MODEL` — шаг недостоверен,
+- `slip` = `true` — порог невязки колеса к модели, не подтверждённый юз. Режим `MODEL` — шаг недостоверен,
   положение ещё может выходить. `COMMON_MODE_UNOBSERVABLE` дольше слепого
   бюджета даёт `integrity_status=LOST` и пустой `/result/position` на этом шаге.
 - `integrity_use_position`, `velocity_confidence`, `position_confidence`,
