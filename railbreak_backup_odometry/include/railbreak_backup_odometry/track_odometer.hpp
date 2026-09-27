@@ -11,12 +11,14 @@
 // The same array is 8 long. The last four entries are diagnostic parameters,
 // not Kalman states: [k_front, k_rear, b_front, b_rear]. The wheel Jacobian
 // is nonzero only in v and k, K_k is 0 on wheel updates, and those four
-// variances do not enter S. Their means move by a sign step, not by K.
+// variances do not enter S. k_front and k_rear hold the rear/front ratio split
+// at the geometric mean; b_front and b_rear stay 0.
 //
 // Three time scales keep calibration, noise and slip apart:
-//   bogie k_i, b_i   one sign step on a fresh pair that agrees with itself and
-//                    with the model; a diverging bogie, and a pair that diverges
-//                    together, leave both where they are
+//   rho  rear/front ratio, a slow sign-step median over fresh pairs off heavy
+//        traction and braking. It never moves toward the model prediction:
+//        that would pull the wheels onto the notch table and hide the common
+//        scale from the anchors
 //   r    measurement noise from the corrected front-rear difference; it grows only
 //        while that difference is sign-balanced, a one-signed run freezes it
 //   slip normalised innovation gate and a two-bogie consensus gate; a flagged
@@ -419,7 +421,7 @@ class TrackOdometer {
     P_[IK][IK] = p_.sigma_k0 * p_.sigma_k0;
     P_[IBA][IBA] = p_.sigma_ba0 * p_.sigma_ba0;
     // Bogie scale and bias are not in the wheel Kalman gain. A large prior
-    // would not change S. The slow step below writes the mean.
+    // would not change S. learn_pair writes the ratio into the means.
     P_[IKF][IKF] = 0.02 * 0.02;
     P_[IKR][IKR] = 0.02 * 0.02;
     P_[IBF][IBF] = 0.05 * 0.05;
@@ -600,7 +602,6 @@ class TrackOdometer {
     }
     note_slip(is_front, slip, t, innov * innov / S);
     slip_ = slip;
-    if (fresh_other && agree && !slip && !common_unobservable_) adapt_bogie_scale(is_front, innov, v);
     update_scalar(h, innov, slip ? p_.r_bad : r, true, true);
     x_[IV] = std::max(0.0, x_[IV]);
     step_bank(t, std::max(0.0, u * x_[IK]));
@@ -854,19 +855,18 @@ class TrackOdometer {
       r_ += p_.r_alpha_grow * (0.5 * ec * ec - r_);
     }
     r_ = std::clamp(r_, p_.r_min, p_.r_max);
-  }
-
-  // One sign step. Only a pair that agrees with itself and with the model
-  // may move a bogie scale. A diverging bogie, and a pair that diverges
-  // together, leave both scales where they are.
-  void adapt_bogie_scale(bool is_front, double innov, double v) {
-    if (std::abs(notch_) > p_.rho_notch_max || v < p_.rho_v_min) return;
-    double& ki = is_front ? x_[IKF] : x_[IKR];
-    double& bi = is_front ? x_[IBF] : x_[IBR];
-    const double ks = innov > 0.0 ? p_.rho_step : (innov < 0.0 ? -p_.rho_step : 0.0);
-    const double bs = innov > 0.0 ? 0.5 * p_.rho_step : (innov < 0.0 ? -0.5 * p_.rho_step : 0.0);
-    if (v >= 2.0) ki = std::clamp(ki + ks, -p_.rho_max, p_.rho_max);
-    else bi = std::clamp(bi + bs, -0.5, 0.5);
+    // Sign-step on each fresh pair. At about 10 Hz per bogie a persistent
+    // offset takes on the order of two minutes. At another rate the same
+    // rho_step is a different time constant.
+    if (uf > p_.rho_v_min && ur > p_.rho_v_min && std::abs(notch_) <= p_.rho_notch_max) {
+      const double lr = std::log(ur / uf);
+      if (std::fabs(lr) < p_.rho_max + 0.02) {
+        log_rho_ += lr > log_rho_ ? p_.rho_step : -p_.rho_step;
+        log_rho_ = std::clamp(log_rho_, -p_.rho_max, p_.rho_max);
+        x_[IKF] = std::exp(-0.5 * log_rho_) - 1.0;
+        x_[IKR] = std::exp(0.5 * log_rho_) - 1.0;
+      }
+    }
   }
 
   bool state_numerical() const {
@@ -1118,20 +1118,11 @@ class TrackOdometer {
     }
     anchor_log_.push_back(row);
     if (n_cand != 1) return;  // none, or ambiguous: do not guess
-    const double travelled = ring_delta(s, s_anchor_ref_);
-    const int guards_before = n_guard_;
     Vec h{};
     h[IS] = 1.0;
+    // k moves through its covariance with s. A second update of k from the
+    // same missed distance would count this station twice.
     update_scalar(h, best_d, best_r * best_r, false);
-    // The station measures position. The missed distance over the run is the
-    // common scale. A short dwell does not identify it.
-    if (n_guard_ == guards_before && std::fabs(travelled) >= 50.0 && best_r > 0.0) {
-      const double innov_k = x_[IK] * best_d / travelled;
-      const double sig_k = std::max(1e-6, std::fabs(x_[IK]) * best_r / std::fabs(travelled));
-      Vec hk{};
-      hk[IK] = 1.0;
-      update_scalar(hk, innov_k, sig_k * sig_k, false);
-    }
     s_anchor_ref_ = a_->map.wrap(x_[IS]);
     path_since_anchor_ = 0.0;
     ++n_anchor_;

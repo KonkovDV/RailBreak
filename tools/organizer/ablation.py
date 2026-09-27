@@ -114,9 +114,6 @@ class NoAdapt(Odometer):
     def _learn_pair(self, uf: float, ur: float) -> None:
         return
 
-    def _adapt_bogie_scale(self, which: str, innov: float, v: float) -> None:
-        return
-
     def _update_scalar(self, h, innov, r, consider_k=False, gate_bias=False) -> None:
         ba = float(self.x[IBA])
         row = self.P[IBA, :].copy()

@@ -13,13 +13,16 @@ Probabilistic filter state x = [s, v, k, ba]
 The same array is 8 long. The last four entries are diagnostic parameters, not
 Kalman states: [k_front, k_rear, b_front, b_rear]. The wheel Jacobian is nonzero
 only in v and k, K_k is 0 on wheel updates, and those four variances do not
-enter S. Their means move by a sign step, not by K. There is no joint
-identifiability analysis with k and ba.
+enter S. k_front and k_rear hold the rear/front ratio split at the geometric
+mean; b_front and b_rear stay 0. There is no joint identifiability analysis
+with k and ba.
 
 Three time scales keep calibration, noise and slip apart:
-  * k_i and b_i take one sign step on a fresh pair that agrees with itself and
-    with the model. A diverging bogie, and a pair that diverges together, leave
-    both where they are. The absolute level is k, observable through station anchors.
+  * rho, the rear/front ratio, is a slow sign-step median over fresh pairs off
+    heavy traction and braking. Both bogies are corrected half-way to their
+    geometric mean. The ratio never moves toward the model prediction: that
+    would pull the wheels onto the notch table and hide the common scale from
+    the anchors. The absolute level is k, observable through station anchors.
   * the noise level r is estimated from the corrected front-rear difference.
     It grows only while that difference is sign-balanced (noise); a one-signed
     run (slip or slide on one bogie) freezes it.
@@ -366,19 +369,16 @@ class Odometer:
             ec = self.p.fr_sigma_gate * sd
             self.r += self.p.r_alpha_grow * (0.5 * ec * ec - self.r)
         self.r = min(max(self.r, self.p.r_min), self.p.r_max)
-
-    def _adapt_bogie_scale(self, which: str, innov: float, v: float) -> None:
-        """One sign step when this pair agrees with itself and with the model."""
-        if abs(self.notch) > self.p.rho_notch_max or v < self.p.rho_v_min:
-            return
-        ik = IKF if which == "front" else IKR
-        ib = IBF if which == "front" else IBR
-        ks = self.p.rho_step if innov > 0.0 else (-self.p.rho_step if innov < 0.0 else 0.0)
-        bs = 0.5 * ks
-        if v >= 2.0:
-            self.x[ik] = min(self.p.rho_max, max(-self.p.rho_max, float(self.x[ik]) + ks))
-        else:
-            self.x[ib] = min(0.5, max(-0.5, float(self.x[ib]) + bs))
+        # Sign-step on each fresh pair. At about 10 Hz per bogie a persistent
+        # offset takes on the order of two minutes. At another rate the same
+        # rho_step is a different time constant.
+        if uf > self.p.rho_v_min and ur > self.p.rho_v_min and abs(self.notch) <= self.p.rho_notch_max:
+            lr = math.log(ur / uf)
+            if abs(lr) < self.p.rho_max + 0.02:
+                self.log_rho += self.p.rho_step if lr > self.log_rho else -self.p.rho_step
+                self.log_rho = max(-self.p.rho_max, min(self.p.rho_max, self.log_rho))
+                self.x[IKF] = math.exp(-0.5 * self.log_rho) - 1.0
+                self.x[IKR] = math.exp(0.5 * self.log_rho) - 1.0
 
     def on_bogie(self, t: float, which: str, raw: float) -> None:
         if not self._stamp_ok(t):
@@ -441,8 +441,6 @@ class Odometer:
             return
         self._note_slip(which, slip, t, innov * innov / S)
         self.slip = slip
-        if fresh_other and agree and not slip and not self.common_unobservable:
-            self._adapt_bogie_scale(which, innov, v)
         self._update_scalar(h, innov, self.p.r_bad if slip else r, consider_k=True, gate_bias=True)
         self.x[IV] = max(0.0, self.x[IV])
         self._zupt(t)
@@ -523,17 +521,11 @@ class Odometer:
         if n_cand != 1:
             return
         d, st, r_sd, _gate = best
-        travelled = self.ring_delta(s, self.s_anchor_ref)
-        guards_before = self.n_guard
         h = np.zeros(N)
         h[IS] = 1.0
+        # k moves through its covariance with s. A second update of k from the
+        # same missed distance would count this station twice.
         self._update_scalar(h, d, r_sd ** 2)
-        if self.n_guard == guards_before and abs(travelled) >= 50.0 and r_sd > 0.0:
-            innov_k = float(self.x[IK]) * d / travelled
-            sig_k = max(1e-6, abs(float(self.x[IK])) * r_sd / abs(travelled))
-            hk = np.zeros(N)
-            hk[IK] = 1.0
-            self._update_scalar(hk, innov_k, sig_k ** 2)
         self.s_anchor_ref = float(self.wrap(self.x[IS]))
         self.path_since_anchor = 0.0
         self.n_anchor += 1

@@ -878,8 +878,9 @@ int main() {
       rear_scale.on_bogie(t + 0.05, false, 36.0 * 1.05);
       rear_scale.on_cmd(t + 0.025, 0);
     }
-    check(std::fabs(rear_scale.k_rear()) < 1e-9 && std::fabs(rear_scale.k_front()) < 1e-9,
-          "a persistent rear scale does not train either bogie scale");
+    check(rear_scale.k_rear() > 0.0 && rear_scale.k_front() < 0.0 &&
+              std::fabs((1.0 + rear_scale.k_rear()) * (1.0 + rear_scale.k_front()) - 1.0) < 1e-12,
+          "a persistent rear scale moves only the ratio; the geometric mean stays with k");
     check(std::fabs(rear_scale.v() - 10.0) < 0.25,
           "speed stays with the healthy bogie, not the mean of the pair");
     railbreak::TrackOdometer calm(&assets, p);
