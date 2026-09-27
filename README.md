@@ -1,9 +1,9 @@
 <p align="center"><img src="Logo.png" alt="RailBreak" width="280"></p>
 
 <p align="center">
-  <a href="docs/RailBreak_МТТЕХ_demo.pdf">Презентация (PDF)</a>
-  &nbsp;&nbsp;·&nbsp;&nbsp;
-  <a href="docs/RailBreak_МТТЕХ_demo.pptx">Презентация (PowerPoint)</a>
+  <a href="docs/RailBreak_МТТЕХ_demo.pdf"><img src="https://img.shields.io/badge/%D0%9F%D1%80%D0%B5%D0%B7%D0%B5%D0%BD%D1%82%D0%B0%D1%86%D0%B8%D1%8F-PDF-D32F2F?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="Презентация PDF"></a>
+  &nbsp;
+  <a href="docs/RailBreak_МТТЕХ_demo.pptx"><img src="https://img.shields.io/badge/%D0%9F%D1%80%D0%B5%D0%B7%D0%B5%D0%BD%D1%82%D0%B0%D1%86%D0%B8%D1%8F-PowerPoint-B7472A?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white" alt="Презентация PowerPoint"></a>
 </p>
 
 <p align="center"><a href="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml"><img src="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml/badge.svg" alt="Тесты CI"></a></p>
