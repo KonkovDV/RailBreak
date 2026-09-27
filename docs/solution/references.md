@@ -43,17 +43,43 @@ A. W. Palmer, N. Nourani-Vatani. Robust odometry using sensor consensus analysis
 
 Это не методы сдачи. Их числа в репозиторий не переносятся.
 
-H. F. Bouchama, D. Berdjag, M. Defoort, J. Lauber. Observer-based Robust Train Speed Estimation Subject to Wheel-Rail Adhesion Faults. *5th International Conference on Control and Fault-Tolerant Systems (SysTol)*, 2021, pp. 303–310. IEEE [9594997](https://ieeexplore.ieee.org/document/9594997), запись [HAL hal-03406951](https://uphf.hal.science/hal-03406951). Близкая постановка: робастная скорость поезда при отказе сцепления колесо–рельс. В ноду их наблюдатели не входят. Вывод для сдачи: аналитическая невязка держится на допущениях и проверке, а не на одном пороге.
+H. F. Bouchama, D. Berdjag, M. Defoort, J. Lauber. Observer-based Robust Train Speed Estimation Subject to Wheel-Rail Adhesion Faults. *5th International Conference on Control and Fault-Tolerant Systems (SysTol)*, Saint-Raphaël, 29 Sep.–1 Oct. 2021, pp. 303–310. IEEE [9594997](https://ieeexplore.ieee.org/document/9594997), запись [HAL hal-03406951](https://uphf.hal.science/hal-03406951). Близкая постановка: робастная продольная скорость при отказе сцепления, который портит измерение скорости. В статье два наблюдателя: скользящий дифференцирующий фильтр силы сцепления за конечное время и непрерывно-дискретный high-gain наблюдатель скорости по непериодическим бализам. Оба в ноду не входят. Силы сцепления и бализ здесь нет. Полная замена фильтра их схемой не делается. Числа их симуляций не являются числами RailBreak.
 
-B. Namoano, C. Emmanouilidis, A. Starr. Detecting wheel slip from railway operational data through a combined wavelet, long short-term memory and neural network classification method. *Engineering Applications of Artificial Intelligence*, 2024. DOI [10.1016/j.engappai.2024.109173](https://doi.org/10.1016/j.engappai.2024.109173). Data-driven детектор. Для этой сдачи не подходит: нужна размеченная база и проверка сдвига домена. Их метрики не являются метриками RailBreak. После дедлайна это может быть только теневой классификатор, не шаг фильтра.
+Из этой постановки в текущем оценщике уже есть пять свойств, без их наблюдателей.
 
-E. Potokar, D. McGann, M. Kaess. Robust Preintegrated Wheel Odometry for Off-road Autonomous Ground Vehicles. *IEEE Robotics and Automation Letters*, vol. 9, no. 12, pp. 11649–11656, Dec. 2024. PDF [CMU](https://www.cs.cmu.edu/~kaess/pub/Potokar24ral.pdf). Внедорожный факторный граф, не трамвай и не эта нода. Совместная оценка юза, радиусов и базы — возможный следующий слой, в текущий state не входит.
+Отказ измерения и отказ модели разделены. Одна тележка в стороне от другой — канал измерения: растёт \(R\), доверие этой тележки падает. Обе согласны и обе в стороне от модели — не отказ одной тележки. Причина не называется: это может быть модель, задержка, масса, уклон или общий юз. После `recover_s` = 3 с политика `COMMON_MODE_UNOBSERVABLE`, затем слепой бюджет и `LOST`.
 
-Online Estimation Method of Train Wheel-Rail Adhesion Coefficient Based on Parameter Estimation. *CMES*, vol. 144, no. 3, 2025. DOI [10.32604/cmes.2025.068951](https://doi.org/10.32604/cmes.2025.068951). Оценка \(\mu\) там идёт через модель силы и явную оценку параметра. В этой сдаче момента и тока нет, `mu_estimate` остаётся `null`. Отказ оценивать \(\mu\) по двум скоростям и ручке с этой постановкой согласован.
+Ограничение публикуется рядом с точкой, а не как доказанная практическая устойчивость их наблюдателя. Конверт — `empirical bound, not certified protection level`. В `pose.covariance` он не вкладывается.
+
+Невязка отказа — колесо минус модель и NIS. Это не невязка их дифференцирующего фильтра и не юз. `SLIP_SUSPECTED` не публикуется.
+
+Доверие раздельное: скорость, положение, каждая тележка и модель, со значениями `HIGH`, `LOW`, `NONE`.
+
+Задержка обнаружения и ложная тревога считаются на размеченном синтетическом прогоне в `scenario_campaign.py`: `time_to_detection`, `false_alarm_rate`, `missed_detection_rate`. Пустое множество остаётся пустым, а не нулём. Эти доли не заменяют 1.467 м и не являются evidence текущего HEAD.
+
+B. Namoano, C. Emmanouilidis, A. Starr. Detecting wheel slip from railway operational data through a combined wavelet, long short-term memory and neural network classification method. *Engineering Applications of Artificial Intelligence*, 2024. DOI [10.1016/j.engappai.2024.109173](https://doi.org/10.1016/j.engappai.2024.109173). Детектор юза по вейвлету, LSTM и нейросетевой классификации. В сегодняшнюю сдачу не входит и шаг фильтра не заменяет. Их метрики не являются метриками RailBreak.
+
+После дедлайна это может быть только теневой классификатор. Пять причин, почему не сейчас. Нужны лейблы юза, а в этом дереве подтверждённый юз не публикуется. Нужна репрезентативная выборка, не один знакомый синтетический профиль. Высок риск domain shift между генератором, train и скрытым test. Генератор нельзя подгонять под классификатор: семейства A–F и `truth_sim.py` тогда перестают быть незнакомой истиной. Не видно, как выход классификатора гарантирует поведение целостности: `LOST`, слепой бюджет и конверт остаются политикой модели, а не решением сети.
+
+E. Potokar, D. McGann, M. Kaess. Robust Preintegrated Wheel Odometry for Off-road Autonomous Ground Vehicles. *IEEE Robotics and Automation Letters*, vol. 9, no. 12, pp. 11649–11656, Dec. 2024. PDF [CMU](https://www.cs.cmu.edu/~kaess/pub/Potokar24ral.pdf). Сильное направление для колёсной одометрии, но это roadmap, а не правка к дедлайну. Их факторный граф требует IMU, трёхмерное движение, онлайн-оценку радиуса и юза и оптимизацию. В этой ноде IMU нет, движение — дуга кольца, \(k\) на колёсном шаге не двигается, факторного графа нет. Их числа не являются числами RailBreak.
+
+Online Estimation Method of Train Wheel-Rail Adhesion Coefficient Based on Parameter Estimation. *CMES*, vol. 144, no. 3, 2025. DOI [10.32604/cmes.2025.068951](https://doi.org/10.32604/cmes.2025.068951). Там \(\mu\) считается онлайн-оценщиком параметра по силовой модели одной колёсной пары и динамике торможения. В ноду этот оценщик не входит. Их симуляция не является числом RailBreak.
+
+Для RailBreak `mu_estimate = null` — правильное решение. Настоящая оценка сцепления требует момент тяги или торможения, модель силы, динамику поезда, задержку привода, вращательную динамику колеса и независимый репер. Две скорости тележек и команда водителя этого набора не дают: коэффициент сцепления неидентифицируем.
+
+> coefficient of adhesion is not observable from two wheel speeds and driver command alone.
 
 E. Maharmeh, Z. Alsayed, F. Nashashibi. A Comprehensive Survey on the Integrity of Localization Systems. *Sensors*, 2025, 25(2), 358. [mdpi.com/1424-8220/25/2/358](https://www.mdpi.com/1424-8220/25/2/358). Обзор разделяет точность и заявление о целостности или protection level. Граница этой сдачи остаётся `empirical bound, not certified protection level`.
 
 F. González, Ö. D. Akyildiz, D. Crisan, J. Míguez. An Operator-Theoretic Analysis of Nonlinear Filtering under Model Misspecification. arXiv:[2607.11378](https://arxiv.org/abs/2607.11378). Разбор фильтра при неверной динамике. В ноду не перенесён. Это материал для разбора устойчивости после дедлайна, не для текущего шага.
+
+M. Jang, J. Lee, A. Hakobyan, N. Hovakimyan, I. Yang. Residual-Aware Distributionally Robust EKF: Absorbing Linearization Mismatch via Wasserstein Ambiguity. arXiv:[2604.02749](https://arxiv.org/abs/2604.02749), 3 Apr 2026. Наиболее интересное теоретическое направление для следующей версии: несовпадение модели шума, несовпадение линеаризации, неоднозначность Вассерштейна и детерминированные границы MSE. Их фильтр на каждом шаге решает SDP и в ноду не входит. Их симуляции не являются числами RailBreak.
+
+Для сегодняшней версии взята только идея: величина невязки раздувает неопределённость измерения. В коде это порог \(\nu^2/S > 16\), после которого \(R = 25\) (м/с)². Это не радиус Вассерштейна и не детерминированная граница MSE. Конверт остаётся `empirical bound, not certified protection level`.
+
+D. Kumar, S. Tayebati, F. Migliarba, R. Krishnan, A. R. Trivedi. Learnable Conformal Prediction with Context-Aware Nonconformity Functions for Robotic Planning and Perception. arXiv:[2509.21955](https://arxiv.org/abs/2509.21955). Страница: [divake.github.io/learnable-cp-robotics](https://divake.github.io/learnable-cp-robotics/). R. Hore, A. Chatterjee, S. Choudhury. Multi-source conformal prediction: leveraging heterogeneity via localization. arXiv:[2609.14531](https://arxiv.org/abs/2609.14531), 13 Sep 2026. Хорошее направление для эмпирического интервала. В эту сдачу их процедуры не входят, и их покрытия не являются числами RailBreak.
+
+Текущая граница \(B_s\) — квантиль train, проверенный на val. Это не conformal prediction. Чтобы интервал стал конформным, нужны честный calibration split, не те же рейсы, на которых выбран квантиль; непройденные маршруты и вагоны, а не только маршрут 10; и учёт зависимости временного ряда: соседние фиксы одного рейса не обменны. Даже тогда это не SIL proof и не `certified protection level`. `certification_claim` остаётся `false`.
 
 Общий вывод. К дедлайну сильнее не нейросеть, а интерпретируемый оцениватель по модели, явные гипотезы отказа, консервативная машина состояний целостности, явное объявление ненаблюдаемости и воспроизводимый прогон.
 
