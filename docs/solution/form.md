@@ -13,7 +13,7 @@
 ## Поле 1. Ссылка на пакет ROS 2
 
 ```
-Пакет railbreak_backup_odometry, C++17, собирается colcon build. Подписки: /vehicle/front_bogie_velocity, /vehicle/rear_bogie_velocity, /vehicle/driver_position_cmd; GNSS только на старте. Публикация: /result/velocity и /result/position.
+Пакет railbreak_backup_odometry, C++17, colcon build. Подписки на тележки и ручку, GNSS только для старта. Публикация /result/velocity и /result/position.
 
 https://github.com/KonkovDV/RailBreak/tree/main/railbreak_backup_odometry
 ```
@@ -25,7 +25,7 @@ https://github.com/KonkovDV/RailBreak/tree/main/railbreak_backup_odometry
 ## Поле 2. Ссылка на инструкцию для жюри
 
 ```
-Как воспроизвести rosbag, какие топики ждать на выходе, где логи и метрики. Задержка вход→публикация и RSS этого дерева не сняты.
+Сборка, Docker и ROS 2, проигрывание rosbag, топики выхода, логи и свой сценарий acceptance. Это не официальный checker.
 
 https://github.com/KonkovDV/RailBreak/blob/main/README.md
 ```
@@ -43,7 +43,7 @@ scripts/jury.sh play --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
 ## Поле 3. Математическая модель
 
 ```
-Состояние [s, v, k, b_a]. Ускорение не из момента: паспорта нет. Прогноз dv/dt = a_tab(n, v) − g·i(s) + b_a, таблица уже в м/с². Входы — две тележки, ручка и GNSS на старте. Выходы — /result/velocity и /result/position.
+Оценка s и v. Ускорение — таблица ручки и скорости, не кривая момента: dv/dt = a_tab(n, v) − g·i(s) + b_a. Масштаб колёс, якоря остановок, режимы целостности.
 
 https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/model.md
 ```
@@ -77,7 +77,7 @@ https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/model.md
 ## Поле 4. Допущения, ограничения, параметры
 
 ```
-Старт — медиана GNSS 3 с или initial_s_m. Масса не задана: load_factor=1. Радиусы колёс 0, берётся k0. Davis A,B,C = 0. Порог невязки 16, пол 0.3 м/с. Полный перечень параметров — по ссылке.
+Старт — медиана GNSS 3 с или initial_s_m. load_factor = 1, радиусы колёс 0, Davis 0. Порог невязки 16, пол 0.3 м/с. Карта — одно кольцо по GNSS train.
 
 https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/assumptions.md
 ```
@@ -95,7 +95,7 @@ https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/assumptions.md
 ## Поле 5. Точность и быстродействие
 
 ```
-Наши таблицы сравниваются с GNSS, не с эталоном судьи. Судья берёт kinematic_state по x, y, z. Графиков отдельным файлом нет. Частота и разрыв rate 1 сняты; RSS, CPU и задержка вход→публикация этого дерева не сняты. Ряд 1.467 м — исторический.
+Таблицы — против GNSS. Судья сравнивает положение с kinematic_state по x, y, z. Графиков нет. Частота и разрывы штампов rate 1 сняты. Ряд 1.467 м — старое дерево. RSS и задержка вход→публикация этого дерева не сняты.
 
 https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/results.md
 ```
@@ -117,7 +117,7 @@ ROS 2 Humble, Docker, held-out bag (GNSS обрезан после 3 с), зап
 ## Поле 6. Ограничения и план после хакатона
 
 ```
-Одно кольцо без стрелок, общая мода не возвращает доверие колёсам, эмпирическая граница не является сертифицированным уровнем. После хакатона: гипотезы стрелок вне фильтра, curvemap без подмешивания val, загрузка только при паспорте массы.
+Одно кольцо без стрелок. Общая мода не возвращает доверие колёсам. Граница эмпирическая, не сертифицированный уровень. После хакатона: гипотезы стрелок вне фильтра, curvemap без val.
 
 https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/tz-audit.md
 ```
