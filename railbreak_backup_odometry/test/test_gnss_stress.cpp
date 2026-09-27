@@ -150,7 +150,9 @@ TEST(GnssDrain, queued_fix_survives_wheels_and_invalid_after_close_is_ignored) {
   }
   pub_fix->publish(make_fix(8.0, lat, lon, sensor_msgs::msg::NavSatStatus::STATUS_FIX));
   exec.spin_some(std::chrono::milliseconds(300));
+  // The newest stamp stays queued until a later one covers stamp_reorder_s.
   pub_wheel->publish(make_wheel(8.2, 36.0));
+  pub_wheel->publish(make_wheel(8.31, 36.0));
   ASSERT_TRUE(spin_until(
       exec,
       [&] {
@@ -166,7 +168,8 @@ TEST(GnssDrain, queued_fix_survives_wheels_and_invalid_after_close_is_ignored) {
   const int behind_before = GnssDrainProbe::behind(*node);
   pub_wheel->publish(make_wheel(7.5, 36.0));
   exec.spin_some(std::chrono::milliseconds(200));
-  pub_wheel->publish(make_wheel(8.4, 36.0));
+  pub_wheel->publish(make_wheel(8.40, 36.0));
+  pub_wheel->publish(make_wheel(8.51, 36.0));
   ASSERT_TRUE(spin_until(
       exec,
       [&] {

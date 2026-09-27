@@ -12,8 +12,12 @@ backup_odometry:
     # up to that watermark. There is no timer and no /clock.
     stamp_reorder_s: 0.10
     # A stream this far behind the freshest leaves the watermark. The diagnostic
-    # reason is ORDER_NOT_RESTORED. Its late sample is counted in n_behind_out
-    # if the output has already passed it. It is not dropped inside the queue.
+    # reason is ORDER_NOT_RESTORED. The watermark still will not pass that
+    # stream's latest by more than this, while the lead is at most 5 s, so one
+    # early stamp cannot skip the samples the other streams have not delivered.
+    # A larger lead drops the cap. A late sample is counted
+    # in n_behind_out if the output has already passed it. It is not dropped
+    # inside the queue.
     order_stall_s: 1.0
     # Bogie field to m/s. Recordings are km/h (ratio to GNSS speed 3.6).
     wheel_unit_scale: 0.2777777777777778

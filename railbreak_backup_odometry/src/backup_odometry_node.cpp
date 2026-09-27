@@ -30,8 +30,17 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
-#include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
+// The 26 Sep check-code archive omits DriverControllerCommand.msg, so that
+// image has no /vehicle/driver_position_cmd. The Yandex-disk package has the
+// message. Compile the notch subscription only when the header is present;
+// without it the node still publishes from the bogies.
+#if __has_include("tram_vehicle_msgs/msg/driver_controller_command.hpp")
+#include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
+#define RAILBREAK_HAS_DRIVER_CMD 1
+#else
+#define RAILBREAK_HAS_DRIVER_CMD 0
+#endif
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
@@ -43,7 +52,9 @@
 #include "railbreak_backup_odometry/start_epoch.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
+#if RAILBREAK_HAS_DRIVER_CMD
 using tram_vehicle_msgs::msg::DriverControllerCommand;
+#endif
 using tram_vehicle_msgs::msg::VelocitySensor;
 
 namespace {
@@ -167,9 +178,14 @@ class BackupOdometryNode : public rclcpp::Node {
       sub_r_ = create_subscription<VelocitySensor>(
           "/vehicle/rear_bogie_velocity", in_qos,
           [this](const VelocitySensor& m) { on_bogie(m, false); });
+#if RAILBREAK_HAS_DRIVER_CMD
       sub_c_ = create_subscription<DriverControllerCommand>(
           "/vehicle/driver_position_cmd", in_qos,
           [this](const DriverControllerCommand& m) { on_cmd(m); });
+#else
+      RCLCPP_WARN(get_logger(),
+                  "tram_vehicle_msgs has no DriverControllerCommand; notch input is absent");
+#endif
     };
     auto make_gnss = [&]() {
       sub_gm_ = create_subscription<sensor_msgs::msg::NavSatFix>(
@@ -359,6 +375,7 @@ class BackupOdometryNode : public rclcpp::Node {
     enqueue(stamp_s(m.header.stamp), std::move(sample), t_in);
   }
 
+#if RAILBREAK_HAS_DRIVER_CMD
   void on_cmd(const DriverControllerCommand& m) {
     const auto t_in = std::chrono::steady_clock::now();
     VehicleSample sample;
@@ -367,6 +384,7 @@ class BackupOdometryNode : public rclcpp::Node {
     sample.stamp = m.header.stamp;
     enqueue(stamp_s(m.header.stamp), std::move(sample), t_in);
   }
+#endif
 
   void enqueue(double t, VehicleSample sample, std::chrono::steady_clock::time_point t_in) {
     if (!std::isfinite(t)) {
@@ -892,7 +910,9 @@ class BackupOdometryNode : public rclcpp::Node {
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_p_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_d_;
   rclcpp::Subscription<VelocitySensor>::SharedPtr sub_f_, sub_r_;
+#if RAILBREAK_HAS_DRIVER_CMD
   rclcpp::Subscription<DriverControllerCommand>::SharedPtr sub_c_;
+#endif
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr sub_gm_, sub_gr_;
 
   friend struct GnssDrainProbe;

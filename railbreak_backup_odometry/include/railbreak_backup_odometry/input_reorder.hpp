@@ -4,14 +4,18 @@
 // /clock: each callback pushes a sample and releases only what is already
 // covered by every live stream.
 //
-//   t_watermark = min(t_latest of live streams) - hold_s
+//   t_watermark = min(t_latest of live streams, cap) - hold_s
 //
 // A stream that has not spoken yet is not in the min, so one topic can start
 // the ride. A stream whose latest stamp is more than stall_s behind the
-// freshest is left out of the min. That is ORDER_NOT_RESTORED: the sample is
-// still released in stamp order when it is at or under the watermark, and the
-// node counts it in n_behind_out if the output has already passed it.
-// Samples are not discarded inside this queue.
+// freshest is left out of the min. That is ORDER_NOT_RESTORED. While the lead
+// is at most kAbandonS, the cap is that stream's latest plus stall_s: one
+// early stamp must not publish over samples the other streams have not
+// delivered yet. A larger lead no longer caps the watermark, so a stream that
+// has stopped cannot hold the output for the rest of the ride. A sample at or
+// under the watermark is still released in stamp order, and the node counts it in
+// n_behind_out if the output has already passed it. Samples are not discarded
+// inside this queue.
 //
 // A push without a stream id uses one anonymous stream and the same hold
 // against the newest stamp. That is the single-topic path.
@@ -45,6 +49,9 @@ class InputReorder {
  public:
   static constexpr int kMaxStreams = 4;
   static constexpr double kDefaultStallS = 1.0;
+  // Larger than the 2.3 s stamp lead at the start of 30618_e9a34502. A dead
+  // stream is released after this lead; the start-of-bag reorder is not.
+  static constexpr double kAbandonS = 5.0;
 
   void set_hold(double hold_s) {
     hold_s_ = std::isfinite(hold_s) && hold_s > 0.0 ? hold_s : 0.0;
@@ -102,17 +109,23 @@ class InputReorder {
       if (seen_[i]) freshest = std::max(freshest, latest_[i]);
     }
     double slow = std::numeric_limits<double>::infinity();
+    double cap = std::numeric_limits<double>::infinity();
     bool excluded = false;
     for (int i = 0; i < kMaxStreams; ++i) {
       if (!seen_[i]) continue;
       if (freshest - latest_[i] > stall_s_) {
         excluded = true;
+        // Do not follow the early stamp past what this stream could still deliver.
+        // A lead past kAbandonS is a stopped stream: leave the cap off.
+        if (freshest - latest_[i] <= kAbandonS)
+          cap = std::min(cap, latest_[i] + stall_s_);
         continue;
       }
       slow = std::min(slow, latest_[i]);
     }
     if (excluded) reason = "ORDER_NOT_RESTORED";
     if (!std::isfinite(slow)) slow = freshest;
+    slow = std::min(slow, cap);
     return slow - hold_s_;
   }
 

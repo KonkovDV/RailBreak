@@ -2,7 +2,14 @@
 
 # railbreak_backup_odometry
 
-Резервная одометрия трамвая по двум тележкам и ручке контроллера, ROS 2 Humble.
+Резервная одометрия трамвая по двум тележкам и ручке контроллера, ROS 2 Humble, C++17.
+
+| Что открыть | Где |
+|---|---|
+| Нода | `src/backup_odometry_node.cpp`, заголовки в `include/railbreak_backup_odometry/` |
+| Launch | `launch/backup_odometry.launch.py` |
+| Параметры | `config/params.yaml` |
+| Карта, остановки, таблица ручки | `assets/ring.csv`, `assets/stops.csv`, `assets/notch.csv`, `assets/meta.yaml` |
 Все сценарии запуска — в [корневом README](../README.md): на Windows, Linux и macOS
 это `scripts/jury.ps1` / `scripts/jury.sh`, на Ubuntu без Docker — команды ниже.
 Питч и разбор практики — [`../docs/solution/pitch.md`](../docs/solution/pitch.md).
@@ -20,15 +27,17 @@ GNSS читается только в окне старта: 3 с от перв�
 
 Входы: `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity`
 (`tram_vehicle_msgs/VelocitySensor`), `/vehicle/driver_position_cmd`
-(`DriverControllerCommand`). В записях поле `velocity` тележки ведёт себя как
+(`DriverControllerCommand`). Если в пакете сообщений этого файла нет, нода всё равно собирается и публикует положение по тележкам. В записях поле `velocity` тележки ведёт себя как
 км/ч; в ноде оно переводится параметром `wheel_unit_scale` (по умолчанию 1/3.6).
 README датасета называет это поле м/с; на проверочной записи деление на 3.6
 совпадает со скоростью `/localization/kinematic_state`. Штампы тележек и ручки стоят в одной очереди. Водяной знак —
 минимум последних штампов живых потоков минус `stamp_reorder_s` (0.10 с).
 До этого знака сообщения применяются по порядку штампа. Поток, который отстаёт
 больше чем на `order_stall_s` (1 с), из минимума выходит: в диагностике
-`order_reason=ORDER_NOT_RESTORED`, а штамп позади уже опубликованного выхода
-считается в `n_behind_out`. Таймера нет, `/clock` не нужен.
+`order_reason=ORDER_NOT_RESTORED`. Пока отставание не больше 5 с, знак не
+уходит дальше чем на 1 с от его последнего штампа. Большее отставание это
+ограничение снимает. Штамп позади уже опубликованного выхода считается в
+`n_behind_out`. Таймера нет, `/clock` не нужен.
 Выход `/result/velocity` — м/с. Отдельного топика тормоза нет и не ожидается.
 Торможение — знак `driver_position_cmd.position`: больше нуля — тяга, меньше
 нуля — торможение по строке таблицы, ноль — выбег. Пропуск такого топика не
