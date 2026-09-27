@@ -49,6 +49,8 @@ def acceptance_failures(obs: dict) -> list[str]:
     gap = report["max_gap"]
     if not _finite(gap) or float(gap) > MAX_GAP_S:
         reasons.append(f"max gap {gap} s is above {MAX_GAP_S:g} s")
+    if obs.get("require_position", True) and obs.get("have_position", False):
+        reasons.extend(_position_failures(obs))
     status = int(obs.get("scorer_status", 1))
     if status != 0:
         reasons.append(f"scorer failed ({status})")
@@ -64,6 +66,27 @@ def acceptance_failures(obs: dict) -> list[str]:
     db3 = [str(p) for p in obs.get("db3_in_git") or []]
     if db3:
         reasons.append("recorded .db3 in the git tree: " + ", ".join(db3))
+    return reasons
+
+
+def _position_failures(obs: dict) -> list[str]:
+    """Same 10 Hz / 0.25 s / no-regression contract, on /result/position."""
+    stamps = np.asarray(obs.get("position_stamps") or [], float)
+    report = output_rate_report(stamps)
+    obs["position_rate"] = report["rate_unique_stamp_hz"]
+    obs["position_gap"] = report["max_gap"]
+    obs["position_regressed_stamp_count"] = int(report["regressed_stamp_count"])
+    reasons: list[str] = []
+    if obs["position_regressed_stamp_count"] > 0:
+        reasons.append(f"position stamp regressed ({obs['position_regressed_stamp_count']})")
+    rate = obs["position_rate"]
+    if not _finite(rate) or float(rate) < MIN_RATE_HZ:
+        reasons.append(f"position frequency {rate} Hz is below {MIN_RATE_HZ:g} Hz")
+    gap = obs["position_gap"]
+    if not _finite(gap) or float(gap) > MAX_GAP_S:
+        reasons.append(f"position max gap {gap} s is above {MAX_GAP_S:g} s")
+    if not obs.get("position_finite_xyz", False):
+        reasons.append("position x/y/z is not finite")
     return reasons
 
 
@@ -99,6 +122,8 @@ def observe_result(bag: Path) -> dict:
         "have_velocity": False,
         "have_position": False,
         "velocity_stamps": [],
+        "position_stamps": [],
+        "position_finite_xyz": True,
         "frame_id": None,
         "child_frame_id": None,
         "twist_linear_x": None,
@@ -121,6 +146,10 @@ def observe_result(bag: Path) -> dict:
             obs["frame_id"] = rec.get("frame_id")
             obs["child_frame_id"] = rec.get("child_frame_id")
             obs["twist_linear_x"] = rec.get("v")
+            if "stamp_s" in rec:
+                obs["position_stamps"].append(float(rec["stamp_s"]))
+            if not all(_finite(rec.get(key)) for key in ("s", "y", "z")):
+                obs["position_finite_xyz"] = False
         elif topic == "/result/diagnostics":
             vals = rec.get("values") or {}
             if "gnss" in vals:

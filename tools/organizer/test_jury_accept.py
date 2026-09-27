@@ -19,6 +19,8 @@ def clean(**kw) -> dict:
         "have_position": True,
         "require_position": True,
         "velocity_stamps": stamps,
+        "position_stamps": list(stamps),
+        "position_finite_xyz": True,
         "scorer_status": 0,
         "frame_id": "map",
         "child_frame_id": "base_link",
@@ -49,6 +51,10 @@ class JuryAcceptTests(unittest.TestCase):
             ({"twist_linear_x": math.nan}, "twist.linear.x"),
             ({"gnss_closed": False}, "GNSS"),
             ({"db3_in_git": ["C:/repo/out.db3"]}, ".db3"),
+            ({"position_stamps": [0.2, 0.1, 0.3]}, "position stamp regressed"),
+            ({"position_stamps": [0.0, 0.2]}, "position frequency"),
+            ({"position_stamps": [0.0, 0.05, 0.40]}, "position max gap"),
+            ({"position_finite_xyz": False}, "not finite"),
         ]
         for patch, needle in cases:
             reasons = ja.acceptance_failures(clean(**patch))
