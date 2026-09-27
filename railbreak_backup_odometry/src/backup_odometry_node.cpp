@@ -81,7 +81,7 @@ class BackupOdometryNode : public rclcpp::Node {
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
     // Watermark is the slowest live stream minus this hold. A stream more than
     // order_stall_s behind the freshest is left out of the min.
-    reorder_.set_hold(declare_parameter("stamp_reorder_s", 0.10));
+    reorder_.set_hold(declare_parameter("stamp_reorder_s", 0.0));
     reorder_.set_stall(declare_parameter("order_stall_s", railbreak::InputReorder<int>::kDefaultStallS));
     diag_every_ = std::max<int64_t>(1, declare_parameter("diagnostics_every_n", 20));
     frame_id_ = declare_parameter("frame_id", std::string("map"));
@@ -440,7 +440,7 @@ class BackupOdometryNode : public rclcpp::Node {
     note_out(t);
   }
 
-  // A stamp that is still behind the last output after stamp_reorder_s is
+  // A stamp that the queue releases behind the last output is
   // counted and dropped. It does not move the GNSS window and it is not
   // published, so header.stamp does not go backwards. An equal stamp still
   // passes: the two bogies can share one.

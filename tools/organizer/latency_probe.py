@@ -89,6 +89,45 @@ def report(inputs, outputs, warmup_n: int = WARMUP_N) -> dict:
     return out
 
 
+INPUT_TOPICS = (
+    "/vehicle/front_bogie_velocity",
+    "/vehicle/rear_bogie_velocity",
+    "/vehicle/driver_position_cmd",
+)
+
+
+def from_bag(bag: Path, output_topic: str, warmup_n: int) -> dict:
+    """The same L from one ros2 bag record of the inputs and the outputs.
+
+    Both receive times are the recorder's clock, so L includes the stamp
+    hold, the callback, the publish and one DDS hop. It is only meaningful at
+    --rate 1: at --rate 10 the 0.10 s hold is 0.01 s of wall time.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "eval"))
+    from rosbag2_io import decode_message, iter_messages
+
+    inputs: list[tuple[float, float]] = []
+    outputs: list[tuple[float, float]] = []
+    for ts, topic, typ, blob in iter_messages(bag):
+        if topic != output_topic and topic not in INPUT_TOPICS:
+            continue
+        rec = decode_message(typ, blob)
+        if not rec or "stamp_s" not in rec:
+            continue
+        row = (float(rec["stamp_s"]), ts * 1e-9)
+        (outputs if topic == output_topic else inputs).append(row)
+    out = report(inputs, outputs, warmup_n)
+    out["definition"] = "recorder receive of output - recorder receive of the input with that stamp"
+    out["share_over_0_100_s"] = _share_over(inputs, outputs, 0.100)
+    out["share_over_0_250_s"] = _share_over(inputs, outputs, 0.250)
+    return out
+
+
+def _share_over(inputs, outputs, limit_s: float) -> float:
+    lat = np.asarray(match_receives(inputs, outputs), float)
+    return float((lat > limit_s).mean()) if lat.size else float("nan")
+
+
 def _stamp_s(msg) -> float:
     return float(msg.header.stamp.sec) + 1e-9 * float(msg.header.stamp.nanosec)
 
@@ -144,7 +183,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--warmup-n", type=int, default=WARMUP_N)
     ap.add_argument("--input-topic", default="/vehicle/front_bogie_velocity")
     ap.add_argument("--output-topic", default="/result/velocity")
+    ap.add_argument("--bag", type=Path, help="ros2 bag record of the three inputs and the outputs")
     args = ap.parse_args(argv)
+    if args.bag is not None:
+        print(json.dumps(from_bag(args.bag, args.output_topic, args.warmup_n), indent=1))
+        return 0
     try:
         out = run(args.duration, args.warmup_n, args.input_topic, args.output_topic)
     except ModuleNotFoundError as exc:

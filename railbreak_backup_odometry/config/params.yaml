@@ -7,10 +7,13 @@ backup_odometry:
     gnss_init_window_s: 3.0
     # No fix this long after the first input: publish relative odometry from the start point.
     gnss_wait_s: 10.0
-    # Bogie and notch headers arrive out of stamp order. The watermark is the
-    # slowest live stream minus this hold. Samples are applied in stamp order
-    # up to that watermark. There is no timer and no /clock.
-    stamp_reorder_s: 0.10
+    # Bogie and notch headers arrive out of stamp order across streams. The
+    # watermark is the slowest live stream minus this hold. Samples are applied
+    # in stamp order up to that watermark. There is no timer and no /clock.
+    # Inside one stream the 122 recordings step back only twice by less than
+    # 0.10 s, so the stream min needs no hold; 0.10 s cost about 150 ms of
+    # input-to-output latency at --rate 1.
+    stamp_reorder_s: 0.0
     # A stream this far behind the freshest is ORDER_NOT_RESTORED. It leaves the
     # watermark only after 50 other samples arrived without one from it. The watermark still will not pass that
     # stream's latest by more than this, while the lead is at most 5 s, so one
