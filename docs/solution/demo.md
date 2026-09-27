@@ -81,7 +81,7 @@ python tools/organizer/make_heldout.py files/data/<id> local/heldout/<id>_<fault
 - пока оба флага горят, `integrity_status=DEGRADED_COMMON_MODE_UNOBSERVABLE`, в причинах `BOGIES_AGREE_MODEL_DISAGREES`, к границе добавлены 32.606 м (`B_mode` этого статуса);
 - прокси `adhesion_classification=COMMON_MODE_SUSPECTED`, `adhesion_mu_estimate=null`;
 - через `recover_s` = 3 с режим `COMMON_MODE_UNOBSERVABLE`: флаги юза не гаснут, скорость тележек в состояние не копируется, k и bₐ не подстраиваются;
-- `confidence_velocity` не возвращается в `ok` только из-за согласия тележек. Если за слепой бюджет нет нового якоря, статус `LOST`, `use_position` ложен и `/result/position` не публикуется. Скорость при этом может остаться с `velocity_confidence=LOW`;
+- `confidence_velocity` не возвращается в `ok` только из-за согласия тележек. Если за слепой бюджет нет нового якоря, статус `LOST`, `use_position` ложен, и `/result/position` выходит с ковариацией σ = 1 км. Скорость при этом может остаться с `velocity_confidence=LOW`;
 - `confidence_position` остаётся `degraded`, пока не вырастет `n_anchor`;
 - на следующей единственной стоянке `n_anchor` увеличивается, защёлка положения снимается. GNSS при этом остаётся `closed`: привязка — абсолютное s остановки, не новый фикс.
 
