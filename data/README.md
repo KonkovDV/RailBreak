@@ -17,7 +17,7 @@ an envelope pass). Add `--require-gt` only when the bag actually contains `/gt/*
 or you have mapped lidar localization to GT **offline**. Default vehicle for
 `run_bag.py` is Львёнок (4 axles).
 
-If lidar pose has a usable $z$:
+If lidar pose has a usable z:
 
 ```bash
 python tools/eval/profile_from_bag.py data/bags/run01 --out data/route_10_profile.csv

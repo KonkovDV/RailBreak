@@ -11,13 +11,8 @@
 
 При отсутствии latch:
 
-$$
-\sigma_s=\sqrt{P_{ss}},\quad b_s=\kappa_{cut}|\hat v|T_{hold},
-$$
-$$
-PL_s=k_{over}\sigma_s+b_s,\quad
-AL_s=5+0.05\max(\hat s,0).
-$$
+σₛ=√(Pₛₛ),    bₛ=κ_cut|hat v|T_hold,
+PLₛ=k_overσₛ+bₛ,  ALₛ=5+0.05max(hat s,0).
 
 `under_m = k_sigma·sigma_s`; `over_m = PL_s` при ограниченном режиме.
 `PL_v = k_over·sqrt(P_vv)`. Коэффициенты и пороги задаются конфигурацией;
@@ -93,10 +88,7 @@ Checker сравнивает ошибку пути с **GT**-порогом
 `5 + 0.05·abs(s_gt)` среди сопоставленных GT-кадров со статусом OK.
 Это не тот же операнд, что online AL по оценённому s.
 
-$$
-HMI\_rate=\frac{N(OK\ \land\ |\hat s-s_{gt}|>AL_{gt})}
-                 {N(OK\ \land\ matched\ GT)}.
-$$
+HMI_rate=(N(OK ∧ |hat s−s_gt|>AL_gt))/(N(OK ∧ matched GT)).
 
 Это условная эмпирическая доля. Она должна сопровождаться:
 

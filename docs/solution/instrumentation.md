@@ -19,7 +19,7 @@
 | `rmse_3d_one_to_one` | монотонное one-to-one |
 | `coverage_one_to_one` | монотонное one-to-one |
 
-На синтетике с одним выходом ошибки 10 м, закрывающим три отсчёта, и одним нулевым выходом: legacy RMSE \(\sqrt{75}\) м и coverage 1, one-to-one RMSE \(\sqrt{50}\) м и coverage 0.5. Это не прогон val.
+На синтетике с одним выходом ошибки 10 м, закрывающим три отсчёта, и одним нулевым выходом: legacy RMSE √75 м и coverage 1, one-to-one RMSE √50 м и coverage 0.5. Это не прогон val.
 
 ## Частота по уникальным штампам
 
@@ -27,13 +27,13 @@
 
 | Поле | Смысл |
 | --- | --- |
-| `rate_all_messages_hz` | \((N-1)\) / длительность уникальных штампов. Совпадает с `rate_record_hz` |
+| `rate_all_messages_hz` | (N−1) / длительность уникальных штампов. Совпадает с `rate_record_hz` |
 | `rate_unique_stamp_hz` | число уникальных шагов / та же длительность. Совпадает с `rate_unique_hz` |
 | `duplicate_stamp_fraction` | доля точных повторов штампа |
 | `regressed_stamp_count` | шаги назад в порядке прихода. Совпадает с `n_regressed` |
 | `p50_gap`, `p95_gap`, `max_gap` | интервалы между соседними уникальными штампами, с. `max_gap` совпадает с `max_gap_s` |
 
-Три одинаковых штампа на шаге 10 Гц: `rate_hz` 10 Гц, доля дублей \(200/300\), `rate_all_messages_hz` около 30.2 Гц. Штампы через 0.1 мс по-прежнему раздувают медиану `rate_hz`; `p50_gap` у них меньше 1 мс, хвост `p95_gap` длиннее.
+Три одинаковых штампа на шаге 10 Гц: `rate_hz` 10 Гц, доля дублей 200/300, `rate_all_messages_hz` около 30.2 Гц. Штампы через 0.1 мс по-прежнему раздувают медиану `rate_hz`; `p50_gap` у них меньше 1 мс, хвост `p95_gap` длиннее.
 
 ## Задержка
 
@@ -41,9 +41,7 @@
 
 Внешняя нода `tools/organizer/latency_probe.py` на своих часах `time.monotonic()` пишет
 
-\[
-L = t_{\text{output receive}} - t_{\text{input receive}}.
-\]
+L = t_(output receive) − t_(input receive).
 
 Вход — `/vehicle/front_bogie_velocity`, выход — `/result/velocity`. Штамп сообщения она только читает, чтобы свести два приёма one-to-one. В `/result/*` она ничего не пишет, публикуемый stamp ноды не меняется.
 
