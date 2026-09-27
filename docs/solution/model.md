@@ -305,9 +305,8 @@ max(3σ, 0.02 D + 3 м) медиану не меняют и тот же выбр
 половина рейсов укладывается; среднее тянут вниз отдельные записи. На
 `30639_0be558e2` внутри 3σ 0.489 фиксов, медиана |eₛ|/σₛ = 12.5.
 Ворота 3σ из-за этого порог настройки, не вероятность. `P_ss` из-за этих долей не умножается. Конверт рядом с точкой — `empirical bound, not certified protection level`: `B_s = q_0.99 sigma_s + B_mode + B_map + B_time`, плюс отдельные `sigma_scale`, `sigma_model`, `sigma_map`, `sigma_common_mode`, `sigma_timestamp`. Коэффициенты `B_s` сняты на train и проверены на val; на val заново не подгонялись. Скрипт —
-`tools/organizer/sigma_calibration.py`. Диаграмма и
-эмпирический множитель c_0.95 — в
-[sigma_reliability.md](sigma_reliability.md).
+`tools/organizer/sigma_calibration.py`. Доли выше — текущее дерево.
+Таблица и рисунок в [sigma_reliability.md](sigma_reliability.md) — проход архива `6af0037`.
 
 ## 5. Карта
 
