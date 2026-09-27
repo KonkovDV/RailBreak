@@ -50,22 +50,18 @@ def main() -> int:
     errors: list[str] = []
     if data.get("fields") != list(FIELDS):
         errors.append("manifest field list drifted")
-    if data.get("package_tree_commit") != "8334ea8afbc3db3d56715f6c344516cbc938cf3e":
-        errors.append("package tree commit is not 8334ea8")
-    if data.get("filter_commit") != "2ce42d7101dced2e32d74f0e5fdc786e48d273a5":
-        errors.append("filter commit is not 2ce42d7")
+    if data.get("package_tree_commit") != "21ce24a76f03ade4c6307c091792fd44775421df":
+        errors.append("package tree commit is not 21ce24a")
+    if data.get("filter_commit") != data.get("package_tree_commit"):
+        errors.append("filter commit is not the submission package tree")
     if data.get("metrics_commit") != "6af0037710baa3b67df2cc5720c6cc3272719712":
         errors.append("metrics commit is not 6af0037")
     if data.get("metrics_valid_for_current_head") is not False:
         errors.append("metrics are marked valid for the package tree")
     if data.get("current_replay_status") != "pending":
         errors.append("current replay status is not pending")
-    if len({
-        data.get("package_tree_commit"),
-        data.get("filter_commit"),
-        data.get("metrics_commit"),
-    }) != 3:
-        errors.append("package, filter and metrics commits are not three different trees")
+    if data.get("package_tree_commit") == data.get("metrics_commit"):
+        errors.append("metrics commit was overwritten with the submission tree")
     if data.get("filter_commit_used_for_published_metrics") != data.get("metrics_commit"):
         errors.append("published metrics are not pinned to metrics_commit")
     if data.get("published_metrics_valid_for_current_head") is not False:
