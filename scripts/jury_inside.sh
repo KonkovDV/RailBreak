@@ -66,10 +66,9 @@ mkdir -p /ws/src
 rm -rf /ws/src/tram_vehicle_msgs /ws/src/railbreak_backup_odometry
 cp -a /org_msgs /ws/src/tram_vehicle_msgs
 cp -a /opt/src/railbreak_backup_odometry /ws/src/railbreak_backup_odometry
-if ! grep -q "<maintainer" /ws/src/tram_vehicle_msgs/package.xml; then
-  sed -i 's#<license>#<maintainer email="organiser@example.invalid">organiser</maintainer>\n  <license>#' \
-    /ws/src/tram_vehicle_msgs/package.xml
-fi
+# shellcheck disable=SC1091
+source /opt/ensure_maintainer.sh
+ensure_maintainer /ws/src/tram_vehicle_msgs/package.xml
 
 cd /ws
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \

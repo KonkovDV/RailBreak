@@ -9,6 +9,7 @@ services:
     volumes:
       - ./railbreak_backup_odometry:/opt/src/railbreak_backup_odometry:ro
       - ./scripts/jury_inside.sh:/opt/jury_inside.sh:ro
+      - ./scripts/ensure_maintainer.sh:/opt/ensure_maintainer.sh:ro
       - ./tools:/opt/tools:ro
       - ${MSGS_DIR:?set MSGS_DIR}:/org_msgs:ro
       - ${BAG:?set BAG}:/bag

@@ -24,7 +24,7 @@ ros2 run hackathon_solution_checker metrics                   # терминал
 ros2 bag play <каталог rosbag2> --rate 1                      # терминал 3
 ```
 
-`tram_vehicle_msgs` из этого архива не содержит `DriverControllerCommand.msg`. С ним нода собирается без ручки, и положение ручки остаётся 0. Собирать нужно с полным пакетом сообщений организатора. Задержка вход→выход: `ros2 bag record` трёх входов и `/result/velocity` при `--rate 1`, затем `python3 tools/organizer/latency_probe.py --bag <запись>`. Скрипт берёт время приёма выхода минус время приёма входа с тем же `header.stamp`.
+`tram_vehicle_msgs` из этого архива не содержит `DriverControllerCommand.msg`. Без этого сообщения нода не стартует: ручка не подменяется нулём. Собирать нужно с полным пакетом сообщений организатора. Задержка вход→выход: `ros2 bag record` трёх входов и `/result/velocity` при `--rate 1`, затем `python3 tools/organizer/latency_probe.py --bag <запись>`. Скрипт берёт время приёма выхода минус время приёма входа с тем же `header.stamp`.
 
 | Страница | Зачем |
 |---|---|
@@ -109,7 +109,8 @@ scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_ve
 Поле `velocity` тележки в записях — км/ч. Нода переводит его в м/с
 (`wheel_unit_scale = 1/3.6`). Выход скорости — м/с. Отдельного топика тормоза
 нет. Знак `position` ручки — это режим: больше нуля тяга, меньше нуля
-торможение, ноль выбег. Его отсутствие не переводит выход в отказ.
+торможение, ноль выбег. Нет отдельного топика тормоза — это не отказ. Нет типа
+`DriverControllerCommand` — нода не стартует.
 
 Три потока стоят в одной очереди. Выход несёт штамп входа, который очередь уже
 выпустила: не новее минимума последних штампов живых потоков. Удержания сверх
@@ -166,16 +167,16 @@ rover `(2.563, 0, 3)`. Если в окне есть только rover, дуг�
 ## 1. Сборка на Ubuntu без Docker
 
 Из корня клона. `<датасет>` — каталог выдачи, где лежит `tram_vehicle_msgs`.
-Контейнерный путь этот шаг делает сам.
+Контейнерный путь этот шаг делает сам: `scripts/jury.sh` перед сборкой вставляет
+`<maintainer>`, если в выданном `package.xml` его нет.
 
 ```bash
 mkdir -p ~/ws/src
 cp -a railbreak_backup_odometry ~/ws/src/
 cp -a <датасет>/tram_vehicle_msgs ~/ws/src/
 # В выданном package.xml нет <maintainer>, и catkin_pkg на Humble его отвергает.
-grep -q "<maintainer" ~/ws/src/tram_vehicle_msgs/package.xml || \
-  sed -i 's#<license>#<maintainer email="organiser@example.invalid">organiser</maintainer>\n  <license>#' \
-  ~/ws/src/tram_vehicle_msgs/package.xml
+source scripts/ensure_maintainer.sh
+ensure_maintainer ~/ws/src/tram_vehicle_msgs/package.xml
 cd ~/ws
 source /opt/ros/humble/setup.bash
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \

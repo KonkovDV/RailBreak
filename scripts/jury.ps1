@@ -90,6 +90,8 @@ try {
     if ($env:FAIL_CLOSED -eq '1') {
         python (Join-Path $Root 'tools/organizer/jury_accept.py') --list-db3 $Root | Set-Content -Encoding utf8 $before
     }
+    # Humble catkin_pkg rejects tram_vehicle_msgs without <maintainer>.
+    # scripts/jury_inside.sh inserts the tag into the container copy before colcon.
     docker compose -f docker-compose.jury.yml run -T --rm --build jury
     $status = $LASTEXITCODE
     if ($env:FAIL_CLOSED -eq '1') {

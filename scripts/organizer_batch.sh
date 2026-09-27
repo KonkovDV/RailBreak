@@ -8,10 +8,17 @@ source /opt/ros/humble/setup.bash
 cd /ws
 rm -rf /ws/src/tram_vehicle_msgs
 cp -r /org_msgs /ws/src/tram_vehicle_msgs
-if ! grep -q "<maintainer" /ws/src/tram_vehicle_msgs/package.xml; then
-  sed -i 's#<license>#<maintainer email="organiser@example.invalid">organiser</maintainer>\n  <license>#' \
-    /ws/src/tram_vehicle_msgs/package.xml
+_ensure=""
+for _c in "$(dirname "$0")/ensure_maintainer.sh" /opt/ensure_maintainer.sh /ws/scripts/ensure_maintainer.sh; do
+  if [ -f "${_c}" ]; then _ensure="${_c}"; break; fi
+done
+if [ -z "${_ensure}" ]; then
+  echo "ensure_maintainer.sh not found" >&2
+  exit 1
 fi
+# shellcheck disable=SC1090
+source "${_ensure}"
+ensure_maintainer /ws/src/tram_vehicle_msgs/package.xml
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \
   --cmake-args -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -n 2
 source /ws/install/setup.bash

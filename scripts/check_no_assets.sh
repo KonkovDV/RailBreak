@@ -6,9 +6,17 @@ set +u
 source /opt/ros/humble/setup.bash
 cd /ws
 cp -r /org_msgs src/tram_vehicle_msgs
-grep -q "<maintainer" src/tram_vehicle_msgs/package.xml || \
-  sed -i 's#<license>#<maintainer email="organiser@example.invalid">organiser</maintainer>\n  <license>#' \
-  src/tram_vehicle_msgs/package.xml
+_ensure=""
+for _c in "$(dirname "$0")/ensure_maintainer.sh" /opt/ensure_maintainer.sh /ws/scripts/ensure_maintainer.sh; do
+  if [ -f "${_c}" ]; then _ensure="${_c}"; break; fi
+done
+if [ -z "${_ensure}" ]; then
+  echo "ensure_maintainer.sh not found" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "${_ensure}"
+ensure_maintainer src/tram_vehicle_msgs/package.xml
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry 2>&1 | tail -n 3
 source install/setup.bash
 BIN=install/railbreak_backup_odometry/lib/railbreak_backup_odometry/backup_odometry_node

@@ -140,4 +140,13 @@ if printf '%s\n' "${record_line}" | grep -q 'FAIL_CLOSED'; then
   echo "interactive record became fail-closed" >&2
   exit 1
 fi
+if ! grep -q 'ensure_maintainer' "${ROOT}/scripts/jury_inside.sh"; then
+  echo "jury_inside.sh does not insert a missing maintainer" >&2
+  exit 1
+fi
+if ! grep -q 'ensure_maintainer.sh' "${ROOT}/docker-compose.jury.yml"; then
+  echo "the jury container does not mount ensure_maintainer.sh" >&2
+  exit 1
+fi
+bash "${ROOT}/scripts/test_ensure_maintainer.sh"
 echo ok

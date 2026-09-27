@@ -27,7 +27,7 @@ GNSS читается только в окне старта: 3 с от перв�
 
 Входы: `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity`
 (`tram_vehicle_msgs/VelocitySensor`), `/vehicle/driver_position_cmd`
-(`DriverControllerCommand`). Если этого файла в пакете сообщений нет, нода собирается без подписки на ручку, и положение ручки остаётся 0. Собирать нужно с полным пакетом сообщений организатора. В записях поле `velocity` тележки ведёт себя как
+(`DriverControllerCommand`). Если этого сообщения в пакете нет, нода не стартует и не держит ручку в нуле. В записях поле `velocity` тележки ведёт себя как
 км/ч; в ноде оно переводится параметром `wheel_unit_scale` (по умолчанию 1/3.6).
 README датасета называет это поле м/с; на проверочной записи деление на 3.6
 совпадает со скоростью `/localization/kinematic_state`. Штампы тележек и ручки стоят в одной очереди. Водяной знак —
@@ -40,8 +40,7 @@ README датасета называет это поле м/с; на прове�
 `n_behind_out`. Таймера нет, `/clock` не нужен.
 Выход `/result/velocity` — м/с. Отдельного топика тормоза нет и не ожидается.
 Торможение — знак `driver_position_cmd.position`: больше нуля — тяга, меньше
-нуля — торможение по строке таблицы, ноль — выбег. Пропуск такого топика не
-является неисправностью. ZUPT смотрит на скорости тележек, не на тормоз.
+нуля — торможение по строке таблицы, ноль — выбег. Пока тип сообщения есть, тишина на этом топике не отказ: ручка остаётся в последнем положении. ZUPT смотрит на скорости тележек, не на тормоз.
 
 ## Сборка (без интернета)
 
@@ -55,10 +54,24 @@ README датасета называет это поле м/с; на прове�
 mkdir -p ~/ws/src && cd ~/ws/src
 cp -r <сдача>/railbreak_backup_odometry .
 cp -r <датасет>/tram_vehicle_msgs .
-# Выданный package.xml без <maintainer> не проходит проверку catkin_pkg в Humble.
-grep -q "<maintainer" tram_vehicle_msgs/package.xml || \
-  sed -i 's#<license>#<maintainer email="organiser@example.invalid">organiser</maintainer>\n  <license>#' \
-  tram_vehicle_msgs/package.xml
+# Выданный package.xml без <maintainer> не проходит catkin_pkg на Humble.
+# scripts/jury.sh вставляет тег сам. Ручная сборка из корня клона вызывает
+# scripts/ensure_maintainer.sh. Здесь, рядом с копией пакета:
+python3 - tram_vehicle_msgs/package.xml <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+text = p.read_text(encoding="utf-8")
+if "<maintainer" not in text:
+    tag = '  <maintainer email="organiser@example.invalid">organiser</maintainer>\n'
+    if "</description>" in text:
+        text = text.replace("</description>", "</description>\n" + tag, 1)
+    elif "<license>" in text:
+        text = text.replace("<license>", tag + "  <license>", 1)
+    else:
+        text = text.replace("</package>", tag + "</package>", 1)
+    p.write_text(text, encoding="utf-8")
+PY
 cd ~/ws
 source /opt/ros/humble/setup.bash
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \

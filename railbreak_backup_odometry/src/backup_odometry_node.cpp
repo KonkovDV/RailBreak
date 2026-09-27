@@ -17,11 +17,13 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -32,9 +34,8 @@
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
 // The check-code archive omits DriverControllerCommand.msg. Bags still carry
-// /vehicle/driver_position_cmd. Compile the notch subscription only when the
-// header is present. Without it the notch stays 0; that build is not a run
-// on the real command. A recorded replay uses a package that has the message.
+// /vehicle/driver_position_cmd. Without that header the node refuses to start:
+// holding the notch at 0 is not a run on the real command.
 #if __has_include("tram_vehicle_msgs/msg/driver_controller_command.hpp")
 #include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #define RAILBREAK_HAS_DRIVER_CMD 1
@@ -73,14 +74,21 @@ class BackupOdometryNode : public rclcpp::Node {
  public:
   explicit BackupOdometryNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
       : Node("backup_odometry", options) {
+#if !RAILBREAK_HAS_DRIVER_CMD
+    RCLCPP_FATAL(get_logger(),
+                 "tram_vehicle_msgs has no DriverControllerCommand; refusing to start");
+    throw std::runtime_error(
+        "DriverControllerCommand is required; the notch is not held at 0");
+#endif
     std::string dir = declare_parameter("assets_dir", std::string(""));
     if (dir.empty()) {
       dir = ament_index_cpp::get_package_share_directory("railbreak_backup_odometry") + "/assets";
     }
     win_.window_s = declare_parameter("gnss_init_window_s", 3.0);
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
-    // Watermark is the slowest live stream minus this hold. A stream more than
-    // order_stall_s behind the freshest is left out of the min.
+    // Watermark is the slowest live stream minus this hold. Default hold is 0.
+    // A stream more than order_stall_s behind the freshest is ORDER_NOT_RESTORED.
+    // While that stream is still delivering, it stays in the min.
     reorder_.set_hold(declare_parameter("stamp_reorder_s", 0.0));
     reorder_.set_stall(declare_parameter("order_stall_s", railbreak::InputReorder<int>::kDefaultStallS));
     diag_every_ = std::max<int64_t>(1, declare_parameter("diagnostics_every_n", 20));
@@ -182,9 +190,6 @@ class BackupOdometryNode : public rclcpp::Node {
       sub_c_ = create_subscription<DriverControllerCommand>(
           "/vehicle/driver_position_cmd", in_qos,
           [this](const DriverControllerCommand& m) { on_cmd(m); });
-#else
-      RCLCPP_WARN(get_logger(),
-                  "tram_vehicle_msgs has no DriverControllerCommand; notch input is absent");
 #endif
     };
     auto make_gnss = [&]() {
@@ -925,8 +930,14 @@ class BackupOdometryNode : public rclcpp::Node {
 #ifndef RAILBREAK_ODOMETRY_NO_MAIN
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<BackupOdometryNode>());
+  int rc = 0;
+  try {
+    rclcpp::spin(std::make_shared<BackupOdometryNode>());
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "backup_odometry: %s\n", ex.what());
+    rc = 1;
+  }
   rclcpp::shutdown();
-  return 0;
+  return rc;
 }
 #endif

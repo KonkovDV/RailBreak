@@ -112,6 +112,8 @@ case "${SCENARIO}" in
 esac
 
 export RATE CLOCK OUTPUT_FRAME ASSETS_DIR TOPICS GNSS_WINDOW GNSS_WAIT INITIAL_S DURATION RECORD SCORE REQUIRE_POSITION RELATIVE_PATH SCORE_MODE FAIL_CLOSED
+# Humble catkin_pkg rejects tram_vehicle_msgs without <maintainer>.
+# scripts/jury_inside.sh inserts the tag into the container copy before colcon.
 cd "${ROOT}"
 before=$(mktemp)
 trap 'rm -f "${before}"' EXIT
