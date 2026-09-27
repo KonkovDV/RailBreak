@@ -31,10 +31,10 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
-// The 26 Sep check-code archive omits DriverControllerCommand.msg, so that
-// image has no /vehicle/driver_position_cmd. The Yandex-disk package has the
-// message. Compile the notch subscription only when the header is present;
-// without it the node still publishes from the bogies.
+// The check-code archive omits DriverControllerCommand.msg. Bags still carry
+// /vehicle/driver_position_cmd. Compile the notch subscription only when the
+// header is present. Without it the notch stays 0; that build is not a run
+// on the real command. A recorded replay uses a package that has the message.
 #if __has_include("tram_vehicle_msgs/msg/driver_controller_command.hpp")
 #include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #define RAILBREAK_HAS_DRIVER_CMD 1
