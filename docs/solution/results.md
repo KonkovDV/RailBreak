@@ -6,7 +6,7 @@
 
 ## 1. Итог
 
-Официальный `hackathon_solution_checker` из `check-code-with-bag.zip`, запись `30618_88aea4d9`, ROS 2 Humble в Docker, полный пакет сообщений организатора, `ros2 bag play --rate 1`, без `/clock`. Эталон — `/localization/kinematic_state`, пары по штампу с допуском 0.05 с:
+Официальный `hackathon_solution_checker` из `check-code-with-bag.zip`, запись `30618_88aea4d9`, коммит `5cd35fa`, ROS 2 Humble в Docker, полный пакет сообщений организатора, `ros2 bag play --rate 1`, без `/clock`. Эталон — `/localization/kinematic_state`, пары по штампу с допуском 0.05 с:
 
 | Величина | RMSE | Максимум | Пар |
 |---|---|---|---|

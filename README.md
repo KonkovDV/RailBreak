@@ -95,7 +95,7 @@ scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_ve
 
 ## Официальный checker и замер задержки
 
-`hackathon_solution_checker` из `check-code-with-bag.zip` собирается в том же рабочем каталоге, что и пакет. `tram_vehicle_msgs` берётся полный из датасета: в архиве нет `DriverControllerCommand`, и с ним нода работает без ручки.
+`hackathon_solution_checker` из `check-code-with-bag.zip` собирается в том же рабочем каталоге, что и пакет. `tram_vehicle_msgs` для полного прогона берётся из датасета. В архиве `check-code-with-bag.zip` нет `DriverControllerCommand`; с этим пакетом сообщений нода работает без ручки.
 
 ```text
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry hackathon_solution_checker
