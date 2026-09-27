@@ -82,8 +82,8 @@ ros2 topic echo /result/position --field pose.pose.position
 ros2 topic echo /result/diagnostics --field status[0].values
 ```
 
-- `/result/velocity` — с первого сообщения тележки, на каждый вход (около 29 Гц на записи checker).
-- `/result/position` — через 3 с после первого валидного фикса любой антенны и дальше на каждый вход, в том числе в `LOST` (тогда с ковариацией σ = 1 км).
+- `/result/velocity` — с первого сообщения тележки. С полным пакетом сообщений — на каждый вход, около 29 Гц на записи checker. Без типа ручки между тележками добавляется повтор последней скорости, около 19.5 Гц.
+- `/result/position` — через 3 с после первого валидного фикса любой антенны и дальше, в том числе в `LOST` (тогда с ковариацией σ = 1 км). Без типа ручки часть повторов идёт между входами.
 - В диагностике `gnss` = `closed`: GNSS больше не читается.
 - `integrity_status` = `NOMINAL` на исправных данных.
 
@@ -118,7 +118,7 @@ ros2 topic echo /result/diagnostics --field status[0].values
 
 ## Параметры
 
-Все — в `config/params.yaml`, полный перечень с пояснениями — в [assumptions.md](../docs/solution/assumptions.md). Без пересборки через `ros2 launch`:
+Основные — в `config/params.yaml`, полный перечень с пояснениями — в [assumptions.md](../docs/solution/assumptions.md). `extrapolate_hz` в этот файл не входит: параметр объявляется только если в пакете сообщений нет `DriverControllerCommand`. Без пересборки через `ros2 launch`:
 
 ```bash
 ros2 launch railbreak_backup_odometry backup_odometry.launch.py assets_dir:=/путь/к/assets
@@ -132,6 +132,7 @@ ros2 launch railbreak_backup_odometry backup_odometry.launch.py output_frame:=mk
 | `wheel_unit_scale` | 1/3.6 | единица скорости тележек |
 | `initial_s_m`, `initial_lat_deg`, `initial_lon_deg` | не заданы | ручной старт без GNSS |
 | `load_factor`, `wheel_radius_m`, `davis_*` | 1, 0, 0 | масса, радиус и сопротивление: по умолчанию не подставляются, всё уже в таблице тяги |
+| `extrapolate_hz` | 20 | только без типа ручки: частота повтора последней скорости. 0 выключает |
 
 ## Сравнение с GNSS
 
