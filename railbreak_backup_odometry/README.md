@@ -2,76 +2,46 @@
 
 # railbreak_backup_odometry
 
-Резервная одометрия трамвая по двум тележкам и ручке контроллера, ROS 2 Humble, C++17.
+Пакет ROS 2 Humble на C++17. Считает продольную скорость и положение трамвая по двум тележкам и ручке контроллера. GNSS читается только 3 с на старте, чтобы поставить вагон на карту маршрута, затем подписка удаляется.
 
-| Что открыть | Где |
+| Что | Где |
 |---|---|
-| Нода | `src/backup_odometry_node.cpp`, заголовки в `include/railbreak_backup_odometry/` |
-| Launch | `launch/backup_odometry.launch.py` |
+| Нода | `src/backup_odometry_node.cpp` |
+| Фильтр и слои вокруг него | `include/railbreak_backup_odometry/` (фильтр — `track_odometer.hpp`) |
+| Запуск | `launch/backup_odometry.launch.py` |
 | Параметры | `config/params.yaml` |
 | Карта, остановки, таблица ручки | `assets/ring.csv`, `assets/stops.csv`, `assets/notch.csv`, `assets/meta.yaml` |
-Все сценарии запуска — в [корневом README](../README.md): на Windows, Linux и macOS
-это `scripts/jury.ps1` / `scripts/jury.sh`, на Ubuntu без Docker — команды ниже.
-Питч и разбор практики — [`../docs/solution/pitch.md`](../docs/solution/pitch.md).
-Отдельной публичной лицензии нет: код передаётся организаторам по Положению.
-Карта сдачи — заменяемый каталог `assets_dir`, она с train, не из OSM.
-`route_10.yaml` — полилиния OSM (ODbL), в эту сдачу не входит.
-Сторонние компоненты — [`../NOTICE`](../NOTICE): ROS 2 Humble Apache 2.0, пакет их не копирует. Исследовательское ядро `tramDR-0.0.11`
-в эту сдачу не входит.
-GNSS читается только в окне старта: 3 с от первого валидного фикса любой
-антенны, затем подписка удаляется. Поздний master это начало не переносит. Модель — [`../docs/solution/model.md`](../docs/solution/model.md),
-допущения — [`../docs/solution/assumptions.md`](../docs/solution/assumptions.md),
-точность — [`../docs/solution/results.md`](../docs/solution/results.md).
-Снимок пакета — [`MANIFEST.json`](MANIFEST.json): хеши карты и таблицы, параметры
-по умолчанию и исторические 1.467 м / 5.828 м старого дерева `6af0037`. Фильтр после них менялся; `pending` значит, что этот ряд не заменён. Хешей записей там нет.
+| Тесты | `test/test_gnss_stress.cpp` (ROS), `tools/test_core.cpp` (ядро без ROS) |
 
-Входы: `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity`
-(`tram_vehicle_msgs/VelocitySensor`), `/vehicle/driver_position_cmd`
-(`DriverControllerCommand`). Если этого сообщения в пакете нет, нода не стартует и не держит ручку в нуле. В записях поле `velocity` тележки ведёт себя как
-км/ч; в ноде оно переводится параметром `wheel_unit_scale` (по умолчанию 1/3.6).
-README датасета называет это поле м/с; на проверочной записи деление на 3.6
-совпадает со скоростью `/localization/kinematic_state`. Штампы тележек и ручки стоят в одной очереди. Водяной знак —
-минимум последних штампов живых потоков минус `stamp_reorder_s` (по умолчанию 0: внутри потока штамп назад не идёт).
-До этого знака сообщения применяются по порядку штампа. Поток, который отстаёт
-больше чем на `order_stall_s` (1 с), в диагностике
-`order_reason=ORDER_NOT_RESTORED`. Пока он приходит, он остаётся в минимуме: в начале `30618_88aea4d9` задняя тележка отстаёт на 1.3 с и догоняет. Из минимума он выходит после 50 чужих входов без своего. Тогда, пока отставание не больше 5 с, знак не
-уходит дальше чем на 1 с от его последнего штампа. Большее отставание это
-ограничение снимает. Штамп позади уже опубликованного выхода считается в
-`n_behind_out`. Таймера нет, `/clock` не нужен.
-Выход `/result/velocity` — м/с. Отдельного топика тормоза нет и не ожидается.
-Торможение — знак `driver_position_cmd.position`: больше нуля — тяга, меньше
-нуля — торможение по строке таблицы, ноль — выбег. Пока тип сообщения есть, тишина на этом топике не отказ: ручка остаётся в последнем положении. ZUPT смотрит на скорости тележек, не на тормоз.
+Модель — [model.md](../docs/solution/model.md), допущения и параметры — [assumptions.md](../docs/solution/assumptions.md), результаты — [results.md](../docs/solution/results.md).
 
-## Сборка (без интернета)
+## Входы и выходы
 
-Нужны: ROS 2 Humble, пакет сообщений организатора `tram_vehicle_msgs`, этот пакет
-и каталог `assets/` внутри него (карта пути, остановки, таблица ручки).
-Каталог `assets/` собран офлайн из GNSS train и лежит в пакете: клон репозитория
-собирает карту вместе с нодой. Без каталога нода не падает и публикует скорость
-и пройденный путь (`y = z = 0`); с ним — точку маршрута 10.
+| Топик | Тип | Что делает нода |
+|---|---|---|
+| `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` | `tram_vehicle_msgs/VelocitySensor` | поле `velocity` в записях — км/ч; нода делит на 3.6 (`wheel_unit_scale`) |
+| `/vehicle/driver_position_cmd` | `tram_vehicle_msgs/DriverControllerCommand` | позиция ручки −15…+15: больше нуля тяга, меньше нуля торможение, ноль выбег |
+| `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix` | только окно старта 3 с, затем подписки удаляются |
+| `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | продольная скорость, м/с |
+| `/result/position` | `nav_msgs/Odometry` | точка `base_link` в MGRS, `frame_id` `map`, `child_frame_id` `base_link`, скорость в `twist.twist.linear.x` |
+| `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, целостность, доверие скорости и положения, GNSS, порядок входов |
+
+Без типа `DriverControllerCommand` нода не стартует: ручка не подменяется нулём. В `tram_vehicle_msgs` из архива `check-code-with-bag.zip` этого сообщения нет, поэтому собирать нужно с полным пакетом сообщений организатора. Отдельного топика тормоза нет и не нужно: торможение — отрицательная ручка.
+
+`base_link` — ось вращения первой тележки в точке касания колеса и рельса. Кадр по умолчанию — UTM 37N минус угол квадрата 300000 м на восток и 6100000 м на север: x — восток, y — север, на маршруте x около 99–103 км. z — эллипсоидальная высота WGS84 точки касания. От антенны master точка сдвинута на +9.873 м вдоль пути и на −3 м по высоте (tf организаторов: master (−9.873, 0, 3), rover (2.563, 0, 3)).
+
+`header.stamp` каждого выхода — штамп входа, который его породил. Часы ноды и `/clock` не используются, отдельного таймера нет.
+
+## Сборка без интернета
+
+Нужны ROS 2 Humble и пакет сообщений организатора `tram_vehicle_msgs`. Карта маршрута уже лежит в `assets/`. Из корня клона:
 
 ```bash
-mkdir -p ~/ws/src && cd ~/ws/src
-cp -r <сдача>/railbreak_backup_odometry .
-cp -r <датасет>/tram_vehicle_msgs .
-# Выданный package.xml без <maintainer> не проходит catkin_pkg на Humble.
-# scripts/jury.sh вставляет тег сам. Ручная сборка из корня клона вызывает
-# scripts/ensure_maintainer.sh. Здесь, рядом с копией пакета:
-python3 - tram_vehicle_msgs/package.xml <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-text = p.read_text(encoding="utf-8")
-if "<maintainer" not in text:
-    tag = '  <maintainer email="organiser@example.invalid">organiser</maintainer>\n'
-    if "</description>" in text:
-        text = text.replace("</description>", "</description>\n" + tag, 1)
-    elif "<license>" in text:
-        text = text.replace("<license>", tag + "  <license>", 1)
-    else:
-        text = text.replace("</package>", tag + "</package>", 1)
-    p.write_text(text, encoding="utf-8")
-PY
+mkdir -p ~/ws/src
+cp -a railbreak_backup_odometry ~/ws/src/
+cp -a <датасет>/tram_vehicle_msgs ~/ws/src/
+source scripts/ensure_maintainer.sh
+ensure_maintainer ~/ws/src/tram_vehicle_msgs/package.xml
 cd ~/ws
 source /opt/ros/humble/setup.bash
 colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \
@@ -79,125 +49,99 @@ colcon build --packages-select tram_vehicle_msgs railbreak_backup_odometry \
 source install/setup.bash
 ```
 
-Внешних зависимостей, кроме пакетов Humble (`rclcpp`, `nav_msgs`, `sensor_msgs`,
-`diagnostic_msgs`, `ament_index_cpp`, `launch_ros`), нет.
+`ensure_maintainer` нужен потому, что в выданном `package.xml` нет тега `<maintainer>`, и Humble такой пакет не собирает. Сценарии `scripts/jury.sh` и `scripts/jury.ps1` делают это сами.
 
-`colcon test --packages-select railbreak_backup_odometry` запускает два теста пакета: `test_gnss_stress` (окно GNSS) и `test_core` (фильтр, FaultScore, целостность). Тот же `test_core` без ROS регистрирует `tools/CMakeLists.txt`.
+Зависимости — только пакеты Humble: `rclcpp`, `nav_msgs`, `sensor_msgs`, `diagnostic_msgs`, `ament_index_cpp`, `launch_ros`.
+
+Тесты: `colcon test --packages-select railbreak_backup_odometry` запускает `test_gnss_stress` (окно GNSS через исполнитель ROS) и `test_core` (фильтр, целостность, очередь).
 
 ## Запуск
 
-Из корня клона, если есть Docker Desktop или Docker Engine. Запись и `tram_vehicle_msgs` в репозиторий не входят.
+С Docker, из корня клона, на Windows, Linux и macOS:
 
 ```text
 scripts/jury.sh play --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
+.\scripts\jury.ps1 play -Bag <каталог rosbag2> -Msgs <tram_vehicle_msgs>
 ```
 
-Windows: `.\scripts\jury.ps1 play -Bag <каталог> -Msgs <tram_vehicle_msgs>`.
-Остальные сценарии и лимиты ТЗ — в [корневом README](../README.md).
-
-Без Docker, Ubuntu 22.04 с Humble. Терминал 1:
+Без Docker, Ubuntu 22.04 с Humble. Нода поднимается до проигрывателя, иначе окно GNSS будет пропущено:
 
 ```bash
-ros2 launch railbreak_backup_odometry backup_odometry.launch.py
+ros2 launch railbreak_backup_odometry backup_odometry.launch.py      # терминал 1
+ros2 bag play <каталог rosbag2> --rate 1                            # терминал 2
 ```
 
-Терминал 2:
+Остальные сценарии, приёмка и запуск официального checker — в [корневом README](../README.md).
+
+## Что должно появиться
 
 ```bash
-ros2 bag play data/<bag_id>
-```
-
-Нода не зависит от `/clock` и работает с `--clock` и без него: время берётся из
-`header.stamp` входных сообщений. Результаты официального checker и свой acceptance — в [`../docs/solution/results.md`](../docs/solution/results.md).
-
-## Что ожидать
-
-| Топик | Тип | Содержимое |
-|---|---|---|
-| `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | `velocity`, продольная скорость, м/с |
-| `/result/position` | `nav_msgs/Odometry` | MGRS, точка `base_link` (ось первой тележки, касание колеса и рельса): UTM 37N минус 300000 / 6100000, x восток, y север. Окно — 3 с от первого валидного фикса любой антенны. Дуга — медиана master внутри этого окна, затем +9.873 м вдоль пути и −3 м по высоте. tf: master (−9.873, 0, 3), rover (2.563, 0, 3). Если master пуст, дуга rover отступает на 12.436 м. На шаге нет, если `integrity_use_position` ложен. `mkrs_start` — городская сетка от старта. `twist.twist.linear.x` — скорость, м/с |
-| `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, `integrity_status`, `fault_score`, доверие скорости и положения, масштаб колеса, путь s, σ_s, число якорей, состояние GNSS, `order_reason`, `n_behind_out`, максимальное время входа |
-
-`/result/velocity` публикуется как `tram_vehicle_msgs/msg/VelocitySensor`:
-`std_msgs/Header header` и `float64 velocity`. Это не `TwistStamped` и не
-`Vector3Stamped`. Чекер из `check-code-with-bag.zip` подписывается на этот тип,
-читает поле `velocity` и сравнивает его с `twist.twist.linear.x` эталона, м/с.
-`header.frame_id` — `base_link`. `header.stamp` — штамп входа, который породил
-публикацию, не часы узла и не `/clock`.
-
-Выпущенный вход публикует `/result/velocity` и, когда положение разрешено,
-`/result/position`, со штампом этого входа. Штамп позади последнего выхода эти
-два топика не публикует. Диагностика пишется каждый 20-й опубликованный выход
-и на каждом таком отставшем штампе. Измеренные 36–38 Гц лежат в
-[`../docs/solution/results.md`](../docs/solution/results.md) и сняты до текущего
-водяного знака. `/result/position` появляется после окна GNSS (3 с от первого
-валидного фикса любой антенны); `/result/velocity` — с первого выпущенного
-сообщения тележки.
-
-Пропуск обеих тележек ведёт модель по ручке. `/result/position` на этих шагах
-выходит, пока `integrity_use_position` истинен. После 3 с согласия обеих тележек
-в юзе режим `COMMON_MODE_UNOBSERVABLE`: скорость с колёс в состояние не
-копируется. Когда слепой бюджет выбран (5 с или 100 м от последнего якоря),
-`integrity_status=LOST` и положение на этом шаге не публикуется. Скорость при
-этой потере остаётся, `velocity_confidence=LOW`. `POSITION_UNTRUSTED` тоже
-снимает положение: шаг штампа назад, обе тележки старше 30 с или нет абсолютного
-старта. Флаг `slip` — последний колбэк; статус `DEGRADED` включает `fault_score`,
-не один NIS. Отдельного таймера нет.
-Вход — best effort, очередь 500. При `ros2 bag play --rate 10` глубина 10
-давала разрывы выхода до 2 с; с очередью 500 на тех же записях разрыв
-0.097–0.190 с. В `/result/diagnostics` есть `front_age_s` и `rear_age_s`:
-возраст последнего штампа тележки против времени фильтра. У каждого входа
-свой `front_kind`, `rear_kind` и `cmd_kind`: `missing`, `stale`, `outlier`,
-`impossible`, `disagree` или `ok`. Это не один статус `DEGRADED`.
-`quality_score` равен 1 только при `ok` и не является вероятностью. Неверная
-единица, которая после масштаба всё ещё меньше 30 м/с, отдельно не распознаётся.
-Надёжный подписчик к
-best-effort издателю не подключается.
-
-## Логи, метрики, задержка
-
-```bash
-ros2 topic type /result/velocity
-ros2 interface show tram_vehicle_msgs/msg/VelocitySensor
 ros2 topic echo /result/velocity
 ros2 topic hz /result/velocity
+ros2 topic echo /result/position --field pose.pose.position
 ros2 topic echo /result/diagnostics --field status[0].values
 ```
 
-- `callback_max_us` — максимальное время обработки одного входа, мкс. Это не задержка от приёма входа до приёма выхода: до колбэка образец ждёт, пока остальные потоки не догонят его штамп. Задержку снимает `tools/organizer/latency_probe.py --bag` по записи входов и выходов.
-- `gnss` = `closed` и `gnss_note` — подтверждение, что GNSS больше не читается.
-- `slip` = `true` — порог невязки колеса к модели, не подтверждённый юз. Режим `MODEL` — шаг недостоверен,
-  положение ещё может выходить. `COMMON_MODE_UNOBSERVABLE` дольше слепого
-  бюджета даёт `integrity_status=LOST` и пустой `/result/position` на этом шаге.
-- `mode` = `COMMON_MODE_UNOBSERVABLE`, `time_to_lost`, `distance_since_last_trusted_anchor` — общая мода и остаток слепого бюджета. `common_mode_exit` = `anchor` только после принятого якоря станции. Согласие двух тележек это поле не ставит и доверие к колёсам не возвращает.
-- `integrity_use_position`, `velocity_confidence`, `position_confidence`,
-  `fault_score`, `time_to_lost`, `order_reason`, `n_behind_out` — в той же диагностике.
+- `/result/velocity` — с первого сообщения тележки, на каждый вход (около 29 Гц на записи checker).
+- `/result/position` — через 3 с после первого валидного фикса любой антенны.
+- В диагностике `gnss` = `closed`: GNSS больше не читается.
+- `integrity_status` = `NOMINAL` на исправных данных.
 
-Сравнение с GNSS по записи выхода (из корня репозитория):
+Поля диагностики, которые стоит знать:
 
-```bash
-ros2 bag record -o out /result/velocity /result/position /result/diagnostics
-python3 tools/organizer/score_ros.py out data/<bag_id> --frame mgrs   # исходный bag с master и rover
-```
+| Поле | Что значит |
+|---|---|
+| `mode` | `WHEELS`, `MODEL` (этот шаг ведёт модель), `ZUPT` (стоянка), `COMMON_MODE_UNOBSERVABLE`, `FREEZE` (численный откат шага) |
+| `integrity_status` | `NOMINAL`, одна из деградаций, `POSITION_UNTRUSTED` или `LOST` |
+| `velocity_confidence`, `position_confidence` | `HIGH`, `LOW` или `NONE`, раздельно для скорости и положения |
+| `slip`, `slip_front`, `slip_rear` | невязка колеса к модели выше порога. Это не доказанный юз: то же дают ошибка таблицы, уклон или сбой штампа |
+| `time_to_lost`, `distance_since_last_trusted_anchor`, `common_mode_exit` | остаток слепого бюджета в общей моде; `common_mode_exit` = `anchor` только после принятой станции |
+| `n_anchor`, `sigma_s` | число принятых якорей станций и шкала неопределённости пути |
+| `order_reason`, `n_behind_out` | порядок входов и число штампов, пришедших позади уже опубликованного выхода |
+| `callback_max_us` | самое долгое время обработки одного входа. Это не задержка от приёма входа до публикации |
 
-`--frame` должен совпадать с `output_frame` ноды. Эталон скрипта — `base_link`:
-точка на доле 9.873/12.436 отрезка master→rover, высота минус 3 м. Сравнение
-с самой антенной master даёт около 10 м на ровном месте. Фикс rover берётся,
-только если планарная база лежит в пределах 12.436 ± 2 м и разность высот
-антенн не больше 1 м.
+## Как нода ведёт себя при сбоях
+
+| Ситуация | Что происходит |
+|---|---|
+| Одна тележка врёт или молчит | Её вес падает (шум R = 25 (м/с)²), скорость держат вторая тележка и модель тяги |
+| Обе тележки молчат | Скорость ведёт модель по ручке; положение публикуется, пока целостность это позволяет |
+| Обе тележки согласны друг с другом, но расходятся с моделью дольше 3 с | `COMMON_MODE_UNOBSERVABLE`: колёса не берутся до станции. Через 5 с или 100 м без якоря — `LOST`, `/result/position` не публикуется, скорость остаётся с доверием `LOW` |
+| Разрыв штампов больше 30 с | Интервал не интегрируется |
+| Штамп шагнул назад, обе тележки старше 30 с, нет абсолютного старта | `POSITION_UNTRUSTED`, положение на этом шаге не публикуется |
+| Нет фикса GNSS 10 с | Относительный путь: x — пройденный путь, y = z = 0 |
+| Нет каталога карты | Нода не падает: скорость и относительный путь, y = z = 0 |
+
+Порядок входов. Тележки и ручка стоят в одной очереди. Вход выпускается, когда все живые потоки дошли до его штампа, и применяется по порядку штампов. Поток, который отстал больше чем на 1 с, помечается `ORDER_NOT_RESTORED`. Пока он приходит, его ждут: в начале записи `30618_88aea4d9` задняя тележка отстаёт на 1.3 с и догоняет. Замолчавший поток перестают ждать после 50 чужих входов. Удержания сверх этого нет (`stamp_reorder_s` = 0).
 
 ## Параметры
 
-`config/params.yaml`; полный перечень — `docs/solution/assumptions.md`.
-Пересборка не нужна: `ros2 launch ... assets_dir:=/путь/к/assets`.
-Оси выхода меняются там же или аргументом запуска
-(`ros2 launch railbreak_backup_odometry backup_odometry.launch.py output_frame:=grid_start`):
-`output_frame` (`mgrs`, `mkrs_start`, `mkrs`, `grid_start`, `enu`), угол
-квадрата MGRS `mgrs_square_easting` / `mgrs_square_northing`, сдвиг точки выхода
-от master-антенны `output_offset_along_m` / `output_offset_up_m`.
+Все — в `config/params.yaml`, полный перечень с пояснениями — в [assumptions.md](../docs/solution/assumptions.md). Без пересборки через `ros2 launch`:
 
-Если каталога нет или `ring.csv` не читается, нода не падает: в лог пишется
-`assets not loaded`, GNSS-старт на пустой карте не принимается, и
-`/result/position.x` становится пройденным путём от первой входной метки
-(y = z = 0). Проверено на Humble: `scripts/check_no_assets.sh`, 25 с
-воспроизведения `--rate 10`, процесс жив, x растёт (около 752 м за окно).
+```bash
+ros2 launch railbreak_backup_odometry backup_odometry.launch.py assets_dir:=/путь/к/assets
+ros2 launch railbreak_backup_odometry backup_odometry.launch.py output_frame:=mkrs_start
+```
+
+| Параметр | По умолчанию | Смысл |
+|---|---|---|
+| `output_frame` | `mgrs` | оси выхода: `mgrs`, `mkrs_start`, `mkrs`, `grid_start`, `enu` |
+| `gnss_init_window_s`, `gnss_wait_s` | 3 с, 10 с | окно старта и ожидание первого фикса |
+| `wheel_unit_scale` | 1/3.6 | единица скорости тележек |
+| `initial_s_m`, `initial_lat_deg`, `initial_lon_deg` | не заданы | ручной старт без GNSS |
+| `load_factor`, `wheel_radius_m`, `davis_*` | 1, 0, 0 | масса, радиус и сопротивление: по умолчанию не подставляются, всё уже в таблице тяги |
+
+## Сравнение с GNSS
+
+Официальный checker из `check-code-with-bag.zip` и его запуск — в [корневом README](../README.md), числа — в [results.md](../docs/solution/results.md). На учебных записях эталона `kinematic_state` нет, поэтому для них есть свой скрипт:
+
+```bash
+ros2 bag record -o out /result/velocity /result/position /result/diagnostics
+python3 tools/organizer/score_ros.py out <исходный bag> --frame mgrs
+```
+
+Он сравнивает выход с точкой `base_link` на отрезке антенн master→rover (доля 9.873/12.436, высота минус 3 м). Фикс rover берётся, только если база 12.436 ± 2 м и разность высот антенн не больше 1 м. Это прокси, не эталон судьи.
+
+## Состав и права
+
+Снимок пакета — [`MANIFEST.json`](MANIFEST.json): хеши карты и таблицы и параметры по умолчанию. Карта собрана по GNSS рейсов train, не из OSM, и заменяется параметром `assets_dir`. Отдельной публичной лицензии нет: код передаётся организаторам по Положению хакатона; сторонние компоненты — [NOTICE](../NOTICE). Исследовательское ядро `tramDR-0.0.11` в этой папке нет, в сдачу оно не входит.
