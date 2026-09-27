@@ -38,7 +38,7 @@ scripts/jury.sh play --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
 
 ## Поле 3. Математическая модель
 
-Полный текст: https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/model.md
+Полный текст: https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/model.md . Слои: https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/architecture.md
 
 Железная дорога уменьшает размерность задачи. Вместо плохо наблюдаемой плоской позы без IMU оценивается координата \(s\) на известном пути маршрута 10, одном кольце без графа стрелок. Постановку дают Hasberg, Hensel, Stiller (IEEE T-ITS 2012) и von Einem и др. (ITSC 2023). Их оцениватели, несколько гипотез и VIO в ноду не входят ([references.md](references.md)).
 

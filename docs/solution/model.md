@@ -3,7 +3,7 @@
 # Математическая модель (артефакт 3)
 
 Пакет `railbreak_backup_odometry`. Ядро — `include/railbreak_backup_odometry/track_odometer.hpp`,
-его двойник на Python — `tools/organizer/odometer.py`. Численное состояние и решения
+его двойник на Python — `tools/organizer/odometer.py`. Слои вокруг фильтра — в [architecture.md](architecture.md). Численное состояние и решения
 фильтра синхронизированы: на трёх записях организатора путь и скорость совпадают
 до 1.3 мм и 1e-5 м/с. `lockstep.py` сравнивает \(s\) и \(v\). Диагностические
 счётчики проверяются отдельно: C++ увеличивает `n_rejected` на плохом входе и на
