@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Архитектура и контракты интеграции
 
 Сдача — `railbreak_backup_odometry`. Ниже исследовательское ядро `tramDR-0.0.11`,

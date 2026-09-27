@@ -1,3 +1,5 @@
+<p align="center"><img src="../../Logo.png" alt="RailBreak" width="280"></p>
+
 # Три акта для жюри
 
 Сценарий живого прогона. Фильтр, `judge.pair()` и опубликованные RMSE не меняются. Числа сбоев — строки таблицы val в [results.md](results.md), n=21. Граница — эмпирическая, `integrity_certification_claim` = `false`; это не protection level. Записи и их хеши в репозиторий не кладутся.

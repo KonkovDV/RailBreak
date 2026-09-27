@@ -1,3 +1,5 @@
+<p align="center"><img src="../../Logo.png" alt="RailBreak" width="280"></p>
+
 # Источники сдаваемого фильтра
 
 Полные записи к упоминаниям в `model.md`, `assumptions.md`, `form.md` и `pitch.md`.

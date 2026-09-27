@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Evidence
 
 Синтетические графики и архив прежней версии ядра в репозиторий не входят.

@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Проверки и граница доказанного
 
 Редакция `tramDR-0.0.11`. Аудит читал `main`

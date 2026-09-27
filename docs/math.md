@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Математика и физическая модель
 
 Сдача — `railbreak_backup_odometry`. Ниже спецификация исследовательского

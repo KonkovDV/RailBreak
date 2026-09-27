@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Метрики: UKF vs baseline (синтетика, seed 42)
 
 Не маршрут 10 и не bag организатора.

@@ -1,3 +1,5 @@
+<p align="center"><img src="../../Logo.png" alt="RailBreak" width="280"></p>
+
 # Слот записи организатора
 
 Сюда кладётся rosbag2 (sqlite3 / mcap), когда его выдадут . Файлы `*.db3`

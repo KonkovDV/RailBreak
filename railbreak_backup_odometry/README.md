@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # railbreak_backup_odometry
 
 Резервная одометрия трамвая по двум тележкам и ручке контроллера, ROS 2 Humble.
@@ -93,8 +95,8 @@ ros2 bag play data/<bag_id>
 | Топик | Тип | Содержимое |
 |---|---|---|
 | `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | `velocity`, продольная скорость, м/с |
-| `/result/position` | `nav_msgs/Odometry` | MGRS, точка `base_link` (ось первой тележки, касание колеса и рельса): UTM 37N минус 300000 / 6100000, x восток, y север. Окно — 3 с от первого валидного фикса любой антенны. Дуга — медиана master внутри этого окна, затем +9.873 м вдоль пути и −3 м по высоте. tf: master (−9.873, 0, 3), rover (2.563, 0, 3). Если master пуст, дуга rover отступает на 12.436 м. `mkrs_start` — городская сетка от старта. `twist.twist.linear.x` — скорость, м/с |
-| `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, флаг проскальзывания, масштаб колеса, путь s, σ_s, число якорей, состояние GNSS, максимальное время колбэка |
+| `/result/position` | `nav_msgs/Odometry` | MGRS, точка `base_link` (ось первой тележки, касание колеса и рельса): UTM 37N минус 300000 / 6100000, x восток, y север. Окно — 3 с от первого валидного фикса любой антенны. Дуга — медиана master внутри этого окна, затем +9.873 м вдоль пути и −3 м по высоте. tf: master (−9.873, 0, 3), rover (2.563, 0, 3). Если master пуст, дуга rover отступает на 12.436 м. На шаге нет, если `integrity_use_position` ложен. `mkrs_start` — городская сетка от старта. `twist.twist.linear.x` — скорость, м/с |
+| `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, `integrity_status`, `fault_score`, доверие скорости и положения, масштаб колеса, путь s, σ_s, число якорей, состояние GNSS, `order_reason`, `n_behind_out`, максимальное время входа |
 
 `/result/velocity` публикуется как `tram_vehicle_msgs/msg/VelocitySensor`:
 `std_msgs/Header header` и `float64 velocity`. Это не `TwistStamped` и не
@@ -103,15 +105,24 @@ ros2 bag play data/<bag_id>
 `header.frame_id` — `base_link`. `header.stamp` — штамп входа, который породил
 публикацию, не часы узла и не `/clock`.
 
-Каждое сообщение `/result/*` публикуется в колбэке входа и несёт его
-`header.stamp`. Частота — на каждый вход: тележки по ~10 Гц и ручка 20 Гц, итого
-около 40 Гц. `/result/position` появляется после окна GNSS (3 с от первого
-валидного фикса любой антенны); `/result/velocity` — с первого сообщения тележки.
+Выпущенный вход публикует `/result/velocity` и, когда положение разрешено,
+`/result/position`, со штампом этого входа. Штамп позади последнего выхода эти
+два топика не публикует. Диагностика пишется каждый 20-й опубликованный выход
+и на каждом таком отставшем штампе. Измеренные 36–38 Гц лежат в
+[`../docs/solution/results.md`](../docs/solution/results.md) и сняты до текущего
+водяного знака. `/result/position` появляется после окна GNSS (3 с от первого
+валидного фикса любой антенны); `/result/velocity` — с первого выпущенного
+сообщения тележки.
 
-Положение не замирает при сбое датчика. Пропуск обеих тележек ведёт модель по
-ручке, и `/result/position` продолжает выходить на сообщениях ручки. Флаг
-проскальзывания и режим — в `/result/diagnostics`, не вместо координат.
-Отдельного таймера нет: штамп без входного сообщения судья не с чем сравнить.
+Пропуск обеих тележек ведёт модель по ручке. `/result/position` на этих шагах
+выходит, пока `integrity_use_position` истинен. После 3 с согласия обеих тележек
+в юзе режим `COMMON_MODE_UNOBSERVABLE`: скорость с колёс в состояние не
+копируется. Когда слепой бюджет выбран (5 с или 100 м от последнего якоря),
+`integrity_status=LOST` и положение на этом шаге не публикуется. Скорость при
+этой потере остаётся, `velocity_confidence=LOW`. `POSITION_UNTRUSTED` тоже
+снимает положение: шаг штампа назад, обе тележки старше 30 с или нет абсолютного
+старта. Флаг `slip` — последний колбэк; статус `DEGRADED` включает `fault_score`,
+не один NIS. Отдельного таймера нет.
 Вход — best effort, очередь 500. При `ros2 bag play --rate 10` глубина 10
 давала разрывы выхода до 2 с; с очередью 500 на тех же записях разрыв
 0.097–0.190 с. В `/result/diagnostics` есть `front_age_s` и `rear_age_s`:
@@ -135,7 +146,11 @@ ros2 topic echo /result/diagnostics --field status[0].values
 
 - `callback_max_us` — максимальное время обработки одного входа, мкс.
 - `gnss` = `closed` и `gnss_note` — подтверждение, что GNSS больше не читается.
-- `slip` = `true`, режим `MODEL` — тележка отмечена недостоверной.
+- `slip` = `true` — флаг последнего колбэка. Режим `MODEL` — шаг недостоверен,
+  положение ещё может выходить. `COMMON_MODE_UNOBSERVABLE` дольше слепого
+  бюджета даёт `integrity_status=LOST` и пустой `/result/position` на этом шаге.
+- `integrity_use_position`, `velocity_confidence`, `position_confidence`,
+  `fault_score`, `time_to_lost`, `order_reason`, `n_behind_out` — в той же диагностике.
 
 Сравнение с GNSS по записи выхода (из корня репозитория):
 

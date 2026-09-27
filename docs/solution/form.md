@@ -1,3 +1,5 @@
+<p align="center"><img src="../../Logo.png" alt="RailBreak" width="280"></p>
+
 # Текст для формы «Итоговая работа команды»
 
 В форму вставляются блоки под заголовками полей. Ссылки указывают на `main` репозитория https://github.com/KonkovDV/RailBreak .

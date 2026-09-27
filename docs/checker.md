@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Независимый checker и правила интерпретации
 
 `tools/eval/check_envelope.py` читает JSONL или rosbag2 и не импортирует UKF.

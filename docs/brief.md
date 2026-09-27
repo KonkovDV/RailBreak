@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # RailBreak: краткое техническое описание
 
 Сдаваемый пакет — `railbreak_backup_odometry`. Этот текст описывает

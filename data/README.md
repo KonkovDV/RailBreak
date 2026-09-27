@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Organiser rosbag2 drops here. Not in git.
 
 From the repo root:

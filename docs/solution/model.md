@@ -1,3 +1,5 @@
+<p align="center"><img src="../../Logo.png" alt="RailBreak" width="280"></p>
+
 # Математическая модель (артефакт 3)
 
 Пакет `railbreak_backup_odometry`. Ядро — `include/railbreak_backup_odometry/track_odometer.hpp`,

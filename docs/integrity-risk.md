@@ -1,3 +1,5 @@
+<p align="center"><img src="../Logo.png" alt="RailBreak" width="280"></p>
+
 # Целостность, риск и пределы диагностик
 
 Актуальная редакция `tramDR-0.0.11`. **RailBreak не сертифицирован для управления
