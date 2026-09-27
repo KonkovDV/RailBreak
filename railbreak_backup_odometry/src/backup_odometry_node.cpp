@@ -524,6 +524,7 @@ class BackupOdometryNode : public rclcpp::Node {
     last_adhesion_ = adhesion_.update(adhesion_obs());
     have_adhesion_ = true;
     last_slip_ = slip_.update(slip_evidence());
+    railbreak::note_common_mode_exit(common_exit_, od_->common_unobservable(), od_->n_anchor());
     const bool nominal = std::strcmp(last_integrity_.integrity_mode, "NOMINAL") == 0;
     const bool lost = std::strcmp(last_integrity_.integrity_mode, "LOST") == 0;
     if (nominal || lost) unverified_since_ = -1.0;
@@ -630,6 +631,8 @@ class BackupOdometryNode : public rclcpp::Node {
       st.values.push_back(x);
     };
     kv("mode", railbreak::mode_name(od_->mode()));
+    kv("common_unobservable", od_->common_unobservable() ? "true" : "false");
+    kv("common_mode_exit", common_exit_.exit);
     kv("slip", od_->slip() ? "true" : "false");
     kv("slip_front", od_->slip_front() ? "true" : "false");
     kv("slip_rear", od_->slip_rear() ? "true" : "false");
@@ -901,6 +904,7 @@ class BackupOdometryNode : public rclcpp::Node {
   double initial_lon_ = std::numeric_limits<double>::quiet_NaN();
   double wheel_r_ = 0.0, wheel_r0_ = 0.0;
   double lat_max_us_ = 0.0;
+  railbreak::CommonModeExit common_exit_{};
   int64_t n_out_ = 0;
   int64_t n_pub_front_ = 0, n_pub_rear_ = 0, n_pub_cmd_ = 0;
   int64_t n_dup_out_ = 0, n_behind_out_ = 0;

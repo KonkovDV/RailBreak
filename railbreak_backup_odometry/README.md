@@ -160,6 +160,7 @@ ros2 topic echo /result/diagnostics --field status[0].values
 - `slip` = `true` — порог невязки колеса к модели, не подтверждённый юз. Режим `MODEL` — шаг недостоверен,
   положение ещё может выходить. `COMMON_MODE_UNOBSERVABLE` дольше слепого
   бюджета даёт `integrity_status=LOST` и пустой `/result/position` на этом шаге.
+- `mode` = `COMMON_MODE_UNOBSERVABLE`, `time_to_lost`, `distance_since_last_trusted_anchor` — общая мода и остаток слепого бюджета. `common_mode_exit` = `anchor` только после принятого якоря станции. Согласие двух тележек это поле не ставит и доверие к колёсам не возвращает.
 - `integrity_use_position`, `velocity_confidence`, `position_confidence`,
   `fault_score`, `time_to_lost`, `order_reason`, `n_behind_out` — в той же диагностике.
 

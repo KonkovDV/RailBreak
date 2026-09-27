@@ -355,4 +355,23 @@ class IntegrityMonitor {
   FaultScore fault_{};
 };
 
+// Diagnostic latch only. It does not write the filter and integrity.py does not
+// mirror it. Wheel agreement never sets the exit: only a new accepted anchor does.
+struct CommonModeExit {
+  bool latched = false;
+  int anchors_at_entry = 0;
+  const char* exit = "none";
+};
+
+inline void note_common_mode_exit(CommonModeExit& state, bool common, int n_anchor) {
+  if (common && !state.latched) {
+    state.latched = true;
+    state.anchors_at_entry = n_anchor;
+    state.exit = "none";
+  } else if (!common && state.latched) {
+    state.latched = false;
+    if (n_anchor > state.anchors_at_entry) state.exit = "anchor";
+  }
+}
+
 }  // namespace railbreak

@@ -1066,6 +1066,18 @@ int main() {
                 std::string(far.fault_level) == "lost" &&
                 far.reasons.find("BLIND_BUDGET") != std::string::npos,
             "a high common-mode score past the blind distance is LOST");
+      railbreak::CommonModeExit exit_note;
+      railbreak::note_common_mode_exit(exit_note, true, 1);
+      railbreak::note_common_mode_exit(exit_note, true, 1);
+      check(std::string(exit_note.exit) == "none",
+            "agreement of the two bogies does not clear common mode");
+      railbreak::note_common_mode_exit(exit_note, false, 1);
+      check(std::string(exit_note.exit) == "none",
+            "leaving common mode without a new anchor is not a recovery");
+      railbreak::note_common_mode_exit(exit_note, true, 1);
+      railbreak::note_common_mode_exit(exit_note, false, 2);
+      check(std::string(exit_note.exit) == "anchor",
+            "an accepted station anchor is the recovery the diagnostics show");
       blind.n_anchor = 1;
       blind.distance_since_anchor = 0.0;
       blind.t = 1.2;
