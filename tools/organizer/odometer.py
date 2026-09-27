@@ -4,16 +4,22 @@ Numerical state and filter decisions match track_odometer.hpp. lockstep.py
 compares s and v. Diagnostic counters are separate: a bad bogie sample and a
 stamp behind the filter are dropped here without an n_rejected counter.
 
-State x = [s, v, k, ba]
+Probabilistic filter state x = [s, v, k, ba]
   s   coordinate on the track ring (m)
   v   speed (m/s)
   k   common wheel scale, true speed = k * corrected bogie speed
   ba  bias of the notch acceleration model (m/s^2), learned while wheels are trusted
 
+The same array is 8 long. The last four entries are diagnostic parameters, not
+Kalman states: [k_front, k_rear, b_front, b_rear]. The wheel Jacobian is nonzero
+only in v and k, K_k is 0 on wheel updates, and those four variances do not
+enter S. Their means move by a sign step, not by K. There is no joint
+identifiability analysis with k and ba.
+
 Three time scales keep calibration, noise and slip apart:
-  * rho, the rear/front ratio, is a slow robust average (minutes) taken only on
-    trusted cruising samples. Both bogies are corrected half-way to their
-    geometric mean; the absolute level is k, observable through station anchors.
+  * k_i and b_i take one sign step on a fresh pair that agrees with itself and
+    with the model. A diverging bogie, and a pair that diverges together, leave
+    both where they are. The absolute level is k, observable through station anchors.
   * the noise level r is estimated from the corrected front-rear difference.
     It grows only while that difference is sign-balanced (noise); a one-signed
     run (slip or slide on one bogie) freezes it.
@@ -149,6 +155,7 @@ class Odometer:
         self.n_guard = 0
         self.anchor_log = []
         self.s_anchor_ref = 0.0
+        self.path_since_anchor = 0.0
         self.have_v = False
         self.common_unobservable = False
         self.step_frozen = False
@@ -203,6 +210,7 @@ class Odometer:
         self.x[IS] = s0
         self.P[IS, IS] = sigma_s0 ** 2
         self.s_anchor_ref = s0
+        self.path_since_anchor = 0.0
 
     def wrap(self, s: float) -> float:
         return s % self.ring_len if self.ring_len > 0 else s
@@ -262,6 +270,8 @@ class Odometer:
             self.x = x_keep
             self.P = p_keep
             self._note_freeze()
+        else:
+            self.path_since_anchor += abs(float(self.x[IS]) - float(x_keep[IS]))
         self.t = t
 
     def _update_scalar(self, h: np.ndarray, innov: float, r: float, consider_k: bool = False,
@@ -489,7 +499,7 @@ class Odometer:
                 if best is None or abs(d) < abs(best[0]):
                     best = (d, st, r_sd, gate)
         row = {
-            "distance_since_anchor": abs(self.ring_delta(s, self.s_anchor_ref)),
+            "distance_since_anchor": self.distance_since_anchor(),
             "predicted_s": s,
             "candidate_s": float("nan"),
             "innovation": 0.0,
@@ -525,9 +535,13 @@ class Odometer:
             hk[IK] = 1.0
             self._update_scalar(hk, innov_k, sig_k ** 2)
         self.s_anchor_ref = float(self.wrap(self.x[IS]))
+        self.path_since_anchor = 0.0
         self.n_anchor += 1
         self.common_unobservable = False
         self.disagree_since = None
+
+    def distance_since_anchor(self) -> float:
+        return self.path_since_anchor
 
     @property
     def k(self) -> float:

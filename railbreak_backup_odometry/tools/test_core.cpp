@@ -1817,7 +1817,6 @@ int main() {
     h.map_in_domain = true;
     h.nis_front = 20.0;
     h.slip_front = true;
-    h.degrade_confirm_s = 0.20;
     h.degrade_recover_s = 1.0;
     railbreak::IntegrityMonitor held;
     check(std::string(held.update(h).status) == "NOMINAL",
@@ -1825,7 +1824,7 @@ int main() {
     const auto entered = soak(held, h, 1.0);
     check(std::string(entered.status) == "DEGRADED_SINGLE_BOGIE" &&
               std::string(entered.fault_level) == "degraded",
-          "a fault score above 0.8 for 0.5 s is DEGRADED");
+          "a fault score above 0.8 for 0.5 s is DEGRADED, with no second confirm");
     h.nis_front = 40.0;
     const auto deep = soak(held, h, 3.2);
     check(std::string(deep.fault_level) == "deep" &&
@@ -1844,7 +1843,6 @@ int main() {
     bare.slip_front = false;
     bare.nis_front = 0.0;
     bare.map_in_domain = false;
-    bare.degrade_confirm_s = 0.20;
     check(std::string(railbreak::IntegrityMonitor{}.update(bare).status) == "DEGRADED_NO_MAP",
           "a missing map is DEGRADED on the first sample");
     check(std::string(railbreak::IntegrityMonitor{}.update(bare).confidence_position) == "degraded",
@@ -1901,6 +1899,86 @@ int main() {
     check(std::string(junction.candidate_path) == "junction" && junction.candidate_s < 8.0 &&
               junction.branch_probability > 0.5 && junction.cross_track_error > 0.15,
           "a nearer loop outside the window is named and not taken");
+  }
+  {
+    auto step = [](railbreak::FaultScore& score, double t, double nis_front, double nis_rear) {
+      railbreak::FaultObs o;
+      o.t = t;
+      o.nis_front = nis_front;
+      o.nis_rear = nis_rear;
+      o.pair_fresh = true;
+      o.bogies_agree = true;
+      return score.update(o);
+    };
+    railbreak::FaultScore clean;
+    railbreak::FaultState clean_end{};
+    for (int i = 0; i <= 20; ++i) clean_end = step(clean, 0.1 * i, 0.0, 0.0);
+    check(!clean_end.front_latched && !clean_end.rear_latched && !clean_end.common_latched,
+          "a clean 2 s replay latches neither bogie");
+    railbreak::FaultScore single;
+    railbreak::FaultState single_end{};
+    for (int i = 0; i <= 20; ++i) single_end = step(single, 0.1 * i, 20.0, 0.0);
+    check(single_end.front_latched && !single_end.rear_latched && !single_end.common_latched,
+          "a single-bogie replay latches only the faulty bogie");
+    railbreak::FaultScore stagger;
+    bool rear_early = false;
+    bool rear_at_one = true;
+    railbreak::FaultState at_one{};
+    for (int i = 0; i <= 20; ++i) {
+      const double t = 0.1 * i;
+      const auto s = step(stagger, t, 20.0, t + 1e-12 >= 0.6 ? 20.0 : 0.0);
+      if (t < 1.1 && s.rear_latched) rear_early = true;
+      if (std::fabs(t - 1.0) < 1e-9) {
+        at_one = s;
+        rear_at_one = s.rear_latched;
+      }
+    }
+    check(!rear_early && !rear_at_one && at_one.front_latched,
+          "rear fault at 0.6 s does not latch before 1.1 s");
+  }
+  {
+    // One lap on a short ring. The published arc is near the start again.
+    // The anchor budget must still see the path that was actually travelled.
+    auto loop = flat_ring(100.0);
+    loop.stops.clear();
+    railbreak::TrackOdometer od(&loop, p);
+    od.init(0.0, 1.0);
+    od.set_time(0.0);
+    drive(od, 0.0, 2.0, 36.0);
+    check(od.distance_since_anchor() > 15.0 && od.distance_since_anchor() < 30.0,
+          "two seconds of travel report the path, not a doubled one");
+    drive(od, 2.0, 11.0, 36.0);
+    check(od.s() < 20.0, "after one lap the published arc is near the start");
+    check(od.distance_since_anchor() > 100.0,
+          "a nearly full lap does not fold the anchor path");
+    railbreak::IntegrityObs blind;
+    blind.t = 1.0;
+    blind.sigma_s = 1.0;
+    blind.front_age_s = 0.05;
+    blind.rear_age_s = 0.05;
+    blind.pair_fresh = true;
+    blind.bogies_agree = true;
+    blind.absolute_start = true;
+    blind.map_in_domain = true;
+    blind.common_unobservable = true;
+    blind.distance_since_anchor = od.distance_since_anchor();
+    const auto lost = railbreak::IntegrityMonitor{}.update(blind);
+    check(std::string(lost.status) == "LOST" && !lost.use_position &&
+              lost.time_to_lost == 0.0 && lost.blind_time_s < 5.0,
+          "the lap path spends the distance budget before the 5 s clock");
+
+    // Wheels drop to zero while the filter is still near 10 m/s, so the dwell
+    // lands about 11 m past the five-second mark. The station is that dwell.
+    auto line = flat_ring(2000.0);
+    line.stops = {{61.0, 0.5, 10}};
+    railbreak::TrackOdometer parked(&line, p);
+    parked.init(0.0, 1.0);
+    parked.set_time(0.0);
+    drive(parked, 0.0, 5.0, 36.0);
+    const double before = parked.distance_since_anchor();
+    drive(parked, 5.0, 8.0, 0.0);
+    check(before > 40.0 && parked.n_anchor() == 1 && parked.distance_since_anchor() < 5.0,
+          "an accepted station clears the path since the anchor");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

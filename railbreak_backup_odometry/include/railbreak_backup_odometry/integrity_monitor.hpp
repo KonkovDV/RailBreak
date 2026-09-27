@@ -63,9 +63,11 @@ struct IntegrityObs {
   double distance_since_anchor = 0.0;
   double max_blind_time_s = 5.0;
   double max_blind_distance_m = 100.0;
-  // 0 keeps a single sample immediate, which is how the fitted bound was checked.
-  // The node sets a confirm and a recovery so DEGRADED does not flicker.
-  double degrade_confirm_s = 0.0;
+  // Slip classes latch when FaultScore says so: 0.5 s to enter, 3 s to clear.
+  // There is no second confirm timer on that transition.
+  // degrade_recover_s holds a non-slip change, such as the return from
+  // DEGRADED_NO_MAP or DEGRADED_RELATIVE_ONLY toward NOMINAL.
+  // 0 keeps that change immediate. That is how the fitted bound was checked.
   double degrade_recover_s = 0.0;
   double model_residual_mps = 0.0;
   double front_rear_residual_mps = 0.0;
@@ -315,7 +317,8 @@ class IntegrityMonitor {
                             latched_status_.rfind("DEGRADED_SINGLE", 0) == 0 ||
                             latched_status_ == "DEGRADED_MODEL_CARRY" ||
                             latched_status_ == "DEGRADED_COMMON_MODE_UNOBSERVABLE";
-    // The fault score already requires 0.5 s to enter and 3 s to clear.
+    // Slip classes follow FaultScore: 0.5 s to enter, 3 s to clear.
+    // degrade_recover_s is not that timer. It holds only a non-slip change.
     const double need = slip_class ? 0.0 : o.degrade_recover_s;
     if (!(need > 0.0) || (std::isfinite(o.t) && pending_since_ >= 0.0 &&
                           o.t - pending_since_ + 1e-12 >= need))

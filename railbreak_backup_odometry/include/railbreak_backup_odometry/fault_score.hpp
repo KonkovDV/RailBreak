@@ -63,17 +63,27 @@ class FaultScore {
     const double score = std::max(front_, rear_);
     const bool agree = o.pair_fresh && o.bogies_agree;
     const double common = agree ? std::min(front_, rear_) : 0.0;
-    arm(above_since_, score > kEnter, o.t);
-    arm(deep_since_, score > kDeep, o.t);
+    arm(front_above_since_, front_ > kEnter, o.t);
+    arm(rear_above_since_, rear_ > kEnter, o.t);
+    arm(front_deep_since_, front_ > kDeep, o.t);
+    arm(rear_deep_since_, rear_ > kDeep, o.t);
+    arm(front_low_since_, front_ < kClear, o.t);
+    arm(rear_low_since_, rear_ < kClear, o.t);
     arm(low_since_, score < kClear, o.t);
-    const double above = elapsed(above_since_, o.t);
-    const double deep = elapsed(deep_since_, o.t);
-    const double low = elapsed(low_since_, o.t);
+    const double front_above = elapsed(front_above_since_, o.t);
+    const double rear_above = elapsed(rear_above_since_, o.t);
+    const double front_deep = elapsed(front_deep_since_, o.t);
+    const double rear_deep = elapsed(rear_deep_since_, o.t);
+    const double front_low = elapsed(front_low_since_, o.t);
+    const double rear_low = elapsed(rear_low_since_, o.t);
+    const bool both_above = front_ > kEnter && rear_ > kEnter;
+    // Overlap is the shorter of the two elapsed times: t minus the later start.
+    const double common_above = both_above ? std::min(front_above, rear_above) : 0.0;
 
-    if (!front_latched_ && front_ > kEnter && above >= kEnterS) front_latched_ = true;
-    if (!rear_latched_ && rear_ > kEnter && above >= kEnterS) rear_latched_ = true;
-    if (front_latched_ && front_ < kClear && low >= kClearS) front_latched_ = false;
-    if (rear_latched_ && rear_ < kClear && low >= kClearS) rear_latched_ = false;
+    if (!front_latched_ && front_ > kEnter && front_above >= kEnterS) front_latched_ = true;
+    if (!rear_latched_ && rear_ > kEnter && rear_above >= kEnterS) rear_latched_ = true;
+    if (front_latched_ && front_ < kClear && front_low >= kClearS) front_latched_ = false;
+    if (rear_latched_ && rear_ < kClear && rear_low >= kClearS) rear_latched_ = false;
 
     FaultState s;
     s.fault_score = score;
@@ -81,13 +91,15 @@ class FaultScore {
     s.rear_score = rear_;
     s.common_score = common;
     s.recovery_score = 1.0 - score;
-    s.fault_duration_s = above;
-    s.deep_duration_s = deep;
-    s.recovery_duration_s = low;
+    s.fault_duration_s = std::max(front_above, rear_above);
+    s.deep_duration_s = std::max(front_deep, rear_deep);
+    s.recovery_duration_s = elapsed(low_since_, o.t);
     s.front_latched = front_latched_;
     s.rear_latched = rear_latched_;
-    s.common_latched = agree && front_latched_ && rear_latched_ && common > kEnter;
-    if ((front_latched_ || rear_latched_) && deep >= kDeepS) s.level = "deep";
+    s.common_latched = agree && both_above && front_latched_ && rear_latched_ &&
+                       common > kEnter && common_above >= kEnterS;
+    if ((front_latched_ && front_deep >= kDeepS) || (rear_latched_ && rear_deep >= kDeepS))
+      s.level = "deep";
     else if ((front_latched_ || rear_latched_) && score < kClear) s.level = "recovering";
     else if (front_latched_ || rear_latched_) s.level = "degraded";
     else s.level = "nominal";
@@ -126,8 +138,12 @@ class FaultScore {
   bool have_t_ = false;
   bool front_latched_ = false;
   bool rear_latched_ = false;
-  double above_since_ = -1.0;
-  double deep_since_ = -1.0;
+  double front_above_since_ = -1.0;
+  double rear_above_since_ = -1.0;
+  double front_deep_since_ = -1.0;
+  double rear_deep_since_ = -1.0;
+  double front_low_since_ = -1.0;
+  double rear_low_since_ = -1.0;
   double low_since_ = -1.0;
 };
 

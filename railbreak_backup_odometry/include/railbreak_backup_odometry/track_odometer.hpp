@@ -3,15 +3,20 @@
 // lockstep.py compares s and v. Diagnostic counters are separate: n_rejected
 // is counted here and is not kept by the Python twin.
 //
-// State x = [s, v, k, ba]
+// Probabilistic filter state x = [s, v, k, ba].
 //   s   coordinate on the closed track ring (m)
 //   v   speed (m/s)
 //   k   common wheel scale: true speed = k * corrected bogie speed
 //   ba  bias of the notch acceleration model (m/s^2)
+// The same array is 8 long. The last four entries are diagnostic parameters,
+// not Kalman states: [k_front, k_rear, b_front, b_rear]. The wheel Jacobian
+// is nonzero only in v and k, K_k is 0 on wheel updates, and those four
+// variances do not enter S. Their means move by a sign step, not by K.
 //
 // Three time scales keep calibration, noise and slip apart:
-//   rho  rear/front ratio, sign-step median tracker over minutes, off heavy notch;
-//        both bogies are corrected half-way to their geometric mean
+//   bogie k_i, b_i   one sign step on a fresh pair that agrees with itself and
+//                    with the model; a diverging bogie, and a pair that diverges
+//                    together, leave both where they are
 //   r    measurement noise from the corrected front-rear difference; it grows only
 //        while that difference is sign-balanced, a one-signed run freezes it
 //   slip normalised innovation gate and a two-bogie consensus gate; a flagged
@@ -456,6 +461,7 @@ class TrackOdometer {
     notch_hist_n_ = 0;
     anchor_log_.clear();
     s_anchor_ref_ = 0.0;
+    path_since_anchor_ = 0.0;
     have_v_ = false;
     common_unobservable_ = false;
     disagree_since_ = -1.0;
@@ -470,6 +476,7 @@ class TrackOdometer {
     x_[IS] = s0;
     P_[IS][IS] = sigma_s0 * sigma_s0;
     s_anchor_ref_ = s0;
+    path_since_anchor_ = 0.0;
   }
 
   void set_time(double t) {
@@ -620,9 +627,9 @@ class TrackOdometer {
   double sigma_s() const { return std::sqrt(std::max(P_[IS][IS], 0.0)); }
   double sigma_v() const { return std::sqrt(std::max(P_[IV][IV], 0.0)); }
   double sigma_k() const { return std::sqrt(std::max(P_[IK][IK], 0.0)); }
-  double distance_since_anchor() const {
-    return std::fabs(ring_delta(a_->map.wrap(x_[IS]), s_anchor_ref_));
-  }
+  // Path length since the last trusted anchor. The shortest arc on the ring
+  // folds back toward zero after almost one lap, so it is not this budget.
+  double distance_since_anchor() const { return path_since_anchor_; }
 
   // Numerical stops, not a physical identification of the scale or the bias.
   // 1/k then stays in [2/3, 2]. On the recorded runs k stays near 1 and b_a
@@ -941,6 +948,8 @@ class TrackOdometer {
       x_ = x_keep;
       P_ = p_keep;
       note_freeze();
+    } else {
+      path_since_anchor_ += std::fabs(x_[IS] - x_keep[IS]);
     }
     t_ = t;
   }
@@ -1086,7 +1095,7 @@ class TrackOdometer {
       }
     }
     AnchorDecision row;
-    row.distance_since_anchor = std::fabs(ring_delta(s, s_anchor_ref_));
+    row.distance_since_anchor = distance_since_anchor();
     row.predicted_s = s;
     if (n_cand == 1) {
       row.candidate_s = best_s;
@@ -1124,6 +1133,7 @@ class TrackOdometer {
       update_scalar(hk, innov_k, sig_k * sig_k, false);
     }
     s_anchor_ref_ = a_->map.wrap(x_[IS]);
+    path_since_anchor_ = 0.0;
     ++n_anchor_;
     // A station is an independent reference. Agreement of the two bogies is not.
     common_unobservable_ = false;
@@ -1164,6 +1174,7 @@ class TrackOdometer {
   Mode mode_ = Mode::kWheels;
   int n_anchor_ = 0;
   double s_anchor_ref_ = 0.0;
+  double path_since_anchor_ = 0.0;
   std::vector<AnchorDecision> anchor_log_;
   int n_rejected_ = 0;
   int n_dropout_front_ = 0, n_dropout_rear_ = 0;

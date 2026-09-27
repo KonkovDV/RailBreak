@@ -69,8 +69,52 @@ def main() -> int:
         "python tools/organizer/eval_odometer.py --split val --fault scale_rear_5pct",
     ]:
         errors.append("provenance command")
-    if prov.get("published_numbers_recomputed_after_filter_change") is not True:
-        errors.append("manifest does not record the recheck")
+    if data.get("package_tree_commit") != "8334ea8afbc3db3d56715f6c344516cbc938cf3e":
+        errors.append("package tree commit is not 8334ea8")
+    if data.get("filter_commit") != "2ce42d7101dced2e32d74f0e5fdc786e48d273a5":
+        errors.append("filter commit is not 2ce42d7")
+    if data.get("metrics_commit") != "6af0037710baa3b67df2cc5720c6cc3272719712":
+        errors.append("metrics commit is not 6af0037")
+    if data.get("metrics_valid_for_current_head") is not False:
+        errors.append("metrics are marked valid for the package tree")
+    if data.get("current_replay_status") != "pending":
+        errors.append("current replay status is not pending")
+    if len({
+        data.get("package_tree_commit"),
+        data.get("filter_commit"),
+        data.get("metrics_commit"),
+    }) != 3:
+        errors.append("package, filter and metrics commits are not three different trees")
+    if data.get("filter_commit_used_for_published_metrics") != data.get("metrics_commit"):
+        errors.append("published metrics are not pinned to metrics_commit")
+    if prov.get("metrics_commit") != data.get("metrics_commit"):
+        errors.append("metric block metrics_commit drifted")
+    if prov.get("filter_commit") != data.get("filter_commit"):
+        errors.append("metric block filter_commit drifted")
+    if prov.get("metrics_valid_for_current_head") is not False:
+        errors.append("metric block marks the numbers valid for the package tree")
+    if prov.get("current_replay_status") != "pending":
+        errors.append("metric block replay status is not pending")
+    cmake = (ROOT / "railbreak_backup_odometry" / "CMakeLists.txt").read_text(encoding="utf-8")
+    if "ament_add_gtest(test_gnss_stress" not in cmake:
+        errors.append("package CMake does not register test_gnss_stress")
+    if "add_executable(test_core" not in cmake or "add_test(NAME test_core" not in cmake:
+        errors.append("package CMake hides test_core")
+    tools_cmake = (ROOT / "railbreak_backup_odometry" / "tools" / "CMakeLists.txt").read_text(encoding="utf-8")
+    if "add_test(NAME test_core" not in tools_cmake:
+        errors.append("host CMake does not register test_core")
+    if data.get("published_metrics_valid_for_current_head") is not False:
+        errors.append("published metrics are marked valid for HEAD")
+    if data.get("current_head_replay_status") != "pending":
+        errors.append("HEAD replay is not pending")
+    if prov.get("published_numbers_recomputed_after_filter_change") is not False:
+        errors.append("recheck flag claims the current filter was remeasured")
+    if prov.get("filter_commit_used_for_published_metrics") != "6af0037710baa3b67df2cc5720c6cc3272719712":
+        errors.append("metric block is not pinned to 6af0037")
+    if prov.get("published_metrics_valid_for_current_head") is not False:
+        errors.append("metric block marks the numbers valid for HEAD")
+    if prov.get("current_head_replay_status") != "pending":
+        errors.append("metric block replay status is not pending")
     if prov.get("commit_sha") != "6af0037710baa3b67df2cc5720c6cc3272719712":
         errors.append("metric commit is not the recheck tree")
     if prov.get("ros_record_matches_published_0_77") is not False:

@@ -122,7 +122,6 @@ class BackupOdometryNode : public rclcpp::Node {
     p.stop_gate = declare_parameter("stop_gate", p.stop_gate);
     max_blind_time_s_ = declare_parameter("max_blind_time_s", 5.0);
     max_blind_distance_m_ = declare_parameter("max_blind_distance_m", 100.0);
-    degrade_confirm_s_ = declare_parameter("degrade_confirm_s", 0.20);
     degrade_recover_s_ = declare_parameter("degrade_recover_s", 1.0);
     wheel_sigma_ = declare_parameter("wheel_radius_sigma_m", 0.0);
     try {
@@ -581,7 +580,6 @@ class BackupOdometryNode : public rclcpp::Node {
     o.distance_since_anchor = od_->distance_since_anchor();
     o.max_blind_time_s = max_blind_time_s_;
     o.max_blind_distance_m = max_blind_distance_m_;
-    o.degrade_confirm_s = degrade_confirm_s_;
     o.degrade_recover_s = degrade_recover_s_;
     return o;
   }
@@ -792,7 +790,6 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("coverage_99", "null");
     kv("mean_interval_width", width_n_ > 0 ? fixed3(width_sum_ / static_cast<double>(width_n_)) : "null");
     kv("max_interval_width", width_n_ > 0 ? fixed3(width_max_) : "null");
-    const railbreak::IntegrityObs ages = integrity_obs(false);
     kv("time_to_LOST",
        fixed3(railbreak::time_to_lost(lost, ages.front_age_s, ages.rear_age_s, od_->max_gap_s())));
     const railbreak::AdhesionReport ar = have_adhesion_
@@ -854,7 +851,6 @@ class BackupOdometryNode : public rclcpp::Node {
   double match_t_ = 0.0;
   double max_blind_time_s_ = 5.0;
   double max_blind_distance_m_ = 100.0;
-  double degrade_confirm_s_ = 0.20;
   double degrade_recover_s_ = 1.0;
   double wheel_sigma_ = 0.0;
   double width_sum_ = 0.0;

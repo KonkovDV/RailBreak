@@ -128,7 +128,8 @@ def _replay(path: Path, fault: str) -> dict | None:
             od, float(od.t), stamp_regressed=regressed, absolute_start=True, map_in_domain=True,
         )
         report = mon.update(snap)
-        if report.status not in STATUSES:
+        # LOST is in the catalog and is not a bound class. Keep it out of the fit.
+        if report.status not in STATUSES or report.status == "LOST":
             continue
         ss, _vv, _kk, sg = od.state()
         et.append(float(od.t))
@@ -301,7 +302,7 @@ def main() -> int:
         ee = np.concatenate(parts) if parts else np.zeros(0)
         ss = np.concatenate(sigs) if sigs else np.zeros(0)
         counts[name] = int(len(ee))
-        if name == "NOMINAL" or len(ee) < 30:
+        if name == "NOMINAL" or name == "LOST" or len(ee) < 30:
             b_mode[name] = 0.0
             continue
         excess = np.maximum(0.0, ee - q * ss)

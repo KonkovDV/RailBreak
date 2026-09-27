@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from integrity import STATUSES  # noqa: E402
 from scenario_campaign import (  # noqa: E402
     SCENARIOS,
     detection_metrics,
@@ -180,6 +181,9 @@ class CampaignTests(unittest.TestCase):
                 self.assertLessEqual(m["interval_coverage"], 1.0)
         lost = run_scenario("missing_assets", duration_s=6.0, dt=0.2)
         self.assertIsNotNone(lost["time_to_LOST"])
+        self.assertIn("LOST", STATUSES)
+        self.assertEqual(lost["status"], "LOST")
+        self.assertEqual(lost["integrity_status"], "POSITION_UNTRUSTED")
 
 
 if __name__ == "__main__":

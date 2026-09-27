@@ -67,7 +67,7 @@ integrity:
 
 ## Статусы
 
-Классы границы: `NOMINAL`, `DEGRADED_SINGLE_BOGIE`, `DEGRADED_MODEL_CARRY`, `DEGRADED_COMMON_MODE_UNOBSERVABLE`, `DEGRADED_NO_MAP`, `DEGRADED_RELATIVE_ONLY`, `POSITION_UNTRUSTED`. Сверх них статус `LOST` отказывает в координате и в границу не входит.
+Классы границы: `NOMINAL`, `DEGRADED_SINGLE_BOGIE`, `DEGRADED_MODEL_CARRY`, `DEGRADED_COMMON_MODE_UNOBSERVABLE`, `DEGRADED_NO_MAP`, `DEGRADED_RELATIVE_ONLY`, `POSITION_UNTRUSTED`. Сверх них статус `LOST` отказывает в координате и в границу не входит. Каталог `STATUSES` его содержит; коэффициента `B_mode` у него нет.
 
 Юзовый `DEGRADED` включается не с одного NIS. По каждой тележке ведётся
 
@@ -75,7 +75,7 @@ integrity:
 F_i(t)=\mathrm{e}^{-\Delta t/\tau}F_i(t-\Delta t)+(1-\mathrm{e}^{-\Delta t/\tau})\,\varphi(\mathrm{NIS}_i),
 \]
 
-\(\tau=0.25\) с, \(\varphi=\min(1,\mathrm{NIS}/16)\). Туда же входят расхождение тележек и невязка к модели. Режим читает `fault_score`, `fault_duration_s`, `recovery_score`, возраст датчика, невязку модели и невязку тележек. Вход: счётчик выше 0.8 дольше 0.5 с. Глубокий уровень: выше 0.95 дольше 2 с, причина `DEEP_FAULT`. Снятие: счётчик ниже 0.2 дольше 3 с. Переход `DEGRADED_COMMON_MODE_UNOBSERVABLE` → `LOST` — высокий счётчик общей моды и выбранный слепой бюджет. На `LOST` скорость и положение расходятся: скорость `LOW`, положение `NONE`. Один отсчёт NIS называется в причинах и увеличивает \(R\) этого шага фильтра; статус от него не меняется. Отсутствие карты, относительный старт, устаревшая тележка и отказ по возрасту обоих каналов объявляются с первого отсчёта.
+\(\tau=0.25\) с, \(\varphi=\min(1,\mathrm{NIS}/16)\). Туда же входят расхождение тележек и невязка к модели. Режим читает `fault_score`, `fault_duration_s`, `recovery_score`, возраст датчика, невязку модели и невязку тележек. Вход: счётчик тележки выше 0.8 дольше 0.5 с по её собственному таймеру. Общая мода считает пересечение этих двух интервалов, не время более раннего канала. Глубокий уровень: выше 0.95 дольше 2 с, причина `DEEP_FAULT`. Снятие: счётчик ниже 0.2 дольше 3 с. Переход `DEGRADED_COMMON_MODE_UNOBSERVABLE` → `LOST` — высокий счётчик общей моды и выбранный слепой бюджет. На `LOST` скорость и положение расходятся: скорость `LOW`, положение `NONE`. Один отсчёт NIS называется в причинах и увеличивает \(R\) этого шага фильтра; статус от него не меняется. Отсутствие карты, относительный старт, устаревшая тележка и отказ по возрасту обоих каналов объявляются с первого отсчёта.
 
 Причины: `FRONT_NIS_HIGH`, `REAR_NIS_HIGH`, `BOGIES_DISAGREE`, `BOGIES_AGREE_MODEL_DISAGREES`, `POSITION_OPEN`, `STALE_FRONT`, `STALE_REAR`, `STAMP_REGRESSION`, `NO_ABSOLUTE_START`, `AMBIGUOUS_STATION_ANCHOR`, `MAP_OUT_OF_DOMAIN`.
 

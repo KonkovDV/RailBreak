@@ -1,6 +1,8 @@
-// Five longitudinal hypotheses. Not a Koopman model and not a certified IMM.
+// Shadow model bank: five longitudinal hypotheses for mismatch diagnostics.
+// Not an IMM and not GPB2. The mixture does not replace the filter state,
+// and the spread is not written into P. fuse_modes compares absolute s.
 // Coast and braking stay inside a_tab(notch): the bank does not add a second
-// copy of those rows. The mixture does not replace the anchored filter arc.
+// copy of those rows.
 #pragma once
 
 #include <algorithm>

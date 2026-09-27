@@ -16,7 +16,7 @@ GNSS читается только в окне старта: 3 с от перв�
 допущения — [`../docs/solution/assumptions.md`](../docs/solution/assumptions.md),
 точность — [`../docs/solution/results.md`](../docs/solution/results.md).
 Снимок пакета — [`MANIFEST.json`](MANIFEST.json): хеши карты и таблицы, параметры
-по умолчанию и опубликованные 1.467 м / 5.828 м. Хешей записей там нет.
+по умолчанию и опубликованные 1.467 м / 5.828 м. Эти числа являются результатами старого проверочного дерева `6af0037`. Они не являются автоматически результатами дерева, которое клонирует жюри. Фильтр после них менялся, начиная с `2ce42d7`, и в этой сдаче тоже. `published_numbers_recomputed_after_filter_change` равен false: числа заново не считались, повтор `pending`. Хешей записей там нет.
 
 Входы: `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity`
 (`tram_vehicle_msgs/VelocitySensor`), `/vehicle/driver_position_cmd`
@@ -59,6 +59,8 @@ source install/setup.bash
 
 Внешних зависимостей, кроме пакетов Humble (`rclcpp`, `nav_msgs`, `sensor_msgs`,
 `diagnostic_msgs`, `ament_index_cpp`, `launch_ros`), нет.
+
+`colcon test --packages-select railbreak_backup_odometry` запускает два теста пакета: `test_gnss_stress` (окно GNSS) и `test_core` (фильтр, FaultScore, целостность). Тот же `test_core` без ROS регистрирует `tools/CMakeLists.txt`.
 
 ## Запуск
 

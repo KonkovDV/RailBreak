@@ -2,6 +2,8 @@
 
 The filter is not modified. mu is not estimated: motor torque, motor current,
 an IMU, an independent body speed and the contact forces are not inputs.
+Coefficient of adhesion is not observable from two wheel speeds and driver
+command alone.
 
 A common-mode label means both bogies agree with each other and both disagree
 with the notch model. Low adhesion can look like that. A wrong table, grade or

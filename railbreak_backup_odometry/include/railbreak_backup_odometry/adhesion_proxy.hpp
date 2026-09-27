@@ -1,8 +1,8 @@
 // Adhesion anomaly proxy. It does not write the filter and does not estimate mu.
 //
 // Motor torque, motor current, an IMU, an independent body speed and the
-// contact forces are not inputs. The friction coefficient is not observable
-// from bogie speed, notch and the notch table. mu_estimate stays null.
+// contact forces are not inputs. Coefficient of adhesion is not observable
+// from two wheel speeds and driver command alone. mu_estimate stays null.
 //
 // The label is a residual pattern: both bogies can agree with each other and
 // disagree with the model because of low adhesion, or because the table,

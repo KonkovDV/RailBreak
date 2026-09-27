@@ -44,14 +44,44 @@ def obs(**kw) -> Obs:
 
 class IntegrityTests(unittest.TestCase):
     def test_names(self):
-        self.assertEqual(len(STATUSES), 7)
+        self.assertEqual(len(STATUSES), 8)
         self.assertEqual(len(REASONS), 13)
+        self.assertIn("LOST", STATUSES)
         self.assertIn("POSITION_UNTRUSTED", STATUSES)
         self.assertEqual(
             IntegrityMonitor(BoundCoeff()).update(obs()).bound_statement,
             "empirical bound, not certified protection level",
         )
         self.assertIn("BOGIES_AGREE_MODEL_DISAGREES", REASONS)
+
+    def test_rear_does_not_borrow_the_front_timer(self):
+        from integrity import FaultScore
+
+        def run(nis_rear_from):
+            score = FaultScore()
+            seen = []
+            for i in range(21):
+                t = 0.1 * i
+                seen.append(score.update(obs(
+                    t=t, pair_fresh=True, bogies_agree=True,
+                    nis_front=20.0, nis_rear=20.0 if t + 1e-12 >= nis_rear_from else 0.0,
+                )))
+            return seen
+
+        clean = FaultScore()
+        last = None
+        for i in range(21):
+            last = clean.update(obs(t=0.1 * i, pair_fresh=True, bogies_agree=True))
+        self.assertFalse(last["front_latched"] or last["rear_latched"] or last["common_latched"])
+        single = run(99.0)
+        self.assertTrue(single[-1]["front_latched"])
+        self.assertFalse(single[-1]["rear_latched"])
+        stagger = run(0.6)
+        early = [row for row in stagger if row["rear_latched"]]
+        self.assertTrue(stagger[10]["front_latched"])
+        self.assertFalse(stagger[10]["rear_latched"])
+        self.assertFalse(any(row["rear_latched"] for i, row in enumerate(stagger) if i * 0.1 < 1.1))
+        self.assertFalse(early and min(i * 0.1 for i, row in enumerate(stagger) if row["rear_latched"]) < 1.1)
 
     def test_nominal(self):
         r = IntegrityMonitor(BoundCoeff()).update(obs())
@@ -66,6 +96,10 @@ class IntegrityTests(unittest.TestCase):
         one = mon.update(obs(t=10.0, nis_front=20.0, slip_front=True))
         self.assertEqual(one.status, "NOMINAL")
         self.assertIn("FRONT_NIS_HIGH", one.reasons)
+        early = soak(
+            IntegrityMonitor(BoundCoeff()), 10.4, t=10.0, nis_front=20.0, slip_front=True,
+        )
+        self.assertEqual(early.status, "NOMINAL")
         held = soak(mon, 11.0, t=10.0, nis_front=20.0, slip_front=True)
         self.assertEqual(held.status, "DEGRADED_SINGLE_BOGIE")
         self.assertNotIn("REAR_NIS_HIGH", held.reasons)
@@ -258,6 +292,7 @@ class IntegrityTests(unittest.TestCase):
             distance_since_anchor=150.0,
         ))
         self.assertEqual(far.status, "LOST")
+        self.assertIn(far.status, STATUSES)
         self.assertFalse(far.use_position)
         self.assertEqual(far.time_to_lost, 0.0)
         self.assertAlmostEqual(far.distance_since_last_trusted_anchor, 150.0)
@@ -301,6 +336,26 @@ class IntegrityTests(unittest.TestCase):
         ))
         self.assertNotEqual(reset.integrity_mode, "LOST")
         self.assertTrue(reset.use_position)
+
+    def test_ring_path_does_not_fold_after_a_lap(self):
+        import numpy as np
+        from odometer import Odometer, Params
+
+        n = 102
+        s = np.arange(n, dtype=float)
+        od = Odometer(
+            s, np.zeros(n), np.zeros((31, 18)), np.arange(-15, 16),
+            np.arange(18) + 0.5, [], Params(), ring_len=101.0,
+        )
+        od.init(0.0, 1.0)
+        od.t = 0.0
+        for i in range(110):
+            t = 0.1 * i
+            od.on_cmd(t + 0.025, 0)
+            od.on_bogie(t, "front", 36.0)
+            od.on_bogie(t + 0.05, "rear", 36.0)
+        self.assertGreater(od.distance_since_anchor(), 100.0)
+        self.assertLess(od.state()[0], 20.0)
 
 
 if __name__ == "__main__":

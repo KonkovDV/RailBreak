@@ -220,6 +220,7 @@ def run_scenario(name: str, duration_s: float = 24.0, dt: float = 0.1) -> dict:
         od.init(s0, 1.0)
     monitor = IntegrityMonitor()
     unverified_since = None
+    last = None
     rows = []
     absolute = not missing
     for sample in inputs:
@@ -235,8 +236,8 @@ def run_scenario(name: str, duration_s: float = 24.0, dt: float = 0.1) -> dict:
         obs = obs_from_odometer(
             od, view["t"], absolute_start=absolute, map_in_domain=not missing,
         )
-        obs.distance_since_anchor = abs(float(od.x[0]) - float(od.s_anchor_ref))
         report = monitor.update(obs)
+        last = report
         lost = report.integrity_mode == "LOST"
         nominal = report.integrity_mode == "NOMINAL"
         if nominal or lost:
@@ -271,5 +272,10 @@ def run_scenario(name: str, duration_s: float = 24.0, dt: float = 0.1) -> dict:
     metrics = detection_metrics(rows, t_on, t_off)
     metrics["scenario"] = name
     metrics["n"] = len(rows)
+    # `status` is the last integrity_mode. It is LOST when position or velocity
+    # confidence is NONE. missing_assets has no absolute start and no map, so
+    # the monitor status stays POSITION_UNTRUSTED.
+    metrics["status"] = None if last is None else last.integrity_mode
+    metrics["integrity_status"] = None if last is None else last.status
     metrics["brake_field_sent"] = False
     return metrics

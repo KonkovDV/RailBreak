@@ -17,6 +17,8 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# The first seven are bound classes. LOST refuses the coordinate after the
+# blind budget. It is not a B_mode class and stays out of the coefficient fit.
 STATUSES = (
     "NOMINAL",
     "DEGRADED_SINGLE_BOGIE",
@@ -25,6 +27,7 @@ STATUSES = (
     "DEGRADED_NO_MAP",
     "DEGRADED_RELATIVE_ONLY",
     "POSITION_UNTRUSTED",
+    "LOST",
 )
 
 REASONS = (
@@ -112,7 +115,6 @@ class Obs:
     distance_since_anchor: float = 0.0
     max_blind_time_s: float = 5.0
     max_blind_distance_m: float = 100.0
-    degrade_confirm_s: float = 0.0
     degrade_recover_s: float = 0.0
     model_residual_mps: float = 0.0
     front_rear_residual_mps: float = 0.0
@@ -169,8 +171,12 @@ class FaultScore:
         self.t = None
         self.front_latched = False
         self.rear_latched = False
-        self.above_since = None
-        self.deep_since = None
+        self.front_above_since = None
+        self.rear_above_since = None
+        self.front_deep_since = None
+        self.rear_deep_since = None
+        self.front_low_since = None
+        self.rear_low_since = None
         self.low_since = None
 
     def update(self, o: Obs):
@@ -188,21 +194,32 @@ class FaultScore:
         score = max(self.front, self.rear)
         agree = o.pair_fresh and o.bogies_agree
         common = min(self.front, self.rear) if agree else 0.0
-        self.above_since = self._arm(self.above_since, score > self.ENTER, o.t)
-        self.deep_since = self._arm(self.deep_since, score > self.DEEP, o.t)
+        self.front_above_since = self._arm(self.front_above_since, self.front > self.ENTER, o.t)
+        self.rear_above_since = self._arm(self.rear_above_since, self.rear > self.ENTER, o.t)
+        self.front_deep_since = self._arm(self.front_deep_since, self.front > self.DEEP, o.t)
+        self.rear_deep_since = self._arm(self.rear_deep_since, self.rear > self.DEEP, o.t)
+        self.front_low_since = self._arm(self.front_low_since, self.front < self.CLEAR, o.t)
+        self.rear_low_since = self._arm(self.rear_low_since, self.rear < self.CLEAR, o.t)
         self.low_since = self._arm(self.low_since, score < self.CLEAR, o.t)
-        above = self._elapsed(self.above_since, o.t)
-        deep = self._elapsed(self.deep_since, o.t)
-        low = self._elapsed(self.low_since, o.t)
-        if not self.front_latched and self.front > self.ENTER and above >= self.ENTER_S:
+        front_above = self._elapsed(self.front_above_since, o.t)
+        rear_above = self._elapsed(self.rear_above_since, o.t)
+        front_deep = self._elapsed(self.front_deep_since, o.t)
+        rear_deep = self._elapsed(self.rear_deep_since, o.t)
+        front_low = self._elapsed(self.front_low_since, o.t)
+        rear_low = self._elapsed(self.rear_low_since, o.t)
+        both_above = self.front > self.ENTER and self.rear > self.ENTER
+        common_above = min(front_above, rear_above) if both_above else 0.0
+        if not self.front_latched and self.front > self.ENTER and front_above >= self.ENTER_S:
             self.front_latched = True
-        if not self.rear_latched and self.rear > self.ENTER and above >= self.ENTER_S:
+        if not self.rear_latched and self.rear > self.ENTER and rear_above >= self.ENTER_S:
             self.rear_latched = True
-        if self.front_latched and self.front < self.CLEAR and low >= self.CLEAR_S:
+        if self.front_latched and self.front < self.CLEAR and front_low >= self.CLEAR_S:
             self.front_latched = False
-        if self.rear_latched and self.rear < self.CLEAR and low >= self.CLEAR_S:
+        if self.rear_latched and self.rear < self.CLEAR and rear_low >= self.CLEAR_S:
             self.rear_latched = False
-        if (self.front_latched or self.rear_latched) and deep >= self.DEEP_S:
+        if (self.front_latched and front_deep >= self.DEEP_S) or (
+            self.rear_latched and rear_deep >= self.DEEP_S
+        ):
             level = "deep"
         elif (self.front_latched or self.rear_latched) and score < self.CLEAR:
             level = "recovering"
@@ -216,12 +233,14 @@ class FaultScore:
             "rear_score": self.rear,
             "common_score": common,
             "recovery_score": 1.0 - score,
-            "fault_duration_s": above,
-            "deep_duration_s": deep,
-            "recovery_duration_s": low,
+            "fault_duration_s": max(front_above, rear_above),
+            "deep_duration_s": max(front_deep, rear_deep),
+            "recovery_duration_s": self._elapsed(self.low_since, o.t),
+            "common_above_s": common_above,
             "front_latched": self.front_latched,
             "rear_latched": self.rear_latched,
-            "common_latched": agree and self.front_latched and self.rear_latched and common > self.ENTER,
+            "common_latched": agree and both_above and self.front_latched and self.rear_latched
+            and common > self.ENTER and common_above >= self.ENTER_S,
             "level": level,
         }
 
@@ -469,6 +488,8 @@ class IntegrityMonitor:
             or self.latched_status.startswith("DEGRADED_SINGLE")
             or self.latched_status in slip_names
         )
+        # Slip classes follow FaultScore: 0.5 s to enter, 3 s to clear.
+        # degrade_recover_s is not that timer. It holds only a non-slip change.
         need = 0.0 if slip_class else o.degrade_recover_s
         elapsed = 0.0 if self.pending_since is None else o.t - self.pending_since
         if not need > 0.0 or elapsed + 1e-12 >= need:
@@ -532,6 +553,7 @@ def obs_from_odometer(od, t: float, *, stamp_regressed: bool = False,
         dwell=od.mode == "ZUPT",
         station_candidates=station_candidates(od),
         n_anchor=int(od.n_anchor),
+        distance_since_anchor=float(od.distance_since_anchor()),
         nis_gate=od.p.nis_gate,
         wheel_stale_s=od.p.wheel_stale_s,
         max_gap_s=od.p.max_gap_s,

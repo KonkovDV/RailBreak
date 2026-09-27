@@ -141,7 +141,7 @@ class Mode:
 
 
 class ModelBank:
-    """Five-mode consensus. Same gates as model_bank.hpp. Not written into the filter."""
+    """Shadow bank. Same gates as model_bank.hpp. Not an IMM. Not written into the filter."""
 
     count = 5
     adhesion_cap = 0.40
@@ -368,7 +368,6 @@ def _score_filter(kind: str, inputs, truth, notches, edges, table, world: TruthP
         slip_hit = False
         if use_monitor:
             obs = obs_from_odometer(od, sample.t, absolute_start=True, map_in_domain=True)
-            obs.distance_since_anchor = abs(float(od.x[0]) - float(od.s_anchor_ref))
             report = monitor.update(obs)
             lost = report.integrity_mode == "LOST"
             nominal = report.integrity_mode == "NOMINAL"

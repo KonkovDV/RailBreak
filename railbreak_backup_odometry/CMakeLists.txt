@@ -34,6 +34,9 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  # ROS executor stress. The filter, FaultScore and integrity regressions are
+  # test_core, registered here so a package review does not see only this gtest.
+  # The same binary is the CTest target of tools/CMakeLists.txt on a host without ROS.
   ament_add_gtest(test_gnss_stress test/test_gnss_stress.cpp)
   if(TARGET test_gnss_stress)
     target_include_directories(test_gnss_stress PRIVATE
@@ -44,6 +47,9 @@ if(BUILD_TESTING)
     ament_target_dependencies(test_gnss_stress rclcpp nav_msgs sensor_msgs diagnostic_msgs
       tram_vehicle_msgs ament_index_cpp)
   endif()
+  add_executable(test_core tools/test_core.cpp)
+  target_include_directories(test_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  add_test(NAME test_core COMMAND $<TARGET_FILE:test_core>)
 endif()
 
 ament_package()
