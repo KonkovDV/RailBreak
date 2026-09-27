@@ -19,6 +19,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # test_provenance.py reads blobs from older commits (8add7ae).
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -118,14 +120,8 @@ jobs:
           ctest --test-dir standalone/build-asan --output-on-failure
 
   ros:
-    # Research package tram_dr_localization, and the submission node
-    # railbreak_backup_odometry against ci/tram_vehicle_msgs. That stub is
-    # two messages (header+velocity, header+int8 position), not the organiser
-    # package and not a recording. A green run compiles the submission node
-    # and runs the synthetic executor gtest. It is not acceptance evidence:
-    # no organiser tram_vehicle_msgs, no rosbag playback, no MGRS base_link
-    # 3D, no --rate 10 GNSS check on a recording, no RSS/CPU limits, and no
-    # replay of 1.467 / 5.828 / 84.0 m.
+    # Research package tram_dr_localization only. The submission node is the
+    # submission job. A green research run is not acceptance evidence.
     # source setup.bash runs with nounset off: AMENT_TRACE_SETUP_FILES is unbound.
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -184,6 +180,39 @@ jobs:
           colcon test --packages-select tram_dr_localization \
             --event-handlers console_direct+
           colcon test-result --all --verbose
+
+  submission:
+    # The submission node must not wait on the research package tests.
+    # Stub messages only: no organiser bag, not acceptance evidence.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: workspace
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p /ws/src
+          cp -a "$GITHUB_WORKSPACE/ci/tram_vehicle_msgs" /ws/src/tram_vehicle_msgs
+          cp -a "$GITHUB_WORKSPACE/railbreak_backup_odometry" /ws/src/railbreak_backup_odometry
+          test -f /ws/src/tram_vehicle_msgs/msg/VelocitySensor.msg
+          test -f /ws/src/railbreak_backup_odometry/src/backup_odometry_node.cpp
+      - name: rosdep
+        shell: bash
+        run: |
+          set -eo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3-rosdep python3-colcon-common-extensions \
+            ros-${ROS_DISTRO}-ament-cmake-gtest
+          rosdep init 2>/dev/null || true
+          rosdep update
+          rosdep install --from-paths /ws/src --ignore-src -y --rosdistro "$ROS_DISTRO"
       - name: colcon build submission node
         shell: bash
         run: |
@@ -191,7 +220,6 @@ jobs:
           set +u
           # shellcheck disable=SC1091
           source "/opt/ros/$ROS_DISTRO/setup.bash"
-          source /ws/install/setup.bash
           set -u
           set -x
           cd /ws

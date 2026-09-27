@@ -186,7 +186,9 @@ TEST(Plant, ResidualAddsForceWhenEnabled) {
   p.residual.theta[0] = 2000.0;
   p.A_d = p.B_d = p.C_d = 0.0;
   tram_dr::State x;
-  x.v_mps = 4.0;
+  // Basis 0 of the clamped cubic is supported on [0, 2) m/s. At 4 m/s it is
+  // zero, so theta[0] does not change the force.
+  x.v_mps = 1.0;
   tram_dr::Input u;
   const auto on = tram_dr::plant_forces(x, u, p);
   p.residual.enabled = false;

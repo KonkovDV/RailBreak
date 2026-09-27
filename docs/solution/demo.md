@@ -20,7 +20,7 @@ ros2 topic echo /result/velocity
 python tools/organizer/make_heldout.py files/data/<id> local/heldout/<id>_<fault> --gnss-s 3 --fault <fault>
 ```
 
-Дальше тот же `scripts/jury.sh play` или `ros2 bag play`, что в [form.md](form.md).
+Дальше тот же `scripts/jury.sh play` или `ros2 bag play`, что в [README.md](../../README.md), раздел «Запуск для жюри».
 
 ## Что говорить
 
