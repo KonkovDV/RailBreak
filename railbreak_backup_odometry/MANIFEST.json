@@ -59,6 +59,36 @@
     "ros_record_rate_1_rmse_3d_m": 15.293376334883511,
     "ros_record_matches_published_0_77": false,
     "filter_last_changed_commit": "21ce24a76f03ade4c6307c091792fd44775421df",
-    "bag_hashes_included": false
+    "bag_hashes_included": false,
+    "bag_sha256": null,
+    "params_sha256": null,
+    "assets_sha256": null,
+    "timestamp": null,
+    "head_commit": null,
+    "runtime_tree_commit": null
+  },
+  "identity": {
+    "head_commit": "efc43670068e2651cf039c3038f7ce9dd3157afc",
+    "runtime_tree_commit": "21ce24a76f03ade4c6307c091792fd44775421df",
+    "manifest_commit": "efc43670068e2651cf039c3038f7ce9dd3157afc",
+    "metrics_commit": "6af0037710baa3b67df2cc5720c6cc3272719712",
+    "evaluator_commit": null,
+    "current_replay_status": "pending",
+    "metrics_valid_for_current_head": false,
+    "asset_pin_commit": "2ce42d7101dced2e32d74f0e5fdc786e48d273a5",
+    "roles": {
+      "head_commit": "Parent of the commit that writes this block. The file cannot store the hash of the commit that introduces the block. f6a21e9 is an ancestor, not the cloneable tree.",
+      "runtime_tree_commit": "Last commit that changed the filter. Equals package_tree_commit and filter_commit.",
+      "manifest_commit": "Same parent as head_commit. Not the asset pin and not f6a21e9.",
+      "asset_pin_commit": "Equals commit. Asset sha256 are git blobs at this commit, not at head_commit.",
+      "metrics_commit": "Published numbers. Not valid for head_commit or runtime_tree_commit.",
+      "evaluator_commit": "No single evaluator. A row carries evaluator_sha256 only when those file bytes were stored.",
+      "bag_sha256": "null on every row: bag bytes were not hashed and are not reconstructed",
+      "params_sha256": "null on every row: not stored with the run. Current params.yaml is tree_sha256, not a run record.",
+      "assets_sha256": "null on every row: not one digest of that run. Current asset digests are the assets object at asset_pin_commit.",
+      "timestamp": "null on every row: same rule as date",
+      "docker_image_digest": "filled only where the run stored it; otherwise null",
+      "command": "filled only where the run stored it; otherwise null"
+    }
   }
 }

@@ -72,6 +72,25 @@ def main() -> int:
         errors.append("recheck flag claims the current filter was remeasured")
     if data.get("recheck_commit") != "6af0037710baa3b67df2cc5720c6cc3272719712":
         errors.append("recheck commit is not the tree that was run")
+    ident = data.get("identity") or {}
+    if ident.get("head_commit") != "efc43670068e2651cf039c3038f7ce9dd3157afc":
+        errors.append("head commit is not the parent named when the identity block was written")
+    if ident.get("runtime_tree_commit") != data.get("package_tree_commit"):
+        errors.append("runtime tree is not the package tree")
+    if ident.get("manifest_commit") != ident.get("head_commit"):
+        errors.append("manifest commit is not the same parent as head")
+    if ident.get("asset_pin_commit") != "2ce42d7101dced2e32d74f0e5fdc786e48d273a5":
+        errors.append("asset pin is not 2ce42d7")
+    if ident.get("metrics_commit") != data.get("metrics_commit"):
+        errors.append("identity metrics commit drifted")
+    if ident.get("evaluator_commit") is not None:
+        errors.append("a single evaluator commit was invented")
+    if ident.get("metrics_valid_for_current_head") is not False:
+        errors.append("identity marks metrics valid for HEAD")
+    if ident.get("current_replay_status") != "pending":
+        errors.append("identity replay is not pending")
+    if ident.get("head_commit") == "f6a21e91b084663591faef567f6d170672f5bac6":
+        errors.append("f6a21e9 was written as the cloneable head")
     for path, spec in data.get("tree_sha256", {}).items():
         check_blob({**spec, "path": path}, f"tree {path}", errors)
     results = data.get("results") or []
@@ -88,8 +107,17 @@ def main() -> int:
                 errors.append(f"{rid}: missing {key}")
         if row.get("date") is not None:
             errors.append(f"{rid}: run date was not stored and must stay null")
-        if row.get("input_sha256") is not None:
+        if row.get("timestamp") is not None:
+            errors.append(f"{rid}: timestamp was not stored and must stay null")
+        for key in ("bag_sha256", "params_sha256", "assets_sha256", "timestamp", "head_commit", "runtime_tree_commit"):
+            if key not in row:
+                errors.append(f"{rid}: missing {key}")
+        if row.get("input_sha256") is not None or row.get("bag_sha256") is not None:
             errors.append(f"{rid}: bag bytes are not in git and must stay null")
+        if row.get("params_sha256") is not None or row.get("assets_sha256") is not None:
+            errors.append(f"{rid}: run asset hashes were not stored and must stay null")
+        if row.get("head_commit") is not None or row.get("runtime_tree_commit") is not None:
+            errors.append(f"{rid}: the run did not record head or runtime, so they stay null")
         digest = row.get("docker_image_digest")
         if digest is not None and not (
             isinstance(digest, str) and len(digest) > 7 and digest.startswith("sha256:")

@@ -117,9 +117,27 @@ def main() -> int:
         errors.append("manifest treats the rate-1 record as 0.77")
     if prov.get("bag_hashes_included") is not False:
         errors.append("bag hash was filled in")
+    ident = data.get("identity") or {}
+    if ident.get("head_commit") != "efc43670068e2651cf039c3038f7ce9dd3157afc":
+        errors.append("head commit is not the parent named when the identity block was written")
+    if ident.get("runtime_tree_commit") != data.get("package_tree_commit"):
+        errors.append("runtime tree is not the package tree")
+    if ident.get("asset_pin_commit") != data.get("commit"):
+        errors.append("asset pin is not the commit field")
+    if ident.get("metrics_commit") != data.get("metrics_commit"):
+        errors.append("identity metrics commit drifted")
+    if ident.get("evaluator_commit") is not None:
+        errors.append("a single evaluator commit was invented")
+    if ident.get("metrics_valid_for_current_head") is not False:
+        errors.append("identity marks metrics valid for HEAD")
+    if ident.get("current_replay_status") != "pending":
+        errors.append("identity replay is not pending")
+    for key in ("bag_sha256", "params_sha256", "assets_sha256", "timestamp", "head_commit", "runtime_tree_commit"):
+        if prov.get(key) is not None:
+            errors.append(f"metric block {key} was reconstructed")
     blob = json.dumps(data)
-    if "input_sha256" in blob or "bag_sha256" in blob:
-        errors.append("a bag hash field is present")
+    if "input_sha256" in blob:
+        errors.append("input_sha256 does not belong in the package manifest")
     for error in errors:
         print(error)
     if errors:
