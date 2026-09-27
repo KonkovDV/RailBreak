@@ -11,8 +11,8 @@ backup_odometry:
     # slowest live stream minus this hold. Samples are applied in stamp order
     # up to that watermark. There is no timer and no /clock.
     stamp_reorder_s: 0.10
-    # A stream this far behind the freshest leaves the watermark. The diagnostic
-    # reason is ORDER_NOT_RESTORED. The watermark still will not pass that
+    # A stream this far behind the freshest is ORDER_NOT_RESTORED. It leaves the
+    # watermark only after 50 other samples arrived without one from it. The watermark still will not pass that
     # stream's latest by more than this, while the lead is at most 5 s, so one
     # early stamp cannot skip the samples the other streams have not delivered.
     # A larger lead drops the cap. A late sample is counted

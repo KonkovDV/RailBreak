@@ -239,7 +239,7 @@ ros2 topic echo /result/diagnostics --field status[0].values
   на этих шагах нет. Скорость при этой потере остаётся: `velocity_confidence=LOW`. В диагностике `time_to_lost`, `distance_since_last_trusted_anchor` и `common_mode_exit`: `anchor` только после принятого якоря;
 - `POSITION_UNTRUSTED` — штамп шагнул назад, обе тележки старше 30 с, или нет
   абсолютного старта. Положение на этом шаге не публикуется;
-- `order_reason=ORDER_NOT_RESTORED` — один поток отстал больше чем на 1 с.
+- `order_reason=ORDER_NOT_RESTORED` — один поток отстал больше чем на 1 с. Пока он приходит, выход его ждёт; после 50 чужих входов без него — нет.
   Образец в очереди не выбрасывается;
 - `n_behind_out` — сколько штампов пришло уже позади опубликованного выхода.
 

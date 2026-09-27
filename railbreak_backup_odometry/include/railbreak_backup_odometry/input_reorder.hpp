@@ -8,14 +8,17 @@
 //
 // A stream that has not spoken yet is not in the min, so one topic can start
 // the ride. A stream whose latest stamp is more than stall_s behind the
-// freshest is left out of the min. That is ORDER_NOT_RESTORED. While the lead
-// is at most kAbandonS, the cap is that stream's latest plus stall_s: one
-// early stamp must not publish over samples the other streams have not
-// delivered yet. A larger lead no longer caps the watermark, so a stream that
-// has stopped cannot hold the output for the rest of the ride. A sample at or
-// under the watermark is still released in stamp order, and the node counts it in
-// n_behind_out if the output has already passed it. Samples are not discarded
-// inside this queue.
+// freshest is ORDER_NOT_RESTORED. If it is still delivering, it stays in the
+// min: at the start of 30618_88aea4d9 the rear drains a 1.3 s backlog, and
+// running past it drops those samples behind the output. It leaves the min
+// once kSilentPushes other samples arrived without one from it. While the
+// lead is at most kAbandonS, the cap is then that stream's latest plus
+// stall_s: one early stamp must not publish over samples the other streams
+// have not delivered yet. A larger lead no longer caps the watermark, so a
+// stream that has stopped cannot hold the output for the rest of the ride. A
+// sample at or under the watermark is still released in stamp order, and the
+// node counts it in n_behind_out if the output has already passed it. Samples
+// are not discarded inside this queue.
 //
 // A push without a stream id uses one anonymous stream and the same hold
 // against the newest stamp. That is the single-topic path.
@@ -52,6 +55,9 @@ class InputReorder {
   // Larger than the 2.3 s stamp lead at the start of 30618_e9a34502. A dead
   // stream is released after this lead; the start-of-bag reorder is not.
   static constexpr double kAbandonS = 5.0;
+  // A count, not a clock. About 1 s of the other streams at the recorded
+  // rates; the longest recorded gap of one bogie is 0.3 s.
+  static constexpr std::uint64_t kSilentPushes = 50;
 
   void set_hold(double hold_s) {
     hold_s_ = std::isfinite(hold_s) && hold_s > 0.0 ? hold_s : 0.0;
@@ -74,6 +80,7 @@ class InputReorder {
     if (stream >= 0) {
       if (!seen_[stream] || t > latest_[stream]) latest_[stream] = t;
       seen_[stream] = true;
+      last_push_[stream] = seq_;
       named_ = true;
     }
   }
@@ -110,20 +117,21 @@ class InputReorder {
     }
     double slow = std::numeric_limits<double>::infinity();
     double cap = std::numeric_limits<double>::infinity();
-    bool excluded = false;
+    bool lagging = false;
     for (int i = 0; i < kMaxStreams; ++i) {
       if (!seen_[i]) continue;
-      if (freshest - latest_[i] > stall_s_) {
-        excluded = true;
+      const double lead = freshest - latest_[i];
+      if (lead > stall_s_) lagging = true;
+      const bool silent = seq_ - last_push_[i] > kSilentPushes;
+      if (lead > stall_s_ && (silent || lead > kAbandonS)) {
         // Do not follow the early stamp past what this stream could still deliver.
         // A lead past kAbandonS is a stopped stream: leave the cap off.
-        if (freshest - latest_[i] <= kAbandonS)
-          cap = std::min(cap, latest_[i] + stall_s_);
+        if (lead <= kAbandonS) cap = std::min(cap, latest_[i] + stall_s_);
         continue;
       }
       slow = std::min(slow, latest_[i]);
     }
-    if (excluded) reason = "ORDER_NOT_RESTORED";
+    if (lagging) reason = "ORDER_NOT_RESTORED";
     if (!std::isfinite(slow)) slow = freshest;
     slow = std::min(slow, cap);
     return slow - hold_s_;
@@ -136,6 +144,7 @@ class InputReorder {
   bool named_ = false;
   bool seen_[kMaxStreams] = {};
   double latest_[kMaxStreams] = {};
+  std::uint64_t last_push_[kMaxStreams] = {};
   std::uint64_t seq_ = 0;
   std::vector<HeldSample<Payload>> q_;
 };

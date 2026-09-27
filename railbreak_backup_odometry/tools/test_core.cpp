@@ -1564,10 +1564,18 @@ int main() {
     stalled.push(5.0, 0, 0);
     stalled.push(5.0, 1, 1);
     stalled.push(3.0, 2, 2);
+    const auto waiting = stalled.drain();
+    check(std::string(waiting.reason) == "ORDER_NOT_RESTORED" && waiting.ready.empty() &&
+              stalled.pending() == 3,
+          "a stream more than the stall behind is named and, while it still delivers, holds the output");
+    for (int i = 0; i < 26; ++i) {
+      stalled.push(5.0 + 0.01 * i, 10 + i, 0);
+      stalled.push(5.0 + 0.01 * i, 40 + i, 1);
+    }
     const auto lost = stalled.drain();
     check(std::string(lost.reason) == "ORDER_NOT_RESTORED" && !lost.ready.empty() &&
               lost.ready[0].payload == 2,
-          "a stream more than the stall behind is named and its sample is not discarded");
+          "a stream silent for the push count leaves the min and its sample is not discarded");
     check(lost.ready.size() == 1 && lost.ready[0].t == 3.0,
           "the stall cap does not release the stamps that jumped ahead");
     railbreak::InputReorder<int> jump;
@@ -1577,15 +1585,15 @@ int main() {
     jump.push(1.00, 2, 2);
     jump.push(3.20, 3, 1);
     const auto ahead = jump.drain();
-    check(ahead.ready.size() == 2 && ahead.ready[0].t == 1.00 && ahead.ready[1].t == 1.00 &&
-              jump.pending() == 1,
-          "a rear stamp 2.2 s ahead stays queued");
+    check(ahead.ready.empty() && jump.pending() == 3,
+          "a rear stamp 2.2 s ahead stays queued while the other streams still deliver");
     jump.push(1.50, 4, 0);
     jump.push(1.50, 5, 2);
     jump.push(2.40, 6, 0);
     jump.push(2.40, 7, 2);
     const auto filled = jump.drain();
-    check(filled.ready.size() == 2 && filled.ready[0].t == 1.50 && filled.ready[1].t == 1.50,
+    check(filled.ready.size() == 4 && filled.ready[0].t == 1.00 && filled.ready[1].t == 1.00 &&
+              filled.ready[2].t == 1.50 && filled.ready[3].t == 1.50,
           "samples inside the jump are released and the future stamp is not");
     check(jump.pending() == 3, "the newest slow stamps and the future rear stamp stay queued");
     jump.push(3.40, 8, 0);
@@ -1608,6 +1616,27 @@ int main() {
           "a stream 6 s behind does not keep the watermark on its last stamp");
     check(resumed.reason != nullptr && std::string(resumed.reason) == "ORDER_NOT_RESTORED",
           "that stream is still named ORDER_NOT_RESTORED");
+    // Start of 30618_88aea4d9: the rear is 1.3 s behind and drains its backlog
+    // two samples per front sample. No released stamp may go below one already out.
+    railbreak::InputReorder<int> backlog;
+    backlog.set_hold(0.10);
+    backlog.set_stall(1.0);
+    double last_out = -1.0;
+    bool monotone = true;
+    int rear_out = 0;
+    for (int i = 0; i < 40; ++i) {
+      backlog.push(799.3 + 0.2 * i, 1, 1);
+      backlog.push(799.4 + 0.2 * i, 1, 1);
+      backlog.push(800.5 + 0.1 * i, 0, 0);
+      backlog.push(800.6 + 0.1 * i, 2, 2);
+      for (const auto& item : backlog.drain().ready) {
+        if (item.t < last_out) monotone = false;
+        last_out = item.t;
+        if (item.payload == 1 && item.t < 800.5) ++rear_out;
+      }
+    }
+    check(monotone, "a rear stream 1.3 s behind that still delivers is not overtaken");
+    check(rear_out == 12, "every rear sample under the first front stamp is released");
   }
   {
     const auto missing =
