@@ -12,11 +12,14 @@
 //
 // Each input callback enqueues the sample. The output is published from that
 // same callback, but only for samples at or under the stream watermark, in
-// stamp order, with that sample's header.stamp. There is no wall timer and
-// no dependence on /clock.
+// stamp order, with that sample's header.stamp. There is no /clock.
+// A wall timer exists only when DriverControllerCommand is not in the message
+// package: it repeats the last speed between bogie stamps so the output stays
+// at extrapolate_hz. Those stamps do not move the output watermark.
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -44,6 +47,7 @@
 #endif
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
+#include "railbreak_backup_odometry/extrap_stamp.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
@@ -62,6 +66,21 @@ namespace {
 
 double stamp_s(const builtin_interfaces::msg::Time& t) {
   return static_cast<double>(t.sec) + 1e-9 * static_cast<double>(t.nanosec);
+}
+
+builtin_interfaces::msg::Time time_from_s(double t) {
+  builtin_interfaces::msg::Time out;
+  if (!std::isfinite(t) || t < 0.0) return out;
+  const double whole = std::floor(t);
+  out.sec = static_cast<int32_t>(whole);
+  auto ns = static_cast<int64_t>(std::llround((t - whole) * 1e9));
+  if (ns >= 1000000000LL) {
+    ns -= 1000000000LL;
+    out.sec += 1;
+  }
+  if (ns < 0) ns = 0;
+  out.nanosec = static_cast<uint32_t>(ns);
+  return out;
 }
 
 double median(std::vector<double> v) { return railbreak::upper_median(std::move(v)); }
@@ -177,6 +196,14 @@ class BackupOdometryNode : public rclcpp::Node {
     pub_v_ = create_publisher<VelocitySensor>("/result/velocity", out_qos);
     pub_p_ = create_publisher<nav_msgs::msg::Odometry>("/result/position", out_qos);
     pub_d_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/result/diagnostics", 10);
+#if !RAILBREAK_HAS_DRIVER_CMD
+    const double hz = declare_parameter("extrapolate_hz", 20.0);
+    if (std::isfinite(hz) && hz > 0.0) {
+      extrap_timer_ = create_wall_timer(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / hz)),
+          [this]() { on_extrap(); });
+    }
+#endif
 
     drain_gnss_queue_ = declare_parameter("drain_gnss_queue", true);
     const bool gnss_first = declare_parameter("gnss_subscribe_first", false);
@@ -412,10 +439,11 @@ class BackupOdometryNode : public rclcpp::Node {
   void apply_bogie(double t, const VehicleSample& sample, std::chrono::steady_clock::time_point t_in) {
     if (!stamp_forward(t)) {
       if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
-    od_->on_bogie(t, sample.front, sample.value);
-    note_integrity(true);
-    log_anchor();
-    publish_diag(sample.stamp);
+      od_->on_bogie(t, sample.front, sample.value);
+      note_integrity(true);
+      log_anchor();
+      publish_diag(sample.stamp);
+      remember_input(t);
       return;
     }
     if (have_out_ && t == t_out_) ++n_dup_out_;
@@ -427,6 +455,7 @@ class BackupOdometryNode : public rclcpp::Node {
     if (sample.front) ++n_pub_front_;
     else ++n_pub_rear_;
     note_out(t);
+    remember_input(t);
   }
 
   void apply_cmd(double t, const VehicleSample& sample, std::chrono::steady_clock::time_point t_in) {
@@ -435,6 +464,7 @@ class BackupOdometryNode : public rclcpp::Node {
       od_->on_cmd(t, static_cast<int>(sample.value));
       note_integrity(true);
       publish_diag(sample.stamp);
+      remember_input(t);
       return;
     }
     if (have_out_ && t == t_out_) ++n_dup_out_;
@@ -444,6 +474,7 @@ class BackupOdometryNode : public rclcpp::Node {
     publish(sample.stamp, t_in);
     ++n_pub_cmd_;
     note_out(t);
+    remember_input(t);
   }
 
   // A stamp that the queue releases behind the last output is
@@ -477,8 +508,88 @@ class BackupOdometryNode : public rclcpp::Node {
     z += off_up_;
   }
 
+  void remember_input(double t) {
+#if !RAILBREAK_HAS_DRIVER_CMD
+    if (!std::isfinite(t)) return;
+    if (have_real_ && t < t_real_) return;
+    t_real_ = t;
+    steady_at_real_ = std::chrono::steady_clock::now();
+    have_real_ = true;
+#else
+    (void)t;
+#endif
+  }
+
+#if !RAILBREAK_HAS_DRIVER_CMD
+  void on_extrap() {
+    if (!have_real_ || (!initialised_ && !relative_) || !od_) return;
+    const double dt =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - steady_at_real_).count();
+    const double last = have_pub_last_ ? t_pub_last_ : std::numeric_limits<double>::quiet_NaN();
+    const auto stamp = railbreak::next_extrap_stamp(t_real_, dt, last);
+    if (!stamp) return;
+    publish_extrap(*stamp);
+  }
+
+  void publish_extrap(double stamp_sec) {
+    const auto stamp = time_from_s(stamp_sec);
+    const bool have = have_integrity_;
+    const bool vel_none = have && std::strcmp(last_integrity_.velocity_confidence, "NONE") == 0;
+    const bool pose_ok = !have || last_integrity_.use_position;
+    const double ahead = stamp_sec - t_real_;
+    const double s_arc = od_->s() + od_->v() * ahead;
+    if (!vel_none) {
+      VelocitySensor vel;
+      vel.header.stamp = stamp;
+      vel.header.frame_id = child_frame_id_;
+      vel.velocity = od_->v();
+      pub_v_->publish(vel);
+    }
+    if (initialised_ || relative_) {
+      nav_msgs::msg::Odometry o;
+      o.header.stamp = stamp;
+      o.header.frame_id = frame_id_;
+      o.child_frame_id = child_frame_id_;
+      const double s = s_arc + (initialised_ ? off_along_ : 0.0);
+      double yaw = 0.0;
+      if (initialised_) {
+        double x0, y0, x1, y1, zz;
+        out_point(s, o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z);
+        out_point(s - 2.0, x0, y0, zz);
+        out_point(s + 2.0, x1, y1, zz);
+        yaw = std::atan2(y1 - y0, x1 - x0);
+      } else {
+        double d = s - s_rel_origin_;
+        if (assets_.map.ring_len > 0.0 && d < 0.0) d += assets_.map.ring_len;
+        o.pose.pose.position.x = d;
+      }
+      o.pose.pose.orientation.z = std::sin(0.5 * yaw);
+      o.pose.pose.orientation.w = std::cos(0.5 * yaw);
+      const double vs = pose_ok ? od_->sigma_s() * od_->sigma_s() : kRefusedPoseVariance;
+      railbreak::TrackOdometer::fill_pose_covariance(vs, o.pose.covariance.data());
+      o.twist.twist.linear.x = od_->v();
+      o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
+      for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;
+      pub_p_->publish(o);
+    }
+    // Deliberately not note_out(): t_out_ stays on the last real input.
+    t_pub_last_ = stamp_sec;
+    have_pub_last_ = true;
+    ++n_extrap_;
+  }
+#endif
+
   void publish(const builtin_interfaces::msg::Time& stamp,
                std::chrono::steady_clock::time_point t_in) {
+#if !RAILBREAK_HAS_DRIVER_CMD
+    // An extrapolated stamp may sit ahead of the next real input. Skip the
+    // message; the filter step already happened in the caller. Do not treat
+    // that input as a stamp regression.
+    if (have_pub_last_ && stamp_s(stamp) <= t_pub_last_) {
+      ++n_skip_behind_extrap_;
+      return;
+    }
+#endif
     const bool have = have_integrity_;
     const bool vel_none = have && std::strcmp(last_integrity_.velocity_confidence, "NONE") == 0;
     // Position is published whatever the tram does. When integrity refuses it,
@@ -521,6 +632,10 @@ class BackupOdometryNode : public rclcpp::Node {
       pub_p_->publish(o);
     }
 
+#if !RAILBREAK_HAS_DRIVER_CMD
+    t_pub_last_ = stamp_s(stamp);
+    have_pub_last_ = true;
+#endif
     const double us = std::chrono::duration<double, std::micro>(
                           std::chrono::steady_clock::now() - t_in).count();
     lat_max_us_ = std::max(lat_max_us_, us);
@@ -757,6 +872,10 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("integrity_certification_claim", "false");
     kv("integrity_use_position", ir.use_position ? "true" : "false");
     kv("notch_input", !RAILBREAK_HAS_DRIVER_CMD ? "type_absent" : (n_pub_cmd_ == 0 ? "no_messages" : "ok"));
+#if !RAILBREAK_HAS_DRIVER_CMD
+    kv("extrapolated_outputs", std::to_string(n_extrap_));
+    kv("skipped_behind_extrapolation", std::to_string(n_skip_behind_extrap_));
+#endif
     kv("integrity_bound_name", ir.bound_name);
     kv("integrity_bound_statement", ir.bound_statement);
     auto fixed3 = [](double x) {
@@ -918,6 +1037,16 @@ class BackupOdometryNode : public rclcpp::Node {
   int64_t n_out_ = 0;
   int64_t n_pub_front_ = 0, n_pub_rear_ = 0, n_pub_cmd_ = 0;
   int64_t n_dup_out_ = 0, n_behind_out_ = 0;
+#if !RAILBREAK_HAS_DRIVER_CMD
+  bool have_real_ = false;
+  bool have_pub_last_ = false;
+  double t_real_ = 0.0;
+  double t_pub_last_ = 0.0;
+  std::chrono::steady_clock::time_point steady_at_real_{};
+  int64_t n_extrap_ = 0;
+  int64_t n_skip_behind_extrap_ = 0;
+  rclcpp::TimerBase::SharedPtr extrap_timer_;
+#endif
   std::size_t n_anchor_logged_ = 0;
 
   rclcpp::Publisher<VelocitySensor>::SharedPtr pub_v_;

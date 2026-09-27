@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
+#include "railbreak_backup_odometry/extrap_stamp.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
@@ -2061,6 +2062,21 @@ int main() {
     drive(parked, 5.0, 8.0, 0.0);
     check(before > 40.0 && parked.n_anchor() == 1 && parked.distance_since_anchor() < 5.0,
           "an accepted station clears the path since the anchor");
+  }
+  {
+    using railbreak::next_extrap_stamp;
+    check(!next_extrap_stamp(10.0, 0.04, 10.0).has_value(),
+          "a gap shorter than 0.045 s does not extrapolate");
+    const auto capped = next_extrap_stamp(10.0, 0.3, 10.0);
+    check(capped.has_value() && std::fabs(*capped - 10.1) < 1e-12,
+          "extrapolation stays within 0.1 s of the last input");
+    check(!next_extrap_stamp(10.0, 0.08, 10.08).has_value(),
+          "a stamp at or behind the last output is not published");
+    const auto first = next_extrap_stamp(10.0, 0.05, 10.0);
+    check(first.has_value(), "the first extrapolation after 0.05 s is published");
+    const auto second = next_extrap_stamp(10.0, 0.08, first.value_or(0.0));
+    check(first.has_value() && second.has_value() && *second > *first,
+          "extrapolated stamps increase");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;
