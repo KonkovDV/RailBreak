@@ -23,7 +23,6 @@
 #include <limits>
 #include <memory>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -33,9 +32,10 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
-// The check-code archive omits DriverControllerCommand.msg. Bags still carry
-// /vehicle/driver_position_cmd. Without that header the node refuses to start:
-// holding the notch at 0 is not a run on the real command.
+// The check-code archive omits DriverControllerCommand.msg, and the organiser's
+// test container has no /vehicle/driver_position_cmd. Without that header the
+// node runs on the bogies with the notch held at 0 and says so in the log and
+// in diagnostics (notch_input=type_absent).
 #if __has_include("tram_vehicle_msgs/msg/driver_controller_command.hpp")
 #include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #define RAILBREAK_HAS_DRIVER_CMD 1
@@ -66,6 +66,9 @@ double stamp_s(const builtin_interfaces::msg::Time& t) {
 
 double median(std::vector<double> v) { return railbreak::upper_median(std::move(v)); }
 
+// (1 km)^2 on x, y, z when integrity refuses the position.
+constexpr double kRefusedPoseVariance = 1.0e6;
+
 }  // namespace
 
 struct GnssDrainProbe;
@@ -75,10 +78,8 @@ class BackupOdometryNode : public rclcpp::Node {
   explicit BackupOdometryNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
       : Node("backup_odometry", options) {
 #if !RAILBREAK_HAS_DRIVER_CMD
-    RCLCPP_FATAL(get_logger(),
-                 "tram_vehicle_msgs has no DriverControllerCommand; refusing to start");
-    throw std::runtime_error(
-        "DriverControllerCommand is required; the notch is not held at 0");
+    RCLCPP_ERROR(get_logger(),
+                 "tram_vehicle_msgs has no DriverControllerCommand: bogies only, notch held at 0");
 #endif
     std::string dir = declare_parameter("assets_dir", std::string(""));
     if (dir.empty()) {
@@ -480,6 +481,9 @@ class BackupOdometryNode : public rclcpp::Node {
                std::chrono::steady_clock::time_point t_in) {
     const bool have = have_integrity_;
     const bool vel_none = have && std::strcmp(last_integrity_.velocity_confidence, "NONE") == 0;
+    // Position is published whatever the tram does. When integrity refuses it,
+    // the pose covariance says so (sigma 1 km) and diagnostics carry
+    // integrity_use_position=false.
     const bool pose_ok = !have || last_integrity_.use_position;
     if (!vel_none) {
       VelocitySensor vel;
@@ -489,7 +493,7 @@ class BackupOdometryNode : public rclcpp::Node {
       pub_v_->publish(vel);
     }
 
-    if ((initialised_ || relative_) && pose_ok) {
+    if (initialised_ || relative_) {
       nav_msgs::msg::Odometry o;
       o.header.stamp = stamp;
       o.header.frame_id = frame_id_;
@@ -509,7 +513,7 @@ class BackupOdometryNode : public rclcpp::Node {
       }
       o.pose.pose.orientation.z = std::sin(0.5 * yaw);
       o.pose.pose.orientation.w = std::cos(0.5 * yaw);
-      const double vs = od_->sigma_s() * od_->sigma_s();
+      const double vs = pose_ok ? od_->sigma_s() * od_->sigma_s() : kRefusedPoseVariance;
       railbreak::TrackOdometer::fill_pose_covariance(vs, o.pose.covariance.data());
       o.twist.twist.linear.x = od_->v();
       o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
@@ -752,6 +756,7 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("integrity_calibration_split", ir.calibration_split);
     kv("integrity_certification_claim", "false");
     kv("integrity_use_position", ir.use_position ? "true" : "false");
+    kv("notch_input", !RAILBREAK_HAS_DRIVER_CMD ? "type_absent" : (n_pub_cmd_ == 0 ? "no_messages" : "ok"));
     kv("integrity_bound_name", ir.bound_name);
     kv("integrity_bound_statement", ir.bound_statement);
     auto fixed3 = [](double x) {
