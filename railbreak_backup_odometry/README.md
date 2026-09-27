@@ -155,7 +155,7 @@ ros2 topic hz /result/velocity
 ros2 topic echo /result/diagnostics --field status[0].values
 ```
 
-- `callback_max_us` — максимальное время обработки одного входа, мкс.
+- `callback_max_us` — максимальное время обработки одного входа, мкс. Это не задержка от приёма входа до приёма выхода. До колбэка образец может ждать `stamp_reorder_s` 0.10 с. Разность arrival выхода и arrival входа не снята.
 - `gnss` = `closed` и `gnss_note` — подтверждение, что GNSS больше не читается.
 - `slip` = `true` — порог невязки колеса к модели, не подтверждённый юз. Режим `MODEL` — шаг недостоверен,
   положение ещё может выходить. `COMMON_MODE_UNOBSERVABLE` дольше слепого
