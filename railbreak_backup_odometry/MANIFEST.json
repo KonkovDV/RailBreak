@@ -59,6 +59,8 @@
     "ros_record_rate_1_rmse_3d_m": 15.293376334883511,
     "ros_record_matches_published_0_77": false,
     "filter_last_changed_commit": "21ce24a76f03ade4c6307c091792fd44775421df",
+    "benchmark_claim": "historical_6af0037_only",
+    "benchmark_claim_means": "1.467, 5.828 and 84.0 from metrics_commit only. 1.469, 0.771, 1.992, 2.684 and 15.293 are not this claim. Not valid evidence for current HEAD. Current replay: pending.",
     "bag_hashes_included": false,
     "bag_sha256": null,
     "params_sha256": null,
