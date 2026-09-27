@@ -37,7 +37,25 @@ A. W. Palmer, N. Nourani-Vatani. Robust odometry using sensor consensus analysis
 
 Взята идея: несогласному каналу скорости не усредняют остаток, а поднимают дисперсию. В ноде это порог NIS и \(R = 25\) (м/с)² у расходящейся тележки.
 
-Не взято: их процедура sensor consensus analysis и оценка диаметра колеса как состояния EKF по независимому датчику скорости. Здесь \(k\) — consider-состояние, на колёсах \(K_k = 0\), двигают его только якоря.
+Не взято: их процедура sensor consensus analysis и оценка диаметра колеса как состояния EKF по независимому датчику скорости. Здесь \(k\) — consider-состояние, на колёсах \(K_k = 0\), двигают его только якоря. Ускорение колеса при юзе может оставаться в диапазоне физически возможного разгона. Одного порога ускорения поэтому мало: в ноде остаются несогласие с моделью и общая мода.
+
+## Направления рядом, в ноду не взяты
+
+Это не методы сдачи. Их числа в репозиторий не переносятся.
+
+H. F. Bouchama, D. Berdjag, M. Defoort, J. Lauber. Observer-based Robust Train Speed Estimation Subject to Wheel-Rail Adhesion Faults. *5th International Conference on Control and Fault-Tolerant Systems (SysTol)*, 2021, pp. 303–310. IEEE [9594997](https://ieeexplore.ieee.org/document/9594997), запись [HAL hal-03406951](https://uphf.hal.science/hal-03406951). Близкая постановка: робастная скорость поезда при отказе сцепления колесо–рельс. В ноду их наблюдатели не входят. Вывод для сдачи: аналитическая невязка держится на допущениях и проверке, а не на одном пороге.
+
+B. Namoano, C. Emmanouilidis, A. Starr. Detecting wheel slip from railway operational data through a combined wavelet, long short-term memory and neural network classification method. *Engineering Applications of Artificial Intelligence*, 2024. DOI [10.1016/j.engappai.2024.109173](https://doi.org/10.1016/j.engappai.2024.109173). Data-driven детектор. Для этой сдачи не подходит: нужна размеченная база и проверка сдвига домена. Их метрики не являются метриками RailBreak. После дедлайна это может быть только теневой классификатор, не шаг фильтра.
+
+E. Potokar, D. McGann, M. Kaess. Robust Preintegrated Wheel Odometry for Off-road Autonomous Ground Vehicles. *IEEE Robotics and Automation Letters*, vol. 9, no. 12, pp. 11649–11656, Dec. 2024. PDF [CMU](https://www.cs.cmu.edu/~kaess/pub/Potokar24ral.pdf). Внедорожный факторный граф, не трамвай и не эта нода. Совместная оценка юза, радиусов и базы — возможный следующий слой, в текущий state не входит.
+
+Online Estimation Method of Train Wheel-Rail Adhesion Coefficient Based on Parameter Estimation. *CMES*, vol. 144, no. 3, 2025. DOI [10.32604/cmes.2025.068951](https://doi.org/10.32604/cmes.2025.068951). Оценка \(\mu\) там идёт через модель силы и явную оценку параметра. В этой сдаче момента и тока нет, `mu_estimate` остаётся `null`. Отказ оценивать \(\mu\) по двум скоростям и ручке с этой постановкой согласован.
+
+E. Maharmeh, Z. Alsayed, F. Nashashibi. A Comprehensive Survey on the Integrity of Localization Systems. *Sensors*, 2025, 25(2), 358. [mdpi.com/1424-8220/25/2/358](https://www.mdpi.com/1424-8220/25/2/358). Обзор разделяет точность и заявление о целостности или protection level. Граница этой сдачи остаётся `empirical bound, not certified protection level`.
+
+F. González, Ö. D. Akyildiz, D. Crisan, J. Míguez. An Operator-Theoretic Analysis of Nonlinear Filtering under Model Misspecification. arXiv:[2607.11378](https://arxiv.org/abs/2607.11378). Разбор фильтра при неверной динамике. В ноду не перенесён. Это материал для разбора устойчивости после дедлайна, не для текущего шага.
+
+Общий вывод. К дедлайну сильнее не нейросеть, а интерпретируемый оцениватель по модели, явные гипотезы отказа, консервативная машина состояний целостности, явное объявление ненаблюдаемости и воспроизводимый прогон.
 
 ## ГКИНП (ОНТА)-01-268-02
 
