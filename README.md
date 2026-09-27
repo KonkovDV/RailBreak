@@ -1,5 +1,11 @@
 <p align="center"><img src="Logo.png" alt="RailBreak" width="280"></p>
 
+<p align="center">
+  <a href="docs/RailBreak_МТТЕХ_demo.pdf">Презентация (PDF)</a>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <a href="docs/RailBreak_МТТЕХ_demo.pptx">Презентация (PowerPoint)</a>
+</p>
+
 <p align="center"><a href="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml"><img src="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml/badge.svg" alt="Тесты CI"></a></p>
 
 # RailBreak: резервная одометрия для автономного трамвая Москвы
