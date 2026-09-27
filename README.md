@@ -56,6 +56,7 @@ scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_ve
 | Модель | [`docs/solution/model.md`](docs/solution/model.md) |
 | Допущения и параметры | [`docs/solution/assumptions.md`](docs/solution/assumptions.md) |
 | Точность и быстродействие | [`docs/solution/results.md`](docs/solution/results.md) |
+| Разбор ТЗ | [`docs/solution/tz-audit.md`](docs/solution/tz-audit.md) |
 | Текст полей формы | [`docs/solution/form.md`](docs/solution/form.md) |
 | Питч | [`docs/solution/pitch.md`](docs/solution/pitch.md) |
 
