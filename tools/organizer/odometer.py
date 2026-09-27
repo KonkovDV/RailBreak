@@ -33,8 +33,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 G = 9.80665
-N = 4
-IS, IV, IK, IBA = range(N)
+N = 8
+IS, IV, IK, IBA, IKF, IKR, IBF, IBR = range(N)
 
 
 @dataclass
@@ -64,6 +64,7 @@ class Params:
     zupt_v: float = 0.05
     zupt_hold_s: float = 1.0
     zupt_noise_mult: float = 3.0
+    zupt_v_max: float = 0.5          # cap: 3*sqrt(r_max) would be 3 m/s
     stop_sd_max: float = 3.0
     stop_sigma_floor: float = 1.0
     stop_gate: float = 3.0
@@ -71,11 +72,16 @@ class Params:
     dt_max: float = 0.2
     max_gap_s: float = 30.0
     v_max: float = 30.0
-    recover_s: float = 3.0         # bogies agree but the model does not: trust bogies after this
+    recover_s: float = 3.0         # after this, agreeing bogies are not treated as trustworthy
     load_factor: float = 1.0       # scales a_tab only
     davis_a: float = 0.0           # extra resistance; 0 is already inside a_tab
     davis_b: float = 0.0
     davis_c: float = 0.0
+    excite_v_start: float = 1.0
+    excite_dv: float = 0.3
+    excite_uniform_s: float = 5.0
+    excite_notch_s: float = 2.0
+    excite_grade: float = 0.005
 
 
 def _require_config(p: Params) -> None:
@@ -96,6 +102,14 @@ def _require_config(p: Params) -> None:
         raise ValueError("sigma_ba0 variance must be > 0")
     if not math.isfinite(p.k0) or not (0.5 < p.k0 < 1.5):
         raise ValueError("initial k must be in (0.5, 1.5)")
+    if not math.isfinite(p.zupt_v) or p.zupt_v < 0.0:
+        raise ValueError("zupt_v must be >= 0")
+    if not math.isfinite(p.zupt_v_max) or not p.zupt_v_max >= p.zupt_v:
+        raise ValueError("zupt_v_max must be >= zupt_v")
+    if not math.isfinite(p.excite_uniform_s) or not p.excite_uniform_s > 0.0:
+        raise ValueError("excite_uniform_s must be > 0")
+    if not math.isfinite(p.excite_dv) or not p.excite_dv > 0.0:
+        raise ValueError("excite_dv must be > 0")
 
 
 @dataclass
@@ -110,8 +124,9 @@ class Odometer:
     ring_len: float = 0.0
 
     def __post_init__(self) -> None:
-        self.x = np.array([0.0, 0.0, self.p.k0, 0.0])
-        self.P = np.diag([1.0, 0.01, self.p.sigma_k0 ** 2, self.p.sigma_ba0 ** 2])
+        self.x = np.array([0.0, 0.0, self.p.k0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.P = np.diag([1.0, 0.01, self.p.sigma_k0 ** 2, self.p.sigma_ba0 ** 2,
+                          0.02 ** 2, 0.02 ** 2, 0.05 ** 2, 0.05 ** 2])
         self.t = None
         self.notch = 0
         self.last = {"front": (None, math.nan), "rear": (None, math.nan)}
@@ -132,10 +147,18 @@ class Odometer:
         self.mode = "WHEELS"
         self.n_anchor = 0
         self.n_guard = 0
-        self.anchor_log: list[tuple[float, float, float, float]] = []
+        self.anchor_log = []
+        self.s_anchor_ref = 0.0
         self.have_v = False
+        self.common_unobservable = False
         self.step_frozen = False
         self.disagree_since = None
+        self.uniform_since = None
+        self.v_uniform = 0.0
+        self.notch_mark = 0
+        self.notch_changed_t = None
+        self.params_frozen = False
+        self.drive_segment = "start"
         _require_config(self.p)
 
     # Numerical stops, not a physical scale or bias. 1/k stays in [2/3, 2].
@@ -179,6 +202,7 @@ class Odometer:
     def init(self, s0: float, sigma_s0: float) -> None:
         self.x[IS] = s0
         self.P[IS, IS] = sigma_s0 ** 2
+        self.s_anchor_ref = s0
 
     def wrap(self, s: float) -> float:
         return s % self.ring_len if self.ring_len > 0 else s
@@ -190,8 +214,12 @@ class Odometer:
         return d
 
     def corrected(self, which: str, u: float) -> float:
-        half = 0.5 * self.log_rho
-        return u * math.exp(half) if which == "front" else u * math.exp(-half)
+        ki = float(self.x[IKF if which == "front" else IKR])
+        bi = float(self.x[IBF if which == "front" else IBR])
+        denom = 1.0 + ki
+        if not (abs(denom) > 0.5):
+            return u
+        return (u - bi) / denom
 
     def a_model(self, v: float, s: float) -> float:
         i = int(np.clip(self.notch, -15, 15)) + 15
@@ -224,7 +252,9 @@ class Odometer:
             F = np.eye(N)
             F[IS, IV] = dt
             F[IV, IBA] = 0.0 if zupt else dt
-            Q = np.diag([self.p.q_s * dt, self.p.q_v * dt, self.p.q_k * dt, self.p.q_ba * dt])
+            motion = 10.0 if self.common_unobservable else 1.0
+            Q = np.diag([self.p.q_s * dt * motion, self.p.q_v * dt * motion,
+                         self.p.q_k * dt, self.p.q_ba * dt, 0.0, 0.0, 0.0, 0.0])
             self.P = F @ self.P @ F.T + Q
             dt_all -= dt
         if not self._state_numerical():
@@ -234,7 +264,9 @@ class Odometer:
             self._note_freeze()
         self.t = t
 
-    def _update_scalar(self, h: np.ndarray, innov: float, r: float, consider_k: bool = False) -> None:
+    def _update_scalar(self, h: np.ndarray, innov: float, r: float, consider_k: bool = False,
+                       gate_bias: bool = False) -> None:
+        self._note_drive(self.t)
         S = float(h @ self.P @ h + r)
         if not (S > 0) or not math.isfinite(innov):
             return
@@ -243,6 +275,8 @@ class Odometer:
             # Schmidt-Kalman: k is a consider state for bogie updates. Wheels
             # and model cannot tell v from k apart; only anchors move k.
             K[IK] = 0.0
+        if gate_bias and self.params_frozen:
+            K[IBA] = 0.0
         x_keep = self.x.copy()
         p_keep = self.P.copy()
         self.x = self.x + K * innov
@@ -271,6 +305,43 @@ class Odometer:
         elif self.mode == "FREEZE":
             self.mode = "WHEELS"
         self.notch = int(position)
+        self._note_drive(t)
+
+    def _note_drive(self, t: float) -> None:
+        if self.notch != self.notch_mark:
+            self.notch_changed_t = t
+            self.notch_mark = self.notch
+        grade = 0.0 if len(self.grade) == 0 else float(
+            np.interp(self.wrap(self.x[IS]), self.branch_s, self.grade))
+        notch_age = 1.0e9 if self.notch_changed_t is None else max(0.0, t - self.notch_changed_t)
+        start = self.mode == "ZUPT" or self.x[IV] < self.p.excite_v_start
+        notch_edge = self.notch_changed_t is not None and notch_age <= self.p.excite_notch_s
+        brake = self.notch < 0
+        coast = self.notch == 0
+        grade_on = abs(grade) >= self.p.excite_grade
+        accel = self.uniform_since is not None and abs(self.x[IV] - self.v_uniform) >= self.p.excite_dv
+        if start or brake or coast or notch_edge or grade_on or accel:
+            self.uniform_since = None
+            self.v_uniform = float(self.x[IV])
+            self.params_frozen = False
+            if start:
+                self.drive_segment = "start"
+            elif brake:
+                self.drive_segment = "brake"
+            elif coast:
+                self.drive_segment = "coast"
+            elif notch_edge:
+                self.drive_segment = "notch"
+            elif grade_on:
+                self.drive_segment = "grade"
+            else:
+                self.drive_segment = "accel"
+            return
+        if self.uniform_since is None:
+            self.uniform_since = t
+            self.v_uniform = float(self.x[IV])
+        self.params_frozen = (t - self.uniform_since) >= self.p.excite_uniform_s
+        self.drive_segment = "uniform" if self.params_frozen else "hold"
 
     def _learn_pair(self, uf: float, ur: float) -> None:
         """Noise level and rear/front ratio from one fresh pair."""
@@ -285,15 +356,19 @@ class Odometer:
             ec = self.p.fr_sigma_gate * sd
             self.r += self.p.r_alpha_grow * (0.5 * ec * ec - self.r)
         self.r = min(max(self.r, self.p.r_min), self.p.r_max)
-        # Sign-step on each fresh pair, not on a second. At about 10 Hz per bogie
-        # both callbacks learn, so a persistent offset takes on the order of two
-        # minutes and a 30 s slip moves the ratio by about one percent. At another
-        # rate the same rho_step is a different time constant.
-        if uf > self.p.rho_v_min and ur > self.p.rho_v_min and abs(self.notch) <= self.p.rho_notch_max:
-            lr = math.log(ur / uf)
-            if abs(lr) < self.p.rho_max + 0.02:
-                self.log_rho += self.p.rho_step if lr > self.log_rho else -self.p.rho_step
-                self.log_rho = max(-self.p.rho_max, min(self.p.rho_max, self.log_rho))
+
+    def _adapt_bogie_scale(self, which: str, innov: float, v: float) -> None:
+        """One sign step when this pair agrees with itself and with the model."""
+        if abs(self.notch) > self.p.rho_notch_max or v < self.p.rho_v_min:
+            return
+        ik = IKF if which == "front" else IKR
+        ib = IBF if which == "front" else IBR
+        ks = self.p.rho_step if innov > 0.0 else (-self.p.rho_step if innov < 0.0 else 0.0)
+        bs = 0.5 * ks
+        if v >= 2.0:
+            self.x[ik] = min(self.p.rho_max, max(-self.p.rho_max, float(self.x[ik]) + ks))
+        else:
+            self.x[ib] = min(0.5, max(-0.5, float(self.x[ib]) + bs))
 
     def on_bogie(self, t: float, which: str, raw: float) -> None:
         if not self._stamp_ok(t):
@@ -317,7 +392,9 @@ class Odometer:
         v, k = self.x[IV], self.x[IK]
         pred = v / k
         r = self.r
-        h = np.array([0.0, 1.0 / k, -v / (k * k), 0.0])
+        h = np.zeros(N)
+        h[IV] = 1.0 / k
+        h[IK] = -v / (k * k)
         S = float(h @ self.P @ h + r)
         innov = u - pred
         self.model_resid[which] = innov if math.isfinite(innov) else None
@@ -331,47 +408,43 @@ class Odometer:
             if not agree and abs(u - pred) > abs(uo - pred):
                 slip = True
             uf, ur = (u_raw, other[1]) if which == "front" else (other[1], u_raw)
-            self._learn_pair(uf, ur)
-        # Both bogies agree with each other but not with the model: a short run is
-        # a slide or spin of both; a long one means the model state is wrong
-        # (after a dropout). Re-acquire from the bogies.
-        if slip and agree:
+            if not self.common_unobservable:
+                self._learn_pair(uf, ur)
+        # Agreement with each other is not an independent measurement of speed.
+        if slip and agree and not self.common_unobservable:
             if self.disagree_since is None:
                 self.disagree_since = t
-            elif t - self.disagree_since >= self.p.recover_s:
-                x_keep = self.x.copy()
-                p_keep = self.P.copy()
-                self.x[IV] = max(0.0, u * k)
-                self.P[IV, :] = 0.0
-                self.P[:, IV] = 0.0
-                self.P[IV, IV] = r * k * k
-                if not self._state_numerical():
-                    self.x = x_keep
-                    self.P = p_keep
-                    self._note_freeze()
-                    self.disagree_since = None
-                    return
-                self.disagree_since = None
-                slip = False
-                self._note_slip(which, False, t, innov * innov / S)
-                self.slip = False
-                self._zupt(t)
-                return
-        else:
+            if t - self.disagree_since >= self.p.recover_s:
+                self.common_unobservable = True
+                self.P[IS, IS] += 1.0
+                self.P[IV, IV] += 1.0
+        elif not self.common_unobservable:
             self.disagree_since = None
+        if self.common_unobservable:
+            nis = innov * innov / S if S > 0 else 0.0
+            self._note_slip("front", True, t, nis)
+            self._note_slip("rear", True, t, nis)
+            self.slip = True
+            self._zupt(t)
+            if self.common_unobservable and self.mode not in ("ZUPT", "FREEZE"):
+                self.mode = "COMMON_MODE_UNOBSERVABLE"
+            return
         self._note_slip(which, slip, t, innov * innov / S)
         self.slip = slip
-        self._update_scalar(h, innov, self.p.r_bad if slip else r, consider_k=True)
+        if fresh_other and agree and not slip and not self.common_unobservable:
+            self._adapt_bogie_scale(which, innov, v)
+        self._update_scalar(h, innov, self.p.r_bad if slip else r, consider_k=True, gate_bias=True)
         self.x[IV] = max(0.0, self.x[IV])
         self._zupt(t)
         if self.step_frozen:
             self.mode = "FREEZE"
-        elif self.mode == "FREEZE":
-            self.mode = "WHEELS"
+        elif self.mode != "ZUPT":
+            self.mode = "MODEL" if slip else "WHEELS"
 
     def _zupt(self, t: float) -> None:
         f, r = self.last["front"], self.last["rear"]
-        thr = max(self.p.zupt_v, self.p.zupt_noise_mult * math.sqrt(self.r))
+        noise = self.p.zupt_noise_mult * math.sqrt(max(self.r, 0.0))
+        thr = min(self.p.zupt_v_max, max(self.p.zupt_v, noise))
         both_still = (
             f[0] is not None and r[0] is not None
             and abs(f[1]) < thr and abs(r[1]) < thr
@@ -396,26 +469,65 @@ class Odometer:
                 self.anchored_this_dwell = True
 
     def _anchor(self) -> None:
-        s = self.x[IS]
+        s = self.wrap(self.x[IS])
         sig = math.sqrt(max(self.P[IS, IS], 0.0))
-        cands = []
+        n_cand = 0
+        n_seen = 0
+        best = None
+        near = None
         for st in self.stops:
             if st["sd"] > self.p.stop_sd_max:
                 continue
+            n_seen += 1
             r_sd = max(st["sd"], self.p.stop_sigma_floor)
             gate = self.p.stop_gate * math.sqrt(sig ** 2 + r_sd ** 2)
             d = self.ring_delta(st["s"], s)
+            if near is None or abs(d) < abs(near[0]):
+                near = (d, st, gate)
             if abs(d) <= gate:
-                cands.append((d, st, r_sd))
-        if len(cands) != 1:
+                n_cand += 1
+                if best is None or abs(d) < abs(best[0]):
+                    best = (d, st, r_sd, gate)
+        row = {
+            "distance_since_anchor": abs(self.ring_delta(s, self.s_anchor_ref)),
+            "predicted_s": s,
+            "candidate_s": float("nan"),
+            "innovation": 0.0,
+            "gate": 0.0,
+            "accepted": False,
+            "reason": "no_station",
+        }
+        if n_cand == 1:
+            d, st, r_sd, gate = best
+            row.update(candidate_s=float(st["s"]), innovation=d, gate=gate,
+                       accepted=True, reason="accepted")
+        elif n_seen == 0:
+            pass
+        elif n_cand == 0:
+            d, st, gate = near
+            row.update(candidate_s=float(st["s"]), innovation=d, gate=gate, reason="outside_gate")
+        else:
+            d, st, _r_sd, gate = best
+            row.update(candidate_s=float(st["s"]), innovation=d, gate=gate, reason="ambiguous")
+        self.anchor_log.append(row)
+        if n_cand != 1:
             return
-        d, st, r_sd = cands[0]
+        d, st, r_sd, _gate = best
+        travelled = self.ring_delta(s, self.s_anchor_ref)
+        guards_before = self.n_guard
         h = np.zeros(N)
         h[IS] = 1.0
-        before = float(self.wrap(self.x[IS]))
         self._update_scalar(h, d, r_sd ** 2)
+        if self.n_guard == guards_before and abs(travelled) >= 50.0 and r_sd > 0.0:
+            innov_k = float(self.x[IK]) * d / travelled
+            sig_k = max(1e-6, abs(float(self.x[IK])) * r_sd / abs(travelled))
+            hk = np.zeros(N)
+            hk[IK] = 1.0
+            self._update_scalar(hk, innov_k, sig_k ** 2)
+        self.s_anchor_ref = float(self.wrap(self.x[IS]))
         self.n_anchor += 1
-        self.anchor_log.append((self.t, before, float(st["s"]), float(self.wrap(self.x[IS]))))
+        self.common_unobservable = False
+        self.disagree_since = None
 
     @property
     def k(self) -> float:

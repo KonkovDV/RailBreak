@@ -69,13 +69,15 @@ scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_ve
 | `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix`, только окно старта |
 
 Поле `velocity` тележки в записях — км/ч. Нода переводит его в м/с
-(`wheel_unit_scale = 1/3.6`). Выход скорости — м/с.
+(`wheel_unit_scale = 1/3.6`). Выход скорости — м/с. Отдельного топика тормоза
+нет. Знак `position` ручки — это режим: больше нуля тяга, меньше нуля
+торможение, ноль выбег. Его отсутствие не переводит выход в отказ.
 
 Выходы, каждый в колбэке входа, со штампом этого входа:
 
 | Топик | Тип | Смысл |
 |---|---|---|
-| `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | скорость, м/с; с первого сообщения тележки |
+| `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | продольная скорость, м/с; с первого сообщения тележки |
 | `/result/position` | `nav_msgs/Odometry` | точка `base_link` в MGRS; после 3 с от первого валидного фикса любой антенны |
 | `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, флаг проскальзывания, `k`, `s`, `σ_s`, GNSS, `callback_max_us` |
 
@@ -85,6 +87,14 @@ scripts/jury.ps1 <сценарий> -Bag <каталог rosbag2> -Msgs <tram_ve
 на +9.873 м вдоль пути и на −3 м по высоте. tf: master `(−9.873, 0, 3)`,
 rover `(2.563, 0, 3)`. Если в окне есть только rover, дуга старта отступает
 на 12.436 м к master, и тот же сдвиг снова попадает в `base_link`.
+
+`/result/velocity` — тот же тип, что у тележки, не `TwistStamped` и не
+`Vector3Stamped`. Сообщение: `std_msgs/Header header` и `float64 velocity`.
+`velocity` — продольная скорость фильтра, м/с; чекер из
+`check-code-with-bag.zip` читает это поле и сравнивает его с
+`twist.twist.linear.x` эталона. `header.frame_id` — `base_link`.
+`header.stamp` — штамп входа, который породил публикацию (тележка или ручка),
+не часы узла и не `/clock`.
 
 Ориентиры ТЗ, с которыми сверялись прогоны в [`docs/solution/results.md`](docs/solution/results.md):
 задержка 100 мс (пик 250 мс), частота не ниже 10 Гц, не больше 2 ядер и 0.5 ГБ.
@@ -160,12 +170,19 @@ ros2 bag play /путь/к/каталогу_bag --rate 1
 ```
 
 `/clock` не нужен: интегратор читает `header.stamp` сообщения, не часы ROS.
-Для сверки с лимитами ТЗ оставляйте `--rate 1`.
+Для сверки с лимитами ТЗ оставляйте `--rate 1`. Очередь выпускает вход только
+до минимума последних штампов тележек и ручки минус 0.10 с. На прежнем знаке
+от самого нового штампа эта запись `30618_e9a34502` при `--rate 1` дала 3D RMSE
+15.293 м и `n_behind_out` 9969, при `--rate 10` — 2.684 м. Новый знак на `--rate 1`
+не переигрывался.
 
 Терминал 3:
 
 ```bash
 source ~/ws/install/setup.bash
+ros2 topic type /result/velocity
+ros2 interface show tram_vehicle_msgs/msg/VelocitySensor
+ros2 topic echo /result/velocity
 ros2 topic hz /result/velocity
 ros2 topic echo /result/position --field pose.pose.position
 ros2 topic echo /result/diagnostics --field status[0].values

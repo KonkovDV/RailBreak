@@ -10,12 +10,16 @@
 //                      MGRS metres of base_link, see output_frame),
 //                      /result/diagnostics.
 //
-// Every output is published from the input callback with that input's header.stamp.
-// There is no wall timer and no dependence on /clock.
+// Each input callback enqueues the sample. The output is published from that
+// same callback, but only for samples at or under the stream watermark, in
+// stamp order, with that sample's header.stamp. There is no wall timer and
+// no dependence on /clock.
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -33,6 +37,9 @@
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
+#include "railbreak_backup_odometry/interval.hpp"
+#include "railbreak_backup_odometry/map_match.hpp"
+#include "railbreak_backup_odometry/slip_hypothesis.hpp"
 #include "railbreak_backup_odometry/start_epoch.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
@@ -61,10 +68,10 @@ class BackupOdometryNode : public rclcpp::Node {
     }
     win_.window_s = declare_parameter("gnss_init_window_s", 3.0);
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
-    // rosbag play delivers bogies and the notch in receive order. Their header
-    // stamps step backwards by tens of milliseconds. Hold this long, then apply
-    // in stamp order. A stamp still behind the filter after the wait is dropped.
+    // Watermark is the slowest live stream minus this hold. A stream more than
+    // order_stall_s behind the freshest is left out of the min.
     reorder_.set_hold(declare_parameter("stamp_reorder_s", 0.10));
+    reorder_.set_stall(declare_parameter("order_stall_s", railbreak::InputReorder<int>::kDefaultStallS));
     diag_every_ = std::max<int64_t>(1, declare_parameter("diagnostics_every_n", 20));
     frame_id_ = declare_parameter("frame_id", std::string("map"));
     child_frame_id_ = declare_parameter("child_frame_id", std::string("base_link"));
@@ -111,7 +118,13 @@ class BackupOdometryNode : public rclcpp::Node {
     p.fr_floor = declare_parameter("fr_floor", p.fr_floor);
     p.zupt_v = declare_parameter("zupt_v", p.zupt_v);
     p.zupt_hold_s = declare_parameter("zupt_hold_s", p.zupt_hold_s);
+    p.zupt_v_max = declare_parameter("zupt_v_max", p.zupt_v_max);
     p.stop_gate = declare_parameter("stop_gate", p.stop_gate);
+    max_blind_time_s_ = declare_parameter("max_blind_time_s", 5.0);
+    max_blind_distance_m_ = declare_parameter("max_blind_distance_m", 100.0);
+    degrade_confirm_s_ = declare_parameter("degrade_confirm_s", 0.20);
+    degrade_recover_s_ = declare_parameter("degrade_recover_s", 1.0);
+    wheel_sigma_ = declare_parameter("wheel_radius_sigma_m", 0.0);
     try {
       assets_ = railbreak::load_assets(dir);
     } catch (const std::exception& e) {
@@ -127,7 +140,11 @@ class BackupOdometryNode : public rclcpp::Node {
       assets_.k0 = 1.0;
       assets_ok_ = false;
     }
-    if (wheel_r_ > 0.0 && wheel_r0_ > 0.0) assets_.k0 *= wheel_r_ / wheel_r0_;
+    if (wheel_r_ > 0.0 && wheel_r0_ > 0.0) {
+      assets_.k0 = railbreak::apply_wheel_radius(assets_.k0, wheel_r_, wheel_r0_);
+      if (wheel_sigma_ > 0.0)
+        p.sigma_k0 = railbreak::wheel_scale_sigma(p.sigma_k0, wheel_r_, wheel_r0_, wheel_sigma_);
+    }
     const bool have_ring = assets_ok_ && !assets_.map.empty();
     railbreak::validate_geometry(win_.window_s, win_.wait_s, off_along_, off_up_, rover_baseline_m_,
                                  initial_s_, have_ring ? assets_.map.ring_len : 0.0, have_ring);
@@ -268,7 +285,7 @@ class BackupOdometryNode : public rclcpp::Node {
     // median of the authoritative antenna, so the carried path starts at that
     // sample's stamp, not at the rover and not at the next wheel.
     double s0 = r.s0;
-    if (rover_only) s0 -= rover_baseline_m_;
+    if (rover_only) s0 = railbreak::arc_from_rover_only(s0, rover_baseline_m_);
     const double t_epoch = median(master ? m_t_ : r_t_);
     const double s_epoch = railbreak::arc_at(arc_hist_, t_epoch);
     od_->init(railbreak::align_s(s0, od_->s(), s_epoch), std::max(r.d0, 0.5));
@@ -358,8 +375,12 @@ class BackupOdometryNode : public rclcpp::Node {
       else apply_bogie(t, sample, t_in);
       return;
     }
-    reorder_.push(t, std::move(sample));
-    for (auto item : reorder_.drain()) {
+    const int stream = sample.cmd ? 2 : (sample.front ? 0 : 1);
+    reorder_.push(t, std::move(sample), stream);
+    const auto drained = reorder_.drain();
+    order_reason_ = drained.reason;
+    order_watermark_ = drained.watermark;
+    for (const auto& item : drained.ready) {
       if (item.payload.cmd) apply_cmd(item.t, item.payload, t_in);
       else apply_bogie(item.t, item.payload, t_in);
     }
@@ -368,15 +389,17 @@ class BackupOdometryNode : public rclcpp::Node {
   void apply_bogie(double t, const VehicleSample& sample, std::chrono::steady_clock::time_point t_in) {
     if (!stamp_forward(t)) {
       if (have_out_ && std::isfinite(t) && t < t_out_) ++n_behind_out_;
-      od_->on_bogie(t, sample.front, sample.value);
-      note_integrity(true);
-      publish_diag(sample.stamp);
+    od_->on_bogie(t, sample.front, sample.value);
+    note_integrity(true);
+    log_anchor();
+    publish_diag(sample.stamp);
       return;
     }
     if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
     od_->on_bogie(t, sample.front, sample.value);
     note_integrity(false);
+    log_anchor();
     publish(sample.stamp, t_in);
     if (sample.front) ++n_pub_front_;
     else ++n_pub_rear_;
@@ -433,13 +456,18 @@ class BackupOdometryNode : public rclcpp::Node {
 
   void publish(const builtin_interfaces::msg::Time& stamp,
                std::chrono::steady_clock::time_point t_in) {
-    VelocitySensor vel;
-    vel.header.stamp = stamp;
-    vel.header.frame_id = child_frame_id_;
-    vel.velocity = od_->v();
-    pub_v_->publish(vel);
+    const bool have = have_integrity_;
+    const bool vel_none = have && std::strcmp(last_integrity_.velocity_confidence, "NONE") == 0;
+    const bool pose_ok = !have || last_integrity_.use_position;
+    if (!vel_none) {
+      VelocitySensor vel;
+      vel.header.stamp = stamp;
+      vel.header.frame_id = child_frame_id_;
+      vel.velocity = od_->v();
+      pub_v_->publish(vel);
+    }
 
-    if (initialised_ || relative_) {
+    if ((initialised_ || relative_) && pose_ok) {
       nav_msgs::msg::Odometry o;
       o.header.stamp = stamp;
       o.header.frame_id = frame_id_;
@@ -478,6 +506,27 @@ class BackupOdometryNode : public rclcpp::Node {
     have_integrity_ = true;
     last_adhesion_ = adhesion_.update(adhesion_obs());
     have_adhesion_ = true;
+    last_slip_ = slip_.update(slip_evidence());
+    const bool nominal = std::strcmp(last_integrity_.integrity_mode, "NOMINAL") == 0;
+    const bool lost = std::strcmp(last_integrity_.integrity_mode, "LOST") == 0;
+    if (nominal || lost) unverified_since_ = -1.0;
+    else if (unverified_since_ < 0.0 && od_->have_time()) unverified_since_ = od_->time_s();
+  }
+
+  railbreak::SlipEvidence slip_evidence() const {
+    railbreak::SlipEvidence e;
+    e.t = od_->have_time() ? od_->time_s() : 0.0;
+    e.front_innov = od_->front_model_residual();
+    e.rear_innov = od_->rear_model_residual();
+    e.pair_fresh = od_->pair_fresh();
+    e.bogies_agree = od_->bogies_agree();
+    e.nis_front = od_->slip_front_nis();
+    e.nis_rear = od_->slip_rear_nis();
+    e.nis_gate = od_->nis_gate();
+    e.notch = od_->notch();
+    e.delay_likely = od_->model_bank_ready() &&
+                     od_->model_consensus().leader == railbreak::kModelDelay;
+    return e;
   }
 
   railbreak::AdhesionObs adhesion_obs() const {
@@ -524,8 +573,28 @@ class BackupOdometryNode : public rclcpp::Node {
     o.rear_age_s = age(od_->rear_have(), od_->rear_t());
     o.pair_fresh = od_->pair_fresh();
     o.bogies_agree = od_->bogies_agree();
+    o.common_unobservable = od_->common_unobservable();
+    o.model_residual_mps = std::fabs(od_->model_consistency_residual());
+    o.front_rear_residual_mps =
+        od_->wheel_consensus_have() ? od_->wheel_consensus_residual() : 0.0;
     o.station_candidates = od_->station_candidates();
+    o.distance_since_anchor = od_->distance_since_anchor();
+    o.max_blind_time_s = max_blind_time_s_;
+    o.max_blind_distance_m = max_blind_distance_m_;
+    o.degrade_confirm_s = degrade_confirm_s_;
+    o.degrade_recover_s = degrade_recover_s_;
     return o;
+  }
+
+  void log_anchor() {
+    const auto& log = od_->anchor_log();
+    while (n_anchor_logged_ < log.size()) {
+      const railbreak::AnchorDecision& row = log[n_anchor_logged_++];
+      RCLCPP_INFO(get_logger(),
+                  "anchor %s dist %.2f predicted_s %.2f candidate_s %.2f innovation %.2f gate %.2f",
+                  row.reason, row.distance_since_anchor, row.predicted_s, row.candidate_s,
+                  row.innovation, row.gate);
+    }
   }
 
   void publish_diag(const builtin_interfaces::msg::Time& stamp) {
@@ -551,6 +620,9 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("slip_age_s", std::to_string(od_->slip_age_s()));
     kv("slip_front_age_s", std::to_string(od_->slip_front_age_s()));
     kv("slip_rear_age_s", std::to_string(od_->slip_rear_age_s()));
+    const railbreak::IntegrityObs ages = integrity_obs(false);
+    kv("front_age_s", std::to_string(ages.front_age_s));
+    kv("rear_age_s", std::to_string(ages.rear_age_s));
     kv("slip_front_run", std::to_string(od_->slip_front_run()));
     kv("slip_rear_run", std::to_string(od_->slip_rear_run()));
     kv("slip_front_nis", std::to_string(od_->slip_front_nis()));
@@ -569,6 +641,9 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("n_pub_cmd", std::to_string(n_pub_cmd_));
     kv("n_dup_out", std::to_string(n_dup_out_));
     kv("n_behind_out", std::to_string(n_behind_out_));
+    kv("n_order_held", std::to_string(reorder_.pending()));
+    kv("order_watermark_s", std::isfinite(order_watermark_) ? std::to_string(order_watermark_) : "null");
+    kv("order_reason", order_reason_ == nullptr ? "" : order_reason_);
     kv("gnss", win_.closed ? "closed" : "open");
     kv("gnss_note", gnss_note_);
     kv("gnss_fixes_used", std::to_string(n_fix_used_));
@@ -580,6 +655,10 @@ class BackupOdometryNode : public rclcpp::Node {
                                                                          : "enu");
     kv("assets", assets_ok_ ? "loaded" : "missing");
     kv("rear_front_ratio", std::to_string(od_->rear_front_ratio()));
+    kv("k_front", std::to_string(od_->k_front()));
+    kv("k_rear", std::to_string(od_->k_rear()));
+    kv("b_front_mps", std::to_string(od_->b_front()));
+    kv("b_rear_mps", std::to_string(od_->b_rear()));
     kv("bogie_noise_sd_mps", std::to_string(od_->noise_sd()));
     kv("model_bias_mps2", std::to_string(od_->model_bias()));
     kv("callback_max_us", std::to_string(lat_max_us_));
@@ -587,6 +666,54 @@ class BackupOdometryNode : public rclcpp::Node {
                                                ? last_integrity_
                                                : integrity_.update(integrity_obs(false));
     kv("integrity_status", ir.status);
+    kv("confidence_velocity", ir.confidence_velocity);
+    kv("confidence_position", ir.confidence_position);
+    kv("velocity_confidence", ir.velocity_confidence);
+    kv("position_confidence", ir.position_confidence);
+    kv("front_wheel_confidence", ir.front_wheel_confidence);
+    kv("rear_wheel_confidence", ir.rear_wheel_confidence);
+    kv("model_confidence", ir.model_confidence);
+    kv("integrity_mode", ir.integrity_mode);
+    kv("fault_score", std::to_string(ir.fault_score));
+    kv("fault_duration_s", std::to_string(ir.fault_duration_s));
+    kv("recovery_score", std::to_string(ir.recovery_score));
+    kv("fault_level", ir.fault_level);
+    kv("blind_warning", ir.blind_warning);
+    kv("blind_time_s", std::to_string(ir.blind_time_s));
+    kv("distance_since_anchor_m", std::to_string(od_->distance_since_anchor()));
+    const auto fq = od_->bogie_quality(true);
+    const auto rq = od_->bogie_quality(false);
+    const auto cq = od_->cmd_quality();
+    kv("front_kind", fq.kind);
+    kv("rear_kind", rq.kind);
+    kv("cmd_kind", cq.kind);
+    kv("front_valid", fq.valid ? "true" : "false");
+    kv("rear_valid", rq.valid ? "true" : "false");
+    kv("cmd_valid", cq.valid ? "true" : "false");
+    kv("front_quality_score", std::to_string(fq.quality_score));
+    kv("rear_quality_score", std::to_string(rq.quality_score));
+    kv("cmd_quality_score", std::to_string(cq.quality_score));
+    kv("front_dropout", std::to_string(fq.dropout_counter));
+    kv("rear_dropout", std::to_string(rq.dropout_counter));
+    kv("front_outlier", std::to_string(fq.outlier_counter));
+    kv("rear_outlier", std::to_string(rq.outlier_counter));
+    kv("front_impossible", std::to_string(fq.impossible_counter));
+    kv("rear_impossible", std::to_string(rq.impossible_counter));
+    kv("wheel_unit_scale", std::to_string(fq.unit_scale));
+    kv("drive_segment", od_->drive_segment());
+    kv("params_frozen", od_->params_frozen() ? "true" : "false");
+    kv("sigma_ba", std::to_string(od_->sigma_ba()));
+    if (od_->model_bank_ready()) {
+      const auto& mix = od_->model_consensus();
+      kv("bank_leader", railbreak::model_mode_name(mix.leader));
+      kv("bank_n_used", std::to_string(mix.n_used));
+      kv("bank_outlier_rejected", mix.outlier_rejected ? "true" : "false");
+      kv("bank_consensus_v", std::to_string(mix.v));
+      for (int j = 0; j < railbreak::kModelCount; ++j) {
+        const std::string key = std::string("bank_") + railbreak::model_mode_name(j);
+        kv(key.c_str(), std::to_string(mix.mode[j].confidence));
+      }
+    }
     kv("integrity_reasons", ir.reasons.empty() ? "" : ir.reasons);
     if (ir.bound_valid) {
       std::ostringstream bound;
@@ -602,6 +729,72 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("integrity_certification_claim", "false");
     kv("integrity_use_position", ir.use_position ? "true" : "false");
     kv("integrity_bound_name", ir.bound_name);
+    kv("integrity_bound_statement", ir.bound_statement);
+    auto fixed3 = [](double x) {
+      std::ostringstream out;
+      out.setf(std::ios::fixed);
+      out.precision(3);
+      out << x;
+      return out.str();
+    };
+    kv("time_to_lost", std::isfinite(ir.time_to_lost) ? fixed3(ir.time_to_lost) : "null");
+    kv("distance_since_last_trusted_anchor", fixed3(ir.distance_since_last_trusted_anchor));
+    const double unverified = (unverified_since_ < 0.0 || !od_->have_time())
+                                  ? 0.0
+                                  : std::max(0.0, od_->time_s() - unverified_since_);
+    double model_gap_s = 0.0, model_gap_v = 0.0;
+    if (od_->model_bank_ready()) {
+      const auto& mix = od_->model_consensus();
+      model_gap_s = std::fabs(mix.s - od_->s());
+      model_gap_v = std::fabs(mix.v - od_->v());
+    }
+    const bool lost = std::strcmp(ir.integrity_mode, "LOST") == 0;
+    const bool common_mode =
+        std::strcmp(ir.status, "DEGRADED_COMMON_MODE_UNOBSERVABLE") == 0;
+    // One clock. During common mode the blind time is the common-mode term.
+    // Outside it, the same growth is the timestamp term. P_ss is not scaled.
+    const double sigma_common_mode =
+        common_mode ? std::max(ir.blind_time_s, 0.0) * std::max(od_->sigma_v(), 0.0) : 0.0;
+    const double unverified_term = common_mode ? 0.0 : unverified;
+    const auto iv = railbreak::motion_interval(
+        od_->s(), od_->v(), od_->sigma_s(), od_->sigma_v(), od_->sigma_k(), ir.along_bound_m,
+        ir.bound_valid, od_->distance_since_anchor(), unverified_term, model_gap_s, model_gap_v,
+        lost, 0.0, sigma_common_mode);
+    kv("s_hat", fixed3(iv.s_hat));
+    kv("v_hat", fixed3(iv.v_hat));
+    kv("sigma_s", fixed3(iv.sigma_s));
+    kv("sigma_v", fixed3(iv.sigma_v));
+    kv("sigma_model", fixed3(iv.sigma_model));
+    kv("sigma_map", fixed3(iv.sigma_map));
+    kv("sigma_scale", fixed3(iv.sigma_scale));
+    kv("sigma_common_mode", fixed3(iv.sigma_common_mode));
+    kv("sigma_timestamp", fixed3(iv.sigma_timestamp));
+    kv("B_s", ir.bound_valid ? fixed3(ir.along_bound_m) : "null");
+    if (iv.valid) {
+      kv("s_min", fixed3(iv.s_min));
+      kv("s_max", fixed3(iv.s_max));
+      kv("v_min", fixed3(iv.v_min));
+      kv("v_max", fixed3(iv.v_max));
+      const double width = 2.0 * iv.e_s;
+      width_sum_ += width;
+      width_n_ += 1;
+      width_max_ = std::max(width_max_, width);
+    } else {
+      kv("s_min", "null");
+      kv("s_max", "null");
+      kv("v_min", "null");
+      kv("v_max", "null");
+    }
+    kv("interval_claimed_percentile", "false");
+    kv("coverage_50", "null");
+    kv("coverage_90", "null");
+    kv("coverage_95", "null");
+    kv("coverage_99", "null");
+    kv("mean_interval_width", width_n_ > 0 ? fixed3(width_sum_ / static_cast<double>(width_n_)) : "null");
+    kv("max_interval_width", width_n_ > 0 ? fixed3(width_max_) : "null");
+    const railbreak::IntegrityObs ages = integrity_obs(false);
+    kv("time_to_LOST",
+       fixed3(railbreak::time_to_lost(lost, ages.front_age_s, ages.rear_age_s, od_->max_gap_s())));
     const railbreak::AdhesionReport ar = have_adhesion_
                                               ? last_adhesion_
                                               : adhesion_.update(adhesion_obs());
@@ -625,6 +818,25 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("adhesion_common_mode_duration_s", num(true, ar.common_mode_duration_s));
     kv("adhesion_notch", std::to_string(ar.notch));
     kv("adhesion_speed_mps", num(true, ar.speed));
+    kv("slip_pattern", last_slip_.pattern);
+    kv("slip_hypothesis", last_slip_.hypothesis);
+    kv("slip_phase", last_slip_.phase);
+    if (assets_.map.s.size() >= 2 && od_->have_time()) {
+      const double s_now = od_->s();
+      const double prior = have_match_ ? match_s_ : s_now;
+      const double dt = have_match_ ? std::max(0.0, od_->time_s() - match_t_) : 0.1;
+      const auto mm = railbreak::match_ring(assets_.map, prior, s_now, assets_.map.at(assets_.map.x, s_now),
+                                            assets_.map.at(assets_.map.y, s_now), od_->v(), dt,
+                                            assets_.stops.data(), static_cast<int>(assets_.stops.size()));
+      kv("candidate_path", mm.candidate_path);
+      kv("candidate_s", fixed3(mm.candidate_s));
+      kv("along_track_error", fixed3(mm.along_track_error));
+      kv("cross_track_error", fixed3(mm.cross_track_error));
+      kv("branch_probability", fixed3(mm.branch_probability));
+      match_s_ = s_now;
+      match_t_ = od_->time_s();
+      have_match_ = true;
+    }
     a.status.push_back(st);
     pub_d_->publish(a);
   }
@@ -634,12 +846,28 @@ class BackupOdometryNode : public rclcpp::Node {
   std::unique_ptr<railbreak::TrackOdometer> od_;
   railbreak::IntegrityMonitor integrity_{railbreak::empirical_bound()};
   railbreak::IntegrityReport last_integrity_{};
+  railbreak::SlipDiagnosis slip_{};
+  railbreak::SlipReport last_slip_{};
+  double unverified_since_ = -1.0;
+  bool have_match_ = false;
+  double match_s_ = 0.0;
+  double match_t_ = 0.0;
+  double max_blind_time_s_ = 5.0;
+  double max_blind_distance_m_ = 100.0;
+  double degrade_confirm_s_ = 0.20;
+  double degrade_recover_s_ = 1.0;
+  double wheel_sigma_ = 0.0;
+  double width_sum_ = 0.0;
+  double width_max_ = 0.0;
+  int width_n_ = 0;
   bool have_integrity_ = false;
   railbreak::AdhesionProxy adhesion_{};
   railbreak::AdhesionReport last_adhesion_{};
   bool have_adhesion_ = false;
   railbreak::GnssWindow win_;
   railbreak::InputReorder<VehicleSample> reorder_;
+  const char* order_reason_ = "";
+  double order_watermark_ = std::numeric_limits<double>::quiet_NaN();
   int64_t diag_every_ = 20;
   std::string frame_id_, child_frame_id_;
 
@@ -662,6 +890,7 @@ class BackupOdometryNode : public rclcpp::Node {
   int64_t n_out_ = 0;
   int64_t n_pub_front_ = 0, n_pub_rear_ = 0, n_pub_cmd_ = 0;
   int64_t n_dup_out_ = 0, n_behind_out_ = 0;
+  std::size_t n_anchor_logged_ = 0;
 
   rclcpp::Publisher<VelocitySensor>::SharedPtr pub_v_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_p_;

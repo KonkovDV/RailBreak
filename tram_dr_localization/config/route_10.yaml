@@ -1,6 +1,8 @@
 # Stop-vertex polyline Щукинская → ул. Кулакова.
-# Coordinates: OSM tram_stop, ODbL. Not a surveyed centreline,
-# not GTFS. Replace from data.mos.ru / GTFS Мосгортранса when that file is in data/.
+# Research core only (tramDR). Not the submission centreline and not an
+# organiser-owned map. Coordinates: OSM tram_stop, ODbL. Not a surveyed
+# centreline, not GTFS. See ../../NOTICE.
+# Replace from data.mos.ru / GTFS Мосгортранса when that file is in data/.
 # Do not delete a vertex without GTFS. Do not cite length 5.5 км (old terminus
 # at Таллинская, 2018). Chord length of this polyline is not the route length.
 #

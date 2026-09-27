@@ -12,12 +12,26 @@
 #include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
 #include "railbreak_backup_odometry/integrity_monitor.hpp"
+#include "railbreak_backup_odometry/interval.hpp"
+#include "railbreak_backup_odometry/map_match.hpp"
+#include "railbreak_backup_odometry/slip_hypothesis.hpp"
 #include "railbreak_backup_odometry/start_epoch.hpp"
 #include "railbreak_backup_odometry/track_odometer.hpp"
 
 namespace {
 
 int g_fail = 0;
+
+railbreak::IntegrityReport soak(railbreak::IntegrityMonitor& mon, railbreak::IntegrityObs o, double t1) {
+  railbreak::IntegrityReport last{};
+  const double t0 = o.t;
+  const int n = static_cast<int>(std::floor((t1 - t0) / 0.1 + 1e-9));
+  for (int i = 0; i <= n; ++i) {
+    o.t = t0 + 0.1 * i;
+    last = mon.update(o);
+  }
+  return last;
+}
 
 void check(bool ok, const char* what) {
   std::printf("%s %s\n", ok ? "ok  " : "FAIL", what);
@@ -375,7 +389,8 @@ int main() {
     const double s_fwd = od.s();
     drive(od, 10.0, 15.0, -36.0);
     std::printf("     reverse s=%.2f v=%.3f ds=%.2f\n", od.s(), od.v(), od.s() - s_fwd);
-    check(od.v() < 0.05, "agreed reverse is not kept as a negative speed");
+    check(od.v() > 1.0 && od.common_unobservable(),
+          "agreed reverse is not copied into the speed");
     check(od.s() + 0.05 >= s_fwd, "reverse does not walk s backward");
   }
   {
@@ -855,6 +870,45 @@ int main() {
     }
     std::printf("     both -20%% s=%.2f v=%.3f\n", slide.s(), slide.v());
     check(slide.v() < 9.0 && slide.v() > 7.0, "agreed -20% on both bogies is accepted as speed");
+    railbreak::TrackOdometer rear_scale(&assets, p);
+    rear_scale.init(0.0, 0.5);
+    rear_scale.set_time(0.0);
+    for (double t = 0.0; t < 15.0 - 1e-9; t += 0.1) {
+      rear_scale.on_bogie(t, true, 36.0);
+      rear_scale.on_bogie(t + 0.05, false, 36.0 * 1.05);
+      rear_scale.on_cmd(t + 0.025, 0);
+    }
+    check(std::fabs(rear_scale.k_rear()) < 1e-9 && std::fabs(rear_scale.k_front()) < 1e-9,
+          "a persistent rear scale does not train either bogie scale");
+    check(std::fabs(rear_scale.v() - 10.0) < 0.25,
+          "speed stays with the healthy bogie, not the mean of the pair");
+    railbreak::TrackOdometer calm(&assets, p);
+    calm.init(0.0, 0.5);
+    calm.set_time(0.0);
+    for (double t = 0.0; t < 8.0 - 1e-9; t += 0.1) {
+      calm.on_bogie(t, true, 36.0);
+      calm.on_bogie(t + 0.05, false, 36.0 * 1.002);
+      calm.on_cmd(t + 0.025, 0);
+    }
+    check(calm.k_rear() > 0.0005 && std::fabs(calm.k_front()) < calm.k_rear(),
+          "a small agreed rear offset adapts only the rear scale");
+    auto closure = flat_ring(4000.0);
+    closure.stops = {{91.0, 0.5, 10}};
+    railbreak::TrackOdometer along(&closure, p);
+    along.init(0.0, 0.5);
+    along.set_time(0.0);
+    for (double t = 0.0; t < 8.0 - 1e-9; t += 0.1) {
+      along.on_bogie(t, true, 36.0);
+      along.on_bogie(t + 0.05, false, 36.0);
+      along.on_cmd(t + 0.025, 0);
+    }
+    const double k_before = along.k();
+    for (double t = 8.0; t < 10.0 - 1e-9; t += 0.1) {
+      along.on_bogie(t, true, 0.0);
+      along.on_bogie(t + 0.05, false, 0.0);
+    }
+    check(along.n_anchor() >= 1 && along.k() > k_before,
+          "a station past a long run corrects the common scale");
     railbreak::TrackOdometer frozen(&assets, p);
     frozen.init(0.0, 0.5);
     frozen.set_time(0.0);
@@ -934,14 +988,28 @@ int main() {
     railbreak::IntegrityMonitor mon;
     const auto nominal = mon.update(o);
     check(std::string(nominal.status) == "NOMINAL", "fresh agreeing bogies are nominal");
+    check(std::string(nominal.confidence_velocity) == "ok", "fresh bogies trust velocity");
+    check(std::string(nominal.confidence_position) == "ok", "fresh bogies trust position");
+    check(std::string(nominal.integrity_mode) == "NOMINAL", "fresh bogies are the nominal trust mode");
+    check(std::string(nominal.velocity_confidence) == "HIGH", "fresh velocity trust is high");
     check(nominal.reasons.empty(), "nominal has no reason");
     check(nominal.use_position, "nominal may be used");
     check(!nominal.certification_claim, "the bound is not a certificate");
     o.nis_front = 20.0;
     o.slip_front = true;
-    const auto one = railbreak::IntegrityMonitor{}.update(o);
-    check(std::string(one.status) == "DEGRADED_SINGLE_BOGIE", "one high NIS is a single bogie");
+    railbreak::IntegrityMonitor spike;
+    const auto one = spike.update(o);
+    check(std::string(one.status) == "NOMINAL" && one.fault_score < 0.2,
+          "one high NIS does not enter degraded");
     check(one.reasons.find("FRONT_NIS_HIGH") != std::string::npos, "front NIS is named");
+    const auto held_one = soak(spike, o, o.t + 1.0);
+    check(std::string(held_one.status) == "DEGRADED_SINGLE_BOGIE",
+          "a fault score above 0.8 for 0.5 s is a single bogie");
+    check(std::string(held_one.integrity_mode) == "WHEEL_DEGRADED",
+          "a held fault degrades that wheel");
+    check(std::string(held_one.velocity_confidence) == "HIGH" &&
+              std::string(held_one.front_wheel_confidence) == "LOW",
+          "the other wheel still supports the speed");
     o.front_age_s = 31.0;
     o.rear_age_s = 31.0;
     o.pair_fresh = false;
@@ -951,6 +1019,102 @@ int main() {
     const auto gap = railbreak::IntegrityMonitor{}.update(o);
     check(std::string(gap.status) == "POSITION_UNTRUSTED", "a gap past the clock reset is refused");
     check(!gap.use_position, "an untrusted position is not for use");
+    check(std::string(gap.integrity_mode) == "LOST",
+          "a gap past the trust window is lost trust, not a dead node");
+    check(std::string(gap.velocity_confidence) == "NONE" && std::string(gap.position_confidence) == "NONE",
+          "lost trust clears both channels");
+    railbreak::IntegrityObs carry;
+    carry.t = 10.0;
+    carry.front_age_s = 1.0;
+    carry.rear_age_s = 1.0;
+    carry.absolute_start = true;
+    carry.map_in_domain = true;
+    const auto assisted = railbreak::IntegrityMonitor{}.update(carry);
+    check(std::string(assisted.integrity_mode) == "MODEL_ASSISTED" &&
+              std::string(assisted.model_confidence) == "LOW" &&
+              std::string(assisted.velocity_confidence) == "LOW",
+          "a short gap in both wheels is model assist, not a lost estimate");
+    {
+      railbreak::IntegrityObs blind;
+      blind.t = 0.0;
+      blind.sigma_s = 1.0;
+      blind.front_age_s = 0.05;
+      blind.rear_age_s = 0.05;
+      blind.pair_fresh = true;
+      blind.bogies_agree = true;
+      blind.absolute_start = true;
+      blind.map_in_domain = true;
+      blind.slip_front = true;
+      blind.slip_rear = true;
+      blind.nis_front = 20.0;
+      blind.nis_rear = 20.0;
+      blind.distance_since_anchor = 10.0;
+      railbreak::IntegrityMonitor budget;
+      const auto inside = soak(budget, blind, 1.0);
+      check(std::string(inside.status) == "DEGRADED_COMMON_MODE_UNOBSERVABLE" &&
+                std::string(inside.integrity_mode) == "VELOCITY_DEGRADED" &&
+                inside.use_position && inside.time_to_lost > 0.0 &&
+                inside.blind_warning[0] == '\0',
+            "both bogies off the model stay inside the anchor budget at first");
+      blind.t = 1.1;
+      blind.distance_since_anchor = 150.0;
+      const auto far = budget.update(blind);
+      check(std::string(far.status) == "LOST" && !far.use_position && far.time_to_lost == 0.0 &&
+                std::fabs(far.distance_since_last_trusted_anchor - 150.0) < 1e-9 &&
+                std::string(far.velocity_confidence) == "LOW" &&
+                std::string(far.position_confidence) == "NONE" &&
+                std::string(far.fault_level) == "lost" &&
+                far.reasons.find("BLIND_BUDGET") != std::string::npos,
+            "a high common-mode score past the blind distance is LOST");
+      blind.n_anchor = 1;
+      blind.distance_since_anchor = 0.0;
+      blind.t = 1.2;
+      const auto reset = budget.update(blind);
+      check(reset.use_position && std::string(reset.integrity_mode) != "LOST",
+            "an accepted anchor ends the blind refusal");
+    }
+    {
+      railbreak::IntegrityObs held;
+      held.t = 10.0;
+      held.sigma_s = 1.0;
+      held.front_age_s = 0.05;
+      held.rear_age_s = 0.05;
+      held.pair_fresh = true;
+      held.bogies_agree = true;
+      held.absolute_start = true;
+      held.map_in_domain = true;
+      held.slip_front = true;
+      held.slip_rear = true;
+      held.common_unobservable = true;
+      held.distance_since_anchor = 10.0;
+      railbreak::IntegrityMonitor open;
+      const auto started = open.update(held);
+      check(std::string(started.status) == "DEGRADED_COMMON_MODE_UNOBSERVABLE" &&
+                std::string(started.integrity_mode) == "VELOCITY_DEGRADED" &&
+                std::string(started.velocity_confidence) == "LOW" &&
+                std::string(started.position_confidence) == "LOW" &&
+                started.use_position && started.time_to_lost == 5.0 &&
+                started.blind_time_s == 0.0,
+            "common mode starts a blind clock and does not trust the wheels");
+      held.t = 16.0;
+      const auto lost = open.update(held);
+      check(std::string(lost.status) == "LOST" &&
+                std::string(lost.integrity_mode) == "LOST" &&
+                std::string(lost.velocity_confidence) == "LOW" &&
+                std::string(lost.position_confidence) == "NONE" &&
+                !lost.use_position && lost.time_to_lost == 0.0 &&
+                !lost.bound_valid,
+            "without a new anchor the blind budget ends in LOST");
+      held.n_anchor = 1;
+      held.common_unobservable = false;
+      held.slip_front = false;
+      held.slip_rear = false;
+      held.t = 16.1;
+      held.distance_since_anchor = 0.0;
+      const auto back = open.update(held);
+      check(std::string(back.integrity_mode) == "NOMINAL" && back.use_position,
+            "a new station anchor is the recovery from common mode");
+    }
     railbreak::BoundCoeff c;
     c.calibrated = true;
     c.q99 = 2.5;
@@ -963,8 +1127,73 @@ int main() {
     fresh.slip_front = true;
     fresh.nis_front = 20.0;
     fresh.sigma_s = 2.0;
-    const auto bound = railbreak::IntegrityMonitor{c}.update(fresh);
+    railbreak::IntegrityMonitor bound_mon{c};
+    const auto bound = soak(bound_mon, fresh, fresh.t + 1.0);
     check(std::fabs(bound.along_bound_m - 9.0) < 1e-9, "bound is q * sigma + B_mode");
+    {
+      railbreak::BoundCoeff held_c;
+      held_c.calibrated = true;
+      held_c.q99 = 2.0;
+      held_c.b_common = 32.606;
+      railbreak::IntegrityMonitor held_mon{held_c};
+      railbreak::IntegrityObs live;
+      live.sigma_s = 1.0;
+      live.front_age_s = 0.05;
+      live.rear_age_s = 0.05;
+      live.pair_fresh = true;
+      live.bogies_agree = true;
+      live.absolute_start = true;
+      live.map_in_domain = true;
+      live.t = 0.0;
+      live.slip_front = true;
+      live.slip_rear = true;
+      live.nis_front = 20.0;
+      live.nis_rear = 20.0;
+      const auto during = soak(held_mon, live, 4.5);
+      check(std::string(during.status) == "DEGRADED_COMMON_MODE_UNOBSERVABLE",
+            "both bogies leaving the model degrade velocity once the score holds");
+      check(std::string(during.confidence_velocity) == "degraded",
+            "velocity confidence drops while the slip is on");
+      check(std::string(during.integrity_mode) == "VELOCITY_DEGRADED" &&
+                std::string(during.velocity_confidence) == "LOW" &&
+                std::string(during.position_confidence) == "LOW",
+            "a live common slip degrades speed and position together");
+      live.t = 0.2;
+      live.slip_front = true;
+      live.slip_rear = false;
+      live.nis_rear = 0.0;
+      railbreak::IntegrityMonitor micro;
+      const auto one = micro.update(live);
+      check(std::string(one.confidence_position) == "ok",
+            "one bogie slip does not hold position");
+      live.t = 0.4;
+      live.slip_front = false;
+      live.nis_front = 0.0;
+      const auto back = micro.update(live);
+      check(std::string(back.status) == "NOMINAL" &&
+                std::string(back.confidence_velocity) == "ok" &&
+                std::string(back.confidence_position) == "ok",
+            "a micro-slip clears both confidences");
+      live.t = 4.5;
+      live.slip_front = false;
+      live.slip_rear = false;
+      live.nis_front = 0.0;
+      live.nis_rear = 0.0;
+      const auto after = soak(held_mon, live, 8.5);
+      check(std::string(after.status) == "NOMINAL",
+            "velocity status recovers after the common-mode slip");
+      check(std::string(after.confidence_velocity) == "ok", "velocity confidence recovers");
+      check(std::string(after.confidence_position) == "degraded",
+            "position confidence stays until an anchor");
+      check(std::string(after.velocity_confidence) == "HIGH" &&
+                std::string(after.position_confidence) == "LOW" &&
+                std::string(after.integrity_mode) == "POSITION_DEGRADED",
+            "after the slip, speed is high and the open position stays low");
+      check(after.reasons.find("POSITION_OPEN") != std::string::npos,
+            "the open position is named");
+      check(std::fabs(after.along_bound_m - 34.606) < 1e-6,
+            "the position margin stays after velocity recovers");
+    }
     check(std::string(railbreak::empirical_bound().coverage) == "0.99", "coverage target stays 0.99");
     check(!railbreak::empirical_bound().calibrated || railbreak::empirical_bound().q99 > 0.0,
           "a fitted multiplier is positive");
@@ -1127,19 +1356,551 @@ int main() {
           "anchoring the later master sample at the rover stamp is ahead by the travelled section");
   }
   {
+    // Master is absent. The only fix is the rover, 12.436 m ahead of the master.
+    // Stepping that snap back, then adding the along offset, is base_link.
+    const double s_master = 400.0;
+    const double baseline = 12.436;
+    const double off_along = 9.873;
+    const auto line = flat_ring(2000.0);
+    double lat = 0.0, lon = 0.0;
+    line.map.latlon(line.map.at(line.map.x, s_master + baseline),
+                    line.map.at(line.map.y, s_master + baseline), lat, lon);
+    const auto snap = railbreak::init_on_ring(line.map, lat, lon, false, 0.0, 0.0);
+    check(snap.ok, "a rover-only fix snaps onto the ring");
+    const double published = railbreak::arc_from_rover_only(snap.s0, baseline) + off_along;
+    const double base_link = s_master + off_along;
+    check(std::fabs(published - base_link) < 1.0,
+          "rover-only start steps back to the master arc, then the along offset is base_link");
+    check(std::fabs((snap.s0 + off_along) - base_link) > 10.0,
+          "treating the rover snap as the master leaves base_link about 12.4 m ahead");
+  }
+  {
+    const double k0 = 1.0027;
+    check(std::fabs(railbreak::apply_wheel_radius(k0, 0.0, 0.0) - k0) < 1e-15,
+          "unset wheel radii leave the train scale; 0.35 m is not applied");
+    const double mismatched = railbreak::apply_wheel_radius(k0, 0.31, 0.35);
+    check(std::fabs(mismatched / k0 - 0.31 / 0.35) < 1e-12,
+          "wheel_radius_mismatch scales k0 by the radius ratio when both are set");
+    check(std::fabs(railbreak::apply_wheel_radius(k0, 0.31, 0.0) - k0) < 1e-15,
+          "one unset radius does not scale k0");
+    check(std::fabs(railbreak::wheel_scale_sigma(0.004, 0.0, 0.0, 0.0) - 0.004) < 1e-15,
+          "an unset wheel radius leaves the scale uncertainty");
+    check(std::fabs(railbreak::wheel_scale_sigma(0.004, 0.31, 0.35, 0.0035) -
+                    std::hypot(0.004, 0.0035 / 0.35)) < 1e-12,
+          "a set radius adds its relative uncertainty to sigma_k0");
+  }
+  {
+    const double uncapped = railbreak::zupt_speed_threshold(0.05, 3.0, 1.0, 1e9);
+    check(std::fabs(uncapped - 3.0) < 1e-9,
+          "R=1 without a cap is a 3 m/s standstill gate");
+    check(std::fabs(railbreak::zupt_speed_threshold(0.05, 3.0, 1.0, 0.5) - 0.5) < 1e-12,
+          "zupt gate is capped at 0.5 m/s");
+    check(std::fabs(railbreak::zupt_speed_threshold(0.05, 3.0, 0.05 * 0.05, 0.5) - 0.15) < 1e-12,
+          "nominal wheel noise still uses 0.15 m/s, under the cap");
+
+    railbreak::TrackOdometer moving(&assets, p);
+    moving.init(0.0, 0.5);
+    moving.set_time(0.0);
+    double t = 0.0;
+    int i = 0;
+    for (; i < 800 && moving.noise_sd() * 3.0 < 2.5; ++i) {
+      t = 0.1 * static_cast<double>(i);
+      const double front_kmh = (i % 2 == 0) ? 72.0 : 0.0;
+      moving.on_bogie(t, true, front_kmh);
+      moving.on_bogie(t + 0.05, false, 36.0);
+    }
+    t = 0.1 * static_cast<double>(i);
+    check(moving.noise_sd() * 3.0 > 2.0,
+          "inflated wheel noise would have opened a gate above 2 m/s");
+    for (double u = 0.0; u < 1.3; u += 0.1) {
+      moving.on_bogie(t + u, true, 7.2);  // 2.0 m/s ground truth
+      moving.on_bogie(t + u + 0.05, false, 7.2);
+    }
+    check(moving.mode() != railbreak::Mode::kZupt, "2 m/s ground truth is not a standstill");
+    check(moving.v() > 1.0, "speed stays above 1 m/s while both bogies read 2 m/s");
+
+    railbreak::TrackOdometer parked(&assets, p);
+    parked.init(0.0, 0.5);
+    parked.set_time(0.0);
+    drive(parked, 0.0, 2.5, 0.0);
+    check(parked.mode() == railbreak::Mode::kZupt, "true zero for 1 s is still ZUPT");
+    check(std::fabs(parked.v()) < 1e-6, "a real stop sets speed to zero");
+  }
+  {
+    auto line = flat_ring(2000.0);
+    line.stops = {{100.0, 0.5, 10}};
+    railbreak::TrackOdometer near(&line, p);
+    near.init(98.0, 1.0);
+    near.set_time(0.0);
+    drive(near, 0.0, 2.0, 0.0);
+    check(!near.anchor_log().empty() && near.n_anchor() == 1, "a dwell writes one anchor row");
+    const auto& hit = near.anchor_log().back();
+    check(hit.accepted && std::string(hit.reason) == "accepted",
+          "a station inside the gate is accepted");
+    check(std::fabs(hit.innovation) <= hit.gate + 1e-9, "accepted innovation is inside the gate");
+
+    line.stops = {{100.0, 0.5, 10}, {110.0, 0.5, 10}};
+    railbreak::TrackOdometer both(&line, p);
+    both.init(105.0, 5.0);
+    both.set_time(0.0);
+    drive(both, 0.0, 2.0, 0.0);
+    check(!both.anchor_log().empty() && both.n_anchor() == 0 &&
+              std::string(both.anchor_log().back().reason) == "ambiguous",
+          "two stations in the gate are not applied");
+
+    line.stops = {{100.0, 0.5, 10}};
+    railbreak::TrackOdometer far(&line, p);
+    far.init(0.0, 1.0);
+    far.set_time(0.0);
+    drive(far, 0.0, 2.0, 0.0);
+    const auto& miss = far.anchor_log().back();
+    check(!miss.accepted && far.n_anchor() == 0 && std::string(miss.reason) == "outside_gate",
+          "a station past the gate is rejected");
+    check(std::fabs(miss.innovation) > miss.gate, "rejected innovation is outside the gate");
+    check(std::fabs(miss.candidate_s - 100.0) < 1e-6, "the log names the nearest station");
+    check(std::fabs(miss.predicted_s) < 1.0, "predicted_s is the filter arc at the dwell");
+  }
+  {
+    // Both bogies follow the same speed. There is no wheel slip. The notch
+    // table is 0.7 of that acceleration, the stated model-force error.
+    auto line = flat_ring(4000.0);
+    line.table.a[15].assign(18, 0.7);
+    railbreak::TrackOdometer od(&line, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    for (int i = 0; i < 80; ++i) {
+      const double t = 0.1 * i;
+      const double v_ms = 5.0 + t;
+      const double kmh = v_ms * 3.6;
+      od.on_bogie(t, true, kmh);
+      od.on_bogie(t + 0.05, false, kmh);
+      od.on_cmd(t + 0.025, 0);
+    }
+    check(!od.slip_front() && !od.slip_rear(),
+          "a 0.7 model force does not leave a slip flag");
+    check(od.slip_age_s() < 0.2, "that model error does not hold slip");
+    check(std::fabs(od.v() - 12.9) < 0.4, "speed stays with the agreeing bogies");
+    check(od.mode() == railbreak::Mode::kWheels, "mode returns to the wheels");
+
+    auto harsh = flat_ring(4000.0);
+    harsh.table.a[15].assign(18, 5.0);
+    railbreak::TrackOdometer bad(&harsh, p);
+    bad.init(0.0, 0.5);
+    bad.set_time(0.0);
+    bool saw_slip = false;
+    for (int i = 0; i < 80; ++i) {
+      const double t = 0.1 * i;
+      bad.on_bogie(t, true, 36.0);
+      bad.on_bogie(t + 0.05, false, 36.0);
+      bad.on_cmd(t + 0.025, 0);
+      if (t > 0.5 && t < 2.5 && (bad.slip_front() || bad.slip_rear())) saw_slip = true;
+    }
+    check(saw_slip, "a model step past the slip gate is noticed before recover");
+    check(bad.common_unobservable() && bad.mode() == railbreak::Mode::kCommon,
+          "after recover the agreeing bogies stay unobservable");
+    check(bad.slip_front() && bad.slip_rear(),
+          "agreement does not clear the slip flags");
+    check(std::fabs(bad.v() - 10.0) > 2.0,
+          "speed is not copied from the agreeing bogies");
+    const double k_hold = bad.k();
+    const double ba_hold = bad.model_bias();
+    for (int i = 0; i < 20; ++i) {
+      const double t = 8.0 + 0.1 * i;
+      bad.on_bogie(t, true, 36.0);
+      bad.on_bogie(t + 0.05, false, 36.0);
+      bad.on_cmd(t + 0.025, 0);
+    }
+    check(std::fabs(bad.k() - k_hold) < 1e-9 && std::fabs(bad.model_bias() - ba_hold) < 1e-9,
+          "common mode does not adapt k or the model bias");
+    check(bad.sigma_v() > 1.0, "common mode keeps a growing speed uncertainty");
+  }
+  {
     railbreak::InputReorder<int> q;
     q.set_hold(0.10);
     q.push(1.20, 20);
     q.push(1.05, 5);
     q.push(1.12, 12);
     const auto first = q.drain();
-    check(first.size() == 1 && first[0].payload == 5 && first[0].t == 1.05,
+    check(first.ready.size() == 1 && first.ready[0].payload == 5 && first.ready[0].t == 1.05,
           "only a stamp at least 0.10 s behind the newest is released");
     q.push(1.30, 30);
     const auto next = q.drain();
-    check(next.size() == 2 && next[0].payload == 12 && next[1].payload == 20,
+    check(next.ready.size() == 2 && next.ready[0].payload == 12 && next.ready[1].payload == 20,
           "held bogie and notch stamps are released in stamp order");
     check(q.pending() == 1, "the newest stamp stays until a later one arrives");
+    railbreak::InputReorder<int> streams;
+    streams.set_hold(0.10);
+    streams.set_stall(1.0);
+    streams.push(1.00, 1, 1);
+    streams.push(1.00, 2, 2);
+    streams.push(1.40, 0, 0);
+    streams.push(1.10, 3, 0);
+    const auto held = streams.drain();
+    check(held.ready.empty() && held.reason[0] == '\0',
+          "a fast front stream does not release past the slower bogie and notch");
+    streams.push(1.30, 4, 1);
+    streams.push(1.30, 5, 2);
+    const auto ordered = streams.drain();
+    check(ordered.reason[0] == '\0' && ordered.ready.size() == 3 &&
+              ordered.ready[0].t == 1.00 && ordered.ready[1].t == 1.00 &&
+              ordered.ready[2].payload == 3 && ordered.ready[2].t == 1.10,
+          "streams are released in stamp order up to the slowest watermark");
+    check(streams.pending() == 3, "samples ahead of the watermark stay queued");
+    railbreak::InputReorder<int> stalled;
+    stalled.set_hold(0.10);
+    stalled.set_stall(1.0);
+    stalled.push(5.0, 0, 0);
+    stalled.push(5.0, 1, 1);
+    stalled.push(3.0, 2, 2);
+    const auto lost = stalled.drain();
+    check(std::string(lost.reason) == "ORDER_NOT_RESTORED" && !lost.ready.empty() &&
+              lost.ready[0].payload == 2,
+          "a stream more than the stall behind is named and its sample is not discarded");
+  }
+  {
+    const auto missing =
+        railbreak::classify_source(false, 0.0, 1.0e9, 0.35, 1.0 / 3.6, 0, 0, 0, "none", false);
+    check(std::string(missing.kind) == "missing" && !missing.valid && missing.quality_score == 0.0,
+          "no sample is missing, not one degraded label");
+    const auto stale =
+        railbreak::classify_source(true, 1.0, 1.0, 0.35, 1.0 / 3.6, 1, 0, 0, "none", false);
+    check(std::string(stale.kind) == "stale" && stale.dropout_counter == 1, "an old sample is stale");
+    const auto outlier =
+        railbreak::classify_source(true, 1.0, 0.0, 0.35, 1.0 / 3.6, 0, 2, 0, "outlier", false);
+    check(std::string(outlier.kind) == "outlier", "a non-finite sample is an outlier");
+    const auto impossible =
+        railbreak::classify_source(true, 1.0, 0.0, 0.35, 1.0 / 3.6, 0, 0, 1, "impossible", false);
+    check(std::string(impossible.kind) == "impossible", "a speed past v_max is impossible");
+    const auto split =
+        railbreak::classify_source(true, 1.0, 0.0, 0.35, 1.0 / 3.6, 0, 0, 0, "none", true);
+    check(std::string(split.kind) == "disagree" && split.valid,
+          "disagreement with the other source stays its own kind");
+    const auto okq =
+        railbreak::classify_source(true, 1.0, 0.0, 0.35, 1.0 / 3.6, 0, 0, 0, "none", false);
+    check(std::string(okq.kind) == "ok" && okq.quality_score == 1.0 && okq.valid,
+          "a fresh agreeing sample is ok");
+
+    auto line = flat_ring(4000.0);
+    railbreak::TrackOdometer od(&line, p);
+    od.init(0.0, 0.5);
+    od.set_time(0.0);
+    od.on_bogie(0.0, true, 36.0);
+    od.on_bogie(0.05, false, 36.0);
+    check(std::string(od.bogie_quality(true).kind) == "ok", "a fresh bogie is ok");
+    od.on_bogie(0.2, true, std::numeric_limits<double>::quiet_NaN());
+    check(std::string(od.bogie_quality(true).kind) == "outlier" &&
+              od.bogie_quality(true).outlier_counter == 1,
+          "NaN increments the front outlier counter");
+    check(std::string(od.bogie_quality(false).kind) == "ok", "the rear kind stays ok");
+    od.on_bogie(0.25, true, 200.0);
+    check(std::string(od.bogie_quality(true).kind) == "impossible" &&
+              od.bogie_quality(true).impossible_counter == 1,
+          "200 km/h is physically impossible after the unit scale");
+    od.on_bogie(0.3, true, 36.0);
+    od.on_bogie(1.0, true, 36.0);
+    check(od.bogie_quality(true).dropout_counter == 1,
+          "a gap past the stale window counts one dropout");
+    check(std::string(od.cmd_quality().kind) == "missing", "no controller message is missing");
+    od.on_cmd(1.0, 99);
+    check(std::string(od.cmd_quality().kind) == "outlier" && od.cmd_quality().outlier_counter == 1,
+          "a notch outside -15..15 is an outlier");
+  }
+  {
+    // Flat traction cruise. The table keeps adding 0.4 m/s^2. Wheels hold
+    // 10 m/s. After the notch window and five uniform seconds, ba stops.
+    auto line = flat_ring(4000.0);
+    line.table.a[22].assign(18, 0.4);
+    railbreak::TrackOdometer cruise(&line, p);
+    cruise.init(0.0, 0.5);
+    cruise.set_time(0.0);
+    bool saw_frozen = false;
+    double ba_at_freeze = 0.0;
+    double sig_at_freeze = 0.0;
+    double ba_later = 0.0;
+    double sig_later = 0.0;
+    for (int i = 0; i < 160; ++i) {
+      const double t = 0.1 * i;
+      cruise.on_cmd(t, 7);
+      cruise.on_bogie(t + 0.02, true, 36.0);
+      cruise.on_bogie(t + 0.06, false, 36.0);
+      if (!saw_frozen && cruise.params_frozen()) {
+        saw_frozen = true;
+        ba_at_freeze = cruise.model_bias();
+        sig_at_freeze = cruise.sigma_ba();
+      }
+      if (t > 14.0) {
+        ba_later = cruise.model_bias();
+        sig_later = cruise.sigma_ba();
+      }
+    }
+    check(saw_frozen && std::string(cruise.drive_segment()) == "uniform",
+          "a long flat traction cruise freezes the bias");
+    check(std::fabs(ba_later - ba_at_freeze) < 1e-6,
+          "the frozen bias mean does not keep training");
+    check(sig_later > sig_at_freeze, "frozen bias uncertainty still grows");
+
+    auto coast_line = flat_ring(4000.0);
+    coast_line.table.a[15].assign(18, -0.3);
+    railbreak::TrackOdometer coast(&coast_line, p);
+    coast.init(0.0, 0.5);
+    coast.set_time(0.0);
+    double ba_mid = 0.0;
+    for (int i = 0; i < 120; ++i) {
+      const double t = 0.1 * i;
+      coast.on_cmd(t, 0);
+      coast.on_bogie(t + 0.02, true, 36.0);
+      coast.on_bogie(t + 0.06, false, 36.0);
+      if (std::fabs(t - 6.0) < 0.05) ba_mid = coast.model_bias();
+    }
+    check(!coast.params_frozen() && std::string(coast.drive_segment()) == "coast",
+          "coast stays an identification segment");
+    check(std::fabs(coast.model_bias() - ba_mid) > 1e-4,
+          "on coast the bias is still allowed to move");
+    check(std::string(coast.drive_segment()) != "uniform", "coast is not labelled uniform");
+  }
+  {
+    railbreak::ModelBank matched;
+    matched.init(0.0, 10.0);
+    for (int i = 0; i < 30; ++i) matched.step(0.1, 0.0, 0.0, 10.0, 0.05 * 0.05);
+    const auto& steady = matched.consensus();
+    double sum_c = 0.0;
+    for (int j = 0; j < railbreak::kModelCount; ++j) {
+      sum_c += steady.mode[j].confidence;
+      check(std::isfinite(steady.mode[j].s) && std::isfinite(steady.mode[j].v) &&
+                std::isfinite(steady.mode[j].likelihood) && std::isfinite(steady.mode[j].p_vv),
+            "each mode keeps state, covariance, innovation and likelihood");
+    }
+    check(std::fabs(sum_c - 1.0) < 1e-9, "mode confidences sum to one");
+    check(steady.mode[railbreak::kModelNominal].confidence >
+              steady.mode[railbreak::kModelWheelScale].confidence,
+          "a matched cruise trusts the table over a 5 percent wheel-scale hypothesis");
+    check(std::fabs(steady.v - 10.0) < 0.3, "matched consensus speed stays with the wheels");
+
+    railbreak::ModelBank delayed;
+    delayed.init(0.0, 10.0);
+    for (int i = 0; i < 40; ++i) delayed.step(0.1, 1.0, 0.0, 10.0, 0.05 * 0.05);
+    const auto& lag = delayed.consensus();
+    check(lag.mode[railbreak::kModelDelay].confidence > lag.mode[railbreak::kModelNominal].confidence,
+          "wheels that ignore a new notch raise the actuator-delay mode");
+
+    railbreak::ModeEstimate modes[railbreak::kModelCount];
+    const double weight[railbreak::kModelCount] = {0.50, 0.15, 0.10, 0.15, 0.10};
+    for (int j = 0; j < railbreak::kModelCount; ++j) {
+      modes[j].s = 0.0;
+      modes[j].v = 10.0;
+      modes[j].p_ss = 1.0;
+      modes[j].p_vv = 0.25;
+      modes[j].confidence = weight[j];
+    }
+    modes[railbreak::kModelAdhesion].s = 40.0;
+    const auto mix = railbreak::fuse_modes(modes, railbreak::ModelBank::kSpreadGateM);
+    double mean_s = 0.0;
+    for (int j = 0; j < railbreak::kModelCount; ++j) mean_s += modes[j].confidence * modes[j].s;
+    check(mix.outlier_rejected && mix.n_used == railbreak::kModelCount - 1,
+          "a hypothesis 40 m from the leader is left out of the mixture");
+    check(std::fabs(mix.s) < std::fabs(mean_s),
+          "consensus stays nearer the leader than the probability-weighted mean");
+  }
+  {
+    railbreak::SlipEvidence both;
+    both.pair_fresh = true;
+    both.bogies_agree = true;
+    both.nis_front = 1.0;
+    both.nis_rear = 1.0;
+    both.notch = 7;
+    check(std::string(railbreak::residual_pattern(both, 16.0)) == "nominal",
+          "agreeing bogies and the model are the nominal pattern");
+
+    railbreak::SlipEvidence one = both;
+    one.bogies_agree = false;
+    one.nis_front = 40.0;
+    one.front_innov = 2.0;
+    check(std::string(railbreak::instant_hypothesis(one, railbreak::residual_pattern(one, 16.0))) ==
+              "single_bogie",
+          "one bogie off the model is that bogie, not a spin");
+
+    railbreak::SlipEvidence chaos = one;
+    chaos.nis_rear = 40.0;
+    chaos.rear_innov = -2.0;
+    check(std::string(railbreak::residual_pattern(chaos, 16.0)) == "chaotic",
+          "bogies that miss the model in opposite directions are chaotic");
+    check(std::string(railbreak::instant_hypothesis(chaos, "chaotic")) == "sensor_fault",
+          "a chaotic pair is a sensor or sync fault");
+
+    railbreak::SlipEvidence spin = both;
+    spin.nis_front = spin.nis_rear = 40.0;
+    spin.front_innov = spin.rear_innov = 1.5;
+    spin.notch = 7;
+    check(std::string(railbreak::instant_hypothesis(spin, "common")) == "spin",
+          "traction with both wheels faster than the model is spin");
+    spin.delay_likely = true;
+    check(std::string(railbreak::instant_hypothesis(spin, "common")) == "delay",
+          "the same residual is a delay when that hypothesis is ahead");
+    spin.delay_likely = false;
+    spin.notch = 0;
+    check(std::string(railbreak::instant_hypothesis(spin, "common")) == "model_mismatch",
+          "coast does not turn a common residual into spin");
+    spin.notch = -5;
+    spin.front_innov = spin.rear_innov = -1.5;
+    check(std::string(railbreak::instant_hypothesis(spin, "common")) == "slide",
+          "braking with both wheels slower than the model is slide");
+
+    railbreak::SlipDiagnosis diag;
+    railbreak::SlipEvidence live = both;
+    live.t = 0.0;
+    live.nis_front = live.nis_rear = 40.0;
+    live.front_innov = live.rear_innov = 1.5;
+    live.notch = 7;
+    auto first = diag.update(live);
+    check(std::string(first.phase) == "idle" && std::string(first.hypothesis) == "nominal",
+          "one high residual is not yet a confirmed slip");
+    live.t = 0.20;
+    auto mid = diag.update(live);
+    check(std::string(mid.phase) == "candidate" && std::string(mid.hypothesis) == "spin",
+          "the same residual for 150 ms is a candidate");
+    live.t = 0.50;
+    auto yes = diag.update(live);
+    check(std::string(yes.phase) == "confirmed" && std::string(yes.hypothesis) == "spin",
+          "the same residual for 400 ms is confirmed");
+    live.notch = -5;
+    live.front_innov = live.rear_innov = -1.5;
+    live.t = 0.70;
+    auto held = diag.update(live);
+    check(std::string(held.hypothesis) == "spin" && std::string(held.phase) == "confirmed",
+          "a new sign does not replace a confirmed label before its own confirm time");
+    live = both;
+    live.t = 0.80;
+    auto rec = diag.update(live);
+    check(std::string(rec.phase) == "recovery" && std::string(rec.hypothesis) == "spin",
+          "a quiet residual starts recovery and keeps the label");
+    live.t = 1.90;
+    auto done = diag.update(live);
+    check(std::string(done.phase) == "idle" && std::string(done.hypothesis) == "nominal",
+          "a quiet agreed residual for 1 s clears the label");
+  }
+  {
+    const auto nom = railbreak::motion_interval(100.0, 10.0, 1.0, 0.2, 0.004, 8.0, true, 0.0, 0.0,
+                                                0.0, 0.0, false);
+    check(nom.valid && !nom.claimed_percentile, "the envelope is not a claimed percentile");
+    check(std::fabs(nom.e_s - 8.0) < 1e-12 && std::fabs(nom.s_min - 92.0) < 1e-12 &&
+              std::fabs(nom.s_max - 108.0) < 1e-12,
+          "with no extra term the half-width is the along-track bound");
+    check(std::fabs(nom.v_min - (10.0 - nom.e_v)) < 1e-12 && nom.e_v > 0.2,
+          "speed half-width includes sigma_v and the scale");
+    const auto grown = railbreak::motion_interval(100.0, 10.0, 1.0, 0.2, 0.004, 8.0, true, 1000.0,
+                                                  2.0, 3.0, 0.5, false);
+    check(std::fabs(grown.e_s - (8.0 + 4.0 + 0.4 + 3.0)) < 1e-9,
+          "scale since the anchor, unverified time and model gap widen the arc");
+    check(std::fabs(grown.sigma_scale - 4.0) < 1e-12 && std::fabs(grown.sigma_model - 3.0) < 1e-12 &&
+              std::fabs(grown.sigma_timestamp - 0.4) < 1e-12 && grown.sigma_map == 0.0 &&
+              grown.sigma_common_mode == 0.0,
+          "the extra width is named and is not written into sigma_s");
+    check(std::string(railbreak::IntegrityReport{}.bound_statement) ==
+              "empirical bound, not certified protection level",
+          "the envelope states that it is an empirical bound");
+    const auto lost = railbreak::motion_interval(100.0, 10.0, 1.0, 0.2, 0.004, 8.0, true, 0.0, 0.0,
+                                                 0.0, 0.0, true);
+    check(!lost.valid && !std::isfinite(lost.s_min), "LOST does not publish an interval");
+    check(std::fabs(railbreak::time_to_lost(false, 0.05, 1.0, 30.0) - 29.95) < 1e-9,
+          "time to LOST is the silence left until the fresher bogie ages out");
+    check(railbreak::time_to_lost(true, 0.05, 0.05, 30.0) == 0.0, "an estimate already LOST has no time left");
+  }
+  {
+    railbreak::IntegrityObs h;
+    h.t = 0.0;
+    h.sigma_s = 1.0;
+    h.front_age_s = 0.05;
+    h.rear_age_s = 0.05;
+    h.pair_fresh = true;
+    h.bogies_agree = true;
+    h.absolute_start = true;
+    h.map_in_domain = true;
+    h.nis_front = 20.0;
+    h.slip_front = true;
+    h.degrade_confirm_s = 0.20;
+    h.degrade_recover_s = 1.0;
+    railbreak::IntegrityMonitor held;
+    check(std::string(held.update(h).status) == "NOMINAL",
+          "one fault sample does not enter degraded");
+    const auto entered = soak(held, h, 1.0);
+    check(std::string(entered.status) == "DEGRADED_SINGLE_BOGIE" &&
+              std::string(entered.fault_level) == "degraded",
+          "a fault score above 0.8 for 0.5 s is DEGRADED");
+    h.nis_front = 40.0;
+    const auto deep = soak(held, h, 3.2);
+    check(std::string(deep.fault_level) == "deep" &&
+              deep.reasons.find("DEEP_FAULT") != std::string::npos,
+          "a fault score above 0.95 for 2 s is deep degraded");
+    h.slip_front = false;
+    h.nis_front = 0.0;
+    h.t = 3.3;
+    check(std::string(held.update(h).status) == "DEGRADED_SINGLE_BOGIE",
+          "one quiet sample does not clear the fault score");
+    const auto cleared = soak(held, h, 7.0);
+    check(std::string(cleared.status) == "NOMINAL" && std::string(cleared.fault_level) == "nominal",
+          "a fault score below 0.2 for 3 s clears degraded");
+    railbreak::IntegrityObs bare = h;
+    bare.t = 0.0;
+    bare.slip_front = false;
+    bare.nis_front = 0.0;
+    bare.map_in_domain = false;
+    bare.degrade_confirm_s = 0.20;
+    check(std::string(railbreak::IntegrityMonitor{}.update(bare).status) == "DEGRADED_NO_MAP",
+          "a missing map is DEGRADED on the first sample");
+    check(std::string(railbreak::IntegrityMonitor{}.update(bare).confidence_position) == "degraded",
+          "a missing map does not keep position confidence ok");
+  }
+  {
+    railbreak::TrackMap line;
+    for (int i = 0; i <= 200; ++i) {
+      line.s.push_back(i);
+      line.x.push_back(i);
+      line.y.push_back(0.0);
+      line.h.push_back(0.0);
+      line.grade.push_back(0.0);
+    }
+    line.ring_len = 1000.0;
+    const auto step = railbreak::match_ring(line, 10.0, 11.0, 11.0, 0.4, 10.0, 0.1, nullptr, 0);
+    check(std::string(step.candidate_path) == "ring" && std::fabs(step.candidate_s - 11.0) < 0.05 &&
+              std::fabs(step.cross_track_error - 0.4) < 0.05 && std::fabs(step.along_track_error) < 0.05 &&
+              step.branch_probability > 0.8,
+          "a short step stays on the ring");
+    const auto jump = railbreak::match_ring(line, 10.0, 80.0, 80.0, 0.0, 10.0, 0.1, nullptr, 0);
+    check(std::string(jump.candidate_path) == "ring" && std::fabs(jump.candidate_s - 18.0) < 0.2 &&
+              std::fabs(jump.along_track_error) > 50.0 && jump.branch_probability < 0.8,
+          "a longitudinal jump is limited by the step window");
+    const auto back = railbreak::match_ring(line, 10.0, 5.0, 5.0, 0.0, 5.0, 0.1, nullptr, 0);
+    check(std::fabs(back.candidate_s - 10.0) < 1e-9 && back.along_track_error < -4.0 &&
+              back.branch_probability <= 0.25,
+          "reverse motion at speed is rejected");
+    railbreak::Stop one[] = {{50.0, 0.5}};
+    const auto held = railbreak::match_ring(line, 10.0, 11.0, 11.0, 0.0, 10.0, 0.1, one, 1);
+    check(std::fabs(held.candidate_s - 11.0) < 0.05, "a stop does not pull the candidate arc");
+    railbreak::Stop two[] = {{10.0, 0.5}, {14.0, 0.5}};
+    const auto ambiguous = railbreak::match_ring(line, 10.0, 12.0, 12.0, 0.0, 10.0, 0.1, two, 2);
+    check(ambiguous.branch_probability <= 0.5 && std::fabs(ambiguous.candidate_s - 10.0) > 0.5 &&
+              std::fabs(ambiguous.candidate_s - 14.0) > 0.5,
+          "two stops in the gate lower the branch probability and do not snap");
+
+    railbreak::TrackMap fork;
+    for (int i = 0; i <= 4; ++i) {
+      fork.s.push_back(i);
+      fork.x.push_back(i);
+      fork.y.push_back(0.0);
+    }
+    fork.s.push_back(20.0);
+    fork.x.push_back(1.0);
+    fork.y.push_back(2.0);
+    fork.s.push_back(21.0);
+    fork.x.push_back(2.0);
+    fork.y.push_back(2.0);
+    fork.h.assign(fork.s.size(), 0.0);
+    fork.grade.assign(fork.s.size(), 0.0);
+    fork.ring_len = 30.0;
+    const auto junction = railbreak::match_ring(fork, 1.0, 1.2, 1.05, 1.7, 2.0, 0.1, nullptr, 0);
+    check(std::string(junction.candidate_path) == "junction" && junction.candidate_s < 8.0 &&
+              junction.branch_probability > 0.5 && junction.cross_track_error > 0.15,
+          "a nearer loop outside the window is named and not taken");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

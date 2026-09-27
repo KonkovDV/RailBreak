@@ -18,6 +18,15 @@ from integrity import (  # noqa: E402
 )
 
 
+def soak(mon: IntegrityMonitor, t1: float, **kw):
+    t0 = float(kw.pop("t", 0.0))
+    last = None
+    n = int(round((t1 - t0) / 0.1))
+    for i in range(n + 1):
+        last = mon.update(obs(t=t0 + 0.1 * i, **kw))
+    return last
+
+
 def obs(**kw) -> Obs:
     base = dict(
         t=10.0,
@@ -36,8 +45,12 @@ def obs(**kw) -> Obs:
 class IntegrityTests(unittest.TestCase):
     def test_names(self):
         self.assertEqual(len(STATUSES), 7)
-        self.assertEqual(len(REASONS), 10)
+        self.assertEqual(len(REASONS), 13)
         self.assertIn("POSITION_UNTRUSTED", STATUSES)
+        self.assertEqual(
+            IntegrityMonitor(BoundCoeff()).update(obs()).bound_statement,
+            "empirical bound, not certified protection level",
+        )
         self.assertIn("BOGIES_AGREE_MODEL_DISAGREES", REASONS)
 
     def test_nominal(self):
@@ -49,10 +62,13 @@ class IntegrityTests(unittest.TestCase):
         self.assertIsNone(r.along_bound_m)
 
     def test_single_bogie_nis(self):
-        r = IntegrityMonitor(BoundCoeff()).update(obs(nis_front=20.0, slip_front=True))
-        self.assertEqual(r.status, "DEGRADED_SINGLE_BOGIE")
-        self.assertIn("FRONT_NIS_HIGH", r.reasons)
-        self.assertNotIn("REAR_NIS_HIGH", r.reasons)
+        mon = IntegrityMonitor(BoundCoeff())
+        one = mon.update(obs(t=10.0, nis_front=20.0, slip_front=True))
+        self.assertEqual(one.status, "NOMINAL")
+        self.assertIn("FRONT_NIS_HIGH", one.reasons)
+        held = soak(mon, 11.0, t=10.0, nis_front=20.0, slip_front=True)
+        self.assertEqual(held.status, "DEGRADED_SINGLE_BOGIE")
+        self.assertNotIn("REAR_NIS_HIGH", held.reasons)
 
     def test_stale_one_side(self):
         r = IntegrityMonitor(BoundCoeff()).update(obs(rear_age_s=1.0, pair_fresh=False, bogies_agree=False))
@@ -72,6 +88,7 @@ class IntegrityTests(unittest.TestCase):
         )
         self.assertEqual(r.status, "POSITION_UNTRUSTED")
         self.assertFalse(r.use_position)
+        self.assertEqual(r.integrity_mode, "LOST")
 
     def test_stamp_regression(self):
         r = IntegrityMonitor(BoundCoeff()).update(obs(stamp_regressed=True))
@@ -82,12 +99,16 @@ class IntegrityTests(unittest.TestCase):
         r = IntegrityMonitor(BoundCoeff()).update(obs(absolute_start=False))
         self.assertEqual(r.status, "DEGRADED_RELATIVE_ONLY")
         self.assertEqual(r.reasons, ["NO_ABSOLUTE_START"])
+        self.assertEqual(r.confidence_position, "degraded")
+        self.assertEqual(r.position_confidence, "LOW")
         self.assertTrue(r.use_position)
 
     def test_no_map(self):
         r = IntegrityMonitor(BoundCoeff()).update(obs(map_in_domain=False))
         self.assertEqual(r.status, "DEGRADED_NO_MAP")
         self.assertIn("MAP_OUT_OF_DOMAIN", r.reasons)
+        self.assertEqual(r.confidence_position, "degraded")
+        self.assertEqual(r.position_confidence, "LOW")
 
     def test_no_start_and_no_map_refuses(self):
         r = IntegrityMonitor(BoundCoeff()).update(obs(absolute_start=False, map_in_domain=False))
@@ -97,29 +118,52 @@ class IntegrityTests(unittest.TestCase):
         self.assertFalse(r.use_position)
 
     def test_disagree(self):
-        r = IntegrityMonitor(BoundCoeff()).update(
-            obs(bogies_agree=False, slip_front=True, nis_front=4.0)
-        )
-        self.assertEqual(r.status, "DEGRADED_SINGLE_BOGIE")
-        self.assertIn("BOGIES_DISAGREE", r.reasons)
-        self.assertNotIn("FRONT_NIS_HIGH", r.reasons)
+        mon = IntegrityMonitor(BoundCoeff())
+        one = mon.update(obs(t=0.0, bogies_agree=False, slip_front=True, nis_front=4.0))
+        self.assertEqual(one.status, "NOMINAL")
+        self.assertIn("BOGIES_DISAGREE", one.reasons)
+        held = soak(mon, 1.0, bogies_agree=False, slip_front=True, nis_front=4.0)
+        self.assertEqual(held.status, "DEGRADED_SINGLE_BOGIE")
+        self.assertNotIn("FRONT_NIS_HIGH", held.reasons)
 
     def test_common_mode_then_latch_until_disagree(self):
         mon = IntegrityMonitor(BoundCoeff())
-        for t in (0.0, 1.0, 2.0):
-            r = mon.update(obs(
-                t=t, slip_front=True, slip_rear=True, nis_front=20.0, nis_rear=20.0,
-            ))
-            self.assertEqual(r.status, "DEGRADED_COMMON_MODE_UNOBSERVABLE")
-            self.assertIn("BOGIES_AGREE_MODEL_DISAGREES", r.reasons)
-        # The filter clears the slip bit once the episode has lasted recover_s.
-        held = mon.update(obs(t=3.0, slip_front=False, slip_rear=False))
-        self.assertEqual(held.status, "DEGRADED_COMMON_MODE_UNOBSERVABLE")
-        still = mon.update(obs(t=4.0))
-        self.assertEqual(still.status, "DEGRADED_COMMON_MODE_UNOBSERVABLE")
-        cleared = mon.update(obs(t=5.0, bogies_agree=False, slip_front=True, nis_front=20.0))
-        self.assertEqual(cleared.status, "DEGRADED_SINGLE_BOGIE")
-        self.assertNotIn("BOGIES_AGREE_MODEL_DISAGREES", cleared.reasons)
+        during = soak(
+            mon, 4.5, slip_front=True, slip_rear=True, nis_front=20.0, nis_rear=20.0,
+        )
+        self.assertEqual(during.status, "DEGRADED_COMMON_MODE_UNOBSERVABLE")
+        self.assertIn("BOGIES_AGREE_MODEL_DISAGREES", during.reasons)
+        quiet = soak(mon, 8.5, t=4.5)
+        self.assertEqual(quiet.status, "NOMINAL")
+        self.assertEqual(quiet.confidence_velocity, "ok")
+        self.assertEqual(quiet.confidence_position, "degraded")
+        self.assertEqual(quiet.integrity_mode, "POSITION_DEGRADED")
+        self.assertIn("POSITION_OPEN", quiet.reasons)
+
+    def test_micro_slip_does_not_hold_position(self):
+        mon = IntegrityMonitor(BoundCoeff())
+        slipped = mon.update(obs(t=0.0, slip_front=True, nis_front=20.0))
+        self.assertEqual(slipped.status, "NOMINAL")
+        self.assertEqual(slipped.confidence_velocity, "ok")
+        self.assertEqual(slipped.confidence_position, "ok")
+        self.assertFalse(mon.latched)
+        back = mon.update(obs(t=0.2))
+        self.assertEqual(back.status, "NOMINAL")
+        self.assertEqual(back.confidence_velocity, "ok")
+        self.assertEqual(back.confidence_position, "ok")
+
+    def test_position_margin_stays_after_velocity_recovers(self):
+        coeff = BoundCoeff(
+            calibrated=True,
+            q99=2.0,
+            b_mode={"NOMINAL": 0.0, "DEGRADED_COMMON_MODE_UNOBSERVABLE": 32.606},
+        )
+        mon = IntegrityMonitor(coeff)
+        soak(mon, 4.5, sigma_s=1.0, slip_front=True, slip_rear=True, nis_front=20.0, nis_rear=20.0)
+        held = soak(mon, 8.5, t=4.5, sigma_s=1.0)
+        self.assertEqual(held.confidence_velocity, "ok")
+        self.assertEqual(held.confidence_position, "degraded")
+        self.assertAlmostEqual(held.along_bound_m, 34.606)
 
     def test_short_common_mode_does_not_latch(self):
         mon = IntegrityMonitor(BoundCoeff())
@@ -127,14 +171,27 @@ class IntegrityTests(unittest.TestCase):
         later = mon.update(obs(t=0.2))
         self.assertEqual(later.status, "NOMINAL")
 
+    def test_degraded_waits_and_recovers(self):
+        mon = IntegrityMonitor(BoundCoeff())
+        early = mon.update(obs(t=0.0, slip_front=True, nis_front=20.0))
+        self.assertEqual(early.status, "NOMINAL")
+        late = soak(mon, 1.0, slip_front=True, nis_front=20.0)
+        self.assertEqual(late.status, "DEGRADED_SINGLE_BOGIE")
+        self.assertEqual(late.fault_level, "degraded")
+        quiet = mon.update(obs(t=1.1))
+        self.assertEqual(quiet.status, "DEGRADED_SINGLE_BOGIE")
+        clear = soak(mon, 5.0, t=1.1)
+        self.assertEqual(clear.status, "NOMINAL")
+        self.assertEqual(clear.fault_level, "nominal")
+
     def test_anchor_clears_the_latch(self):
         mon = IntegrityMonitor(BoundCoeff())
-        mon.update(obs(t=0.0, slip_front=True, slip_rear=True, nis_front=30.0, nis_rear=30.0))
-        mon.update(obs(t=3.0))
+        soak(mon, 4.5, slip_front=True, slip_rear=True, nis_front=30.0, nis_rear=30.0)
         self.assertTrue(mon.latched)
-        cleared = mon.update(obs(t=4.0, n_anchor=1))
-        self.assertEqual(cleared.status, "NOMINAL")
+        cleared = mon.update(obs(t=4.6, n_anchor=1, nis_front=30.0, nis_rear=30.0,
+                                 slip_front=True, slip_rear=True))
         self.assertFalse(mon.latched)
+        self.assertTrue(cleared.use_position)
 
     def test_ambiguous_station_is_a_reason_not_a_refusal(self):
         r = IntegrityMonitor(BoundCoeff()).update(obs(dwell=True, station_candidates=2))
@@ -152,7 +209,8 @@ class IntegrityTests(unittest.TestCase):
             coverage="0.99",
             split="train",
         )
-        fresh = IntegrityMonitor(coeff).update(obs(nis_front=20.0, slip_front=True, sigma_s=2.0))
+        bound_mon = IntegrityMonitor(coeff)
+        fresh = soak(bound_mon, 11.0, t=10.0, nis_front=20.0, slip_front=True, sigma_s=2.0)
         self.assertAlmostEqual(fresh.along_bound_m, 2.5 * 2.0 + 4.0)
         self.assertEqual(fresh.calibrated_coverage, "0.99")
         self.assertEqual(fresh.calibration_split, "train")
@@ -183,6 +241,66 @@ class IntegrityTests(unittest.TestCase):
         self.assertIn("c.calibrated = true", hpp)
         self.assertIn(f"c.q99 = {raw.q99:.6f}", hpp)
         self.assertNotIn("SIL", hpp)
+
+    def test_blind_budget_is_from_the_last_anchor(self):
+        mon = IntegrityMonitor(BoundCoeff())
+        inside = soak(
+            mon, 1.0, slip_front=True, slip_rear=True, nis_front=20.0, nis_rear=20.0,
+            distance_since_anchor=10.0,
+        )
+        self.assertEqual(inside.status, "DEGRADED_COMMON_MODE_UNOBSERVABLE")
+        self.assertEqual(inside.integrity_mode, "VELOCITY_DEGRADED")
+        self.assertTrue(inside.use_position)
+        self.assertGreater(inside.time_to_lost, 0.0)
+        self.assertEqual(inside.blind_warning, "")
+        far = mon.update(obs(
+            t=1.1, slip_front=True, slip_rear=True, nis_front=20.0, nis_rear=20.0,
+            distance_since_anchor=150.0,
+        ))
+        self.assertEqual(far.status, "LOST")
+        self.assertFalse(far.use_position)
+        self.assertEqual(far.time_to_lost, 0.0)
+        self.assertAlmostEqual(far.distance_since_last_trusted_anchor, 150.0)
+        self.assertEqual(far.velocity_confidence, "LOW")
+        self.assertEqual(far.position_confidence, "NONE")
+        self.assertEqual(far.fault_level, "lost")
+        self.assertIn("BLIND_BUDGET", far.reasons)
+        stuck = IntegrityMonitor(BoundCoeff())
+        opened = stuck.update(obs(
+            t=3.0, slip_front=True, slip_rear=True, common_unobservable=True,
+            distance_since_anchor=10.0,
+        ))
+        self.assertEqual(opened.status, "DEGRADED_COMMON_MODE_UNOBSERVABLE")
+        self.assertEqual(opened.integrity_mode, "VELOCITY_DEGRADED")
+        self.assertEqual(opened.velocity_confidence, "LOW")
+        self.assertEqual(opened.position_confidence, "LOW")
+        self.assertEqual(opened.time_to_lost, 5.0)
+        self.assertTrue(opened.use_position)
+        self.assertEqual(opened.blind_time_s, 0.0)
+        refused = stuck.update(obs(
+            t=9.0, slip_front=True, slip_rear=True, common_unobservable=True,
+            distance_since_anchor=10.0,
+        ))
+        self.assertEqual(refused.status, "LOST")
+        self.assertEqual(refused.integrity_mode, "LOST")
+        self.assertEqual(refused.velocity_confidence, "LOW")
+        self.assertEqual(refused.position_confidence, "NONE")
+        self.assertFalse(refused.use_position)
+        self.assertEqual(refused.time_to_lost, 0.0)
+        self.assertFalse(refused.bound_valid)
+        lone = IntegrityMonitor(BoundCoeff())
+        one = soak(
+            lone, 2.0, t=1.0, slip_front=True, slip_rear=False, nis_front=20.0,
+            bogies_agree=False, distance_since_anchor=500.0,
+        )
+        self.assertEqual(one.integrity_mode, "WHEEL_DEGRADED")
+        self.assertNotEqual(one.fault_level, "lost")
+        reset = mon.update(obs(
+            t=1.2, n_anchor=1, distance_since_anchor=0.0,
+            slip_front=True, slip_rear=True, nis_front=20.0, nis_rear=20.0,
+        ))
+        self.assertNotEqual(reset.integrity_mode, "LOST")
+        self.assertTrue(reset.use_position)
 
 
 if __name__ == "__main__":

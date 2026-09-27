@@ -7,9 +7,14 @@ backup_odometry:
     gnss_init_window_s: 3.0
     # No fix this long after the first input: publish relative odometry from the start point.
     gnss_wait_s: 10.0
-    # Bogie and notch headers arrive out of stamp order. Hold this long, then
-    # apply them by header.stamp. A stamp still behind the filter is dropped.
+    # Bogie and notch headers arrive out of stamp order. The watermark is the
+    # slowest live stream minus this hold. Samples are applied in stamp order
+    # up to that watermark. There is no timer and no /clock.
     stamp_reorder_s: 0.10
+    # A stream this far behind the freshest leaves the watermark. The diagnostic
+    # reason is ORDER_NOT_RESTORED. Its late sample is counted in n_behind_out
+    # if the output has already passed it. It is not dropped inside the queue.
+    order_stall_s: 1.0
     # Bogie field to m/s. Recordings are km/h (ratio to GNSS speed 3.6).
     wheel_unit_scale: 0.2777777777777778
     # /result/position axes. mgrs: UTM 37N minus the square corner
@@ -32,6 +37,8 @@ backup_odometry:
     # No GNSS at the start. Leave unset (NaN): relative path. initial_lat_deg and
     # initial_lon_deg snap to the ring; initial_s_m is an arc length in metres.
     load_factor: 1.0
+    # Both 0: do not scale k0 by a wheel radius. Bogie speed is already km/h.
+    # k0 in meta.yaml is the train scale. 0.35 m is not a default here.
     wheel_radius_m: 0.0
     wheel_radius_nominal_m: 0.0
     # Extra resistance on top of the table, acceleration form A + B v + C v^2.
@@ -49,6 +56,8 @@ backup_odometry:
     fr_floor: 0.3
     zupt_v: 0.05
     zupt_hold_s: 1.0
+    # 3*sqrt(R) at R=1 would be 3 m/s. The cap keeps a slow roll from looking parked.
+    zupt_v_max: 0.5
     stop_gate: 3.0
     diagnostics_every_n: 20
     frame_id: map

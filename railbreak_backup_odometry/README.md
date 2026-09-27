@@ -4,8 +4,10 @@
 Все сценарии запуска — в [корневом README](../README.md): на Windows, Linux и macOS
 это `scripts/jury.ps1` / `scripts/jury.sh`, на Ubuntu без Docker — команды ниже.
 Питч и разбор практики — [`../docs/solution/pitch.md`](../docs/solution/pitch.md).
-Отдельной публичной лицензии нет: код передаётся организаторам. Сторонние
-компоненты — [`../NOTICE`](../NOTICE): ROS 2 Humble Apache 2.0, пакет их не копирует. Исследовательское ядро `tramDR-0.0.11`
+Отдельной публичной лицензии нет: код передаётся организаторам по Положению.
+Карта сдачи — заменяемый каталог `assets_dir`, она с train, не из OSM.
+`route_10.yaml` — полилиния OSM (ODbL), в эту сдачу не входит.
+Сторонние компоненты — [`../NOTICE`](../NOTICE): ROS 2 Humble Apache 2.0, пакет их не копирует. Исследовательское ядро `tramDR-0.0.11`
 в эту сдачу не входит.
 GNSS читается только в окне старта: 3 с от первого валидного фикса любой
 антенны, затем подписка удаляется. Поздний master это начало не переносит. Модель — [`../docs/solution/model.md`](../docs/solution/model.md),
@@ -19,9 +21,16 @@ GNSS читается только в окне старта: 3 с от перв�
 (`DriverControllerCommand`). В записях поле `velocity` тележки ведёт себя как
 км/ч; в ноде оно переводится параметром `wheel_unit_scale` (по умолчанию 1/3.6).
 README датасета называет это поле м/с; на проверочной записи деление на 3.6
-совпадает со скоростью `/localization/kinematic_state`. Штампы тележек и ручки
-удерживаются `stamp_reorder_s` (0.10 с) и применяются по `header.stamp`.
-Выход `/result/velocity` — м/с.
+совпадает со скоростью `/localization/kinematic_state`. Штампы тележек и ручки стоят в одной очереди. Водяной знак —
+минимум последних штампов живых потоков минус `stamp_reorder_s` (0.10 с).
+До этого знака сообщения применяются по порядку штампа. Поток, который отстаёт
+больше чем на `order_stall_s` (1 с), из минимума выходит: в диагностике
+`order_reason=ORDER_NOT_RESTORED`, а штамп позади уже опубликованного выхода
+считается в `n_behind_out`. Таймера нет, `/clock` не нужен.
+Выход `/result/velocity` — м/с. Отдельного топика тормоза нет и не ожидается.
+Торможение — знак `driver_position_cmd.position`: больше нуля — тяга, меньше
+нуля — торможение по строке таблицы, ноль — выбег. Пропуск такого топика не
+является неисправностью. ZUPT смотрит на скорости тележек, не на тормоз.
 
 ## Сборка (без интернета)
 
@@ -72,16 +81,27 @@ ros2 launch railbreak_backup_odometry backup_odometry.launch.py
 ros2 bag play data/<bag_id>
 ```
 
-Нода не зависит от `/clock` и работает с `--clock` и без него, на любой скорости
-проигрывания: время берётся из `header.stamp` входных сообщений.
+Нода не зависит от `/clock` и работает с `--clock` и без него: время берётся из
+`header.stamp` входных сообщений. На прежнем водяном знаке от самого нового
+штампа `jury.ps1 record` записи `30618_e9a34502` при `--rate 1` дал 3D RMSE
+15.293 м и `n_behind_out` 9969, при `--rate 10` — 2.684 м. Офлайн-двойник того
+же рейса — 3D 0.767 м. Этот прогон с водяным знаком по самому медленному потоку
+не переигрывался.
 
 ## Что ожидать
 
 | Топик | Тип | Содержимое |
 |---|---|---|
-| `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | `velocity`, м/с |
+| `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | `velocity`, продольная скорость, м/с |
 | `/result/position` | `nav_msgs/Odometry` | MGRS, точка `base_link` (ось первой тележки, касание колеса и рельса): UTM 37N минус 300000 / 6100000, x восток, y север. Окно — 3 с от первого валидного фикса любой антенны. Дуга — медиана master внутри этого окна, затем +9.873 м вдоль пути и −3 м по высоте. tf: master (−9.873, 0, 3), rover (2.563, 0, 3). Если master пуст, дуга rover отступает на 12.436 м. `mkrs_start` — городская сетка от старта. `twist.twist.linear.x` — скорость, м/с |
 | `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, флаг проскальзывания, масштаб колеса, путь s, σ_s, число якорей, состояние GNSS, максимальное время колбэка |
+
+`/result/velocity` публикуется как `tram_vehicle_msgs/msg/VelocitySensor`:
+`std_msgs/Header header` и `float64 velocity`. Это не `TwistStamped` и не
+`Vector3Stamped`. Чекер из `check-code-with-bag.zip` подписывается на этот тип,
+читает поле `velocity` и сравнивает его с `twist.twist.linear.x` эталона, м/с.
+`header.frame_id` — `base_link`. `header.stamp` — штамп входа, который породил
+публикацию, не часы узла и не `/clock`.
 
 Каждое сообщение `/result/*` публикуется в колбэке входа и несёт его
 `header.stamp`. Частота — на каждый вход: тележки по ~10 Гц и ручка 20 Гц, итого
@@ -94,12 +114,21 @@ ros2 bag play data/<bag_id>
 Отдельного таймера нет: штамп без входного сообщения судья не с чем сравнить.
 Вход — best effort, очередь 500. При `ros2 bag play --rate 10` глубина 10
 давала разрывы выхода до 2 с; с очередью 500 на тех же записях разрыв
-0.097–0.190 с. Надёжный подписчик к
+0.097–0.190 с. В `/result/diagnostics` есть `front_age_s` и `rear_age_s`:
+возраст последнего штампа тележки против времени фильтра. У каждого входа
+свой `front_kind`, `rear_kind` и `cmd_kind`: `missing`, `stale`, `outlier`,
+`impossible`, `disagree` или `ok`. Это не один статус `DEGRADED`.
+`quality_score` равен 1 только при `ok` и не является вероятностью. Неверная
+единица, которая после масштаба всё ещё меньше 30 м/с, отдельно не распознаётся.
+Надёжный подписчик к
 best-effort издателю не подключается.
 
 ## Логи, метрики, задержка
 
 ```bash
+ros2 topic type /result/velocity
+ros2 interface show tram_vehicle_msgs/msg/VelocitySensor
+ros2 topic echo /result/velocity
 ros2 topic hz /result/velocity
 ros2 topic echo /result/diagnostics --field status[0].values
 ```

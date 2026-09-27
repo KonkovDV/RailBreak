@@ -24,7 +24,16 @@
 //   update   u_bogie = v / k + e
 //   ZUPT     both bogies still for zupt_hold_s  ->  v = 0
 //   anchor   once per dwell, unique station within the gate:  s = s_stop + e
+//
+// a_tab is theta_drive * F - R - F_brake as one acceleration. Mass and
+// traction_scale are not states. On a long flat cruise with a held traction
+// notch, ba's mean is frozen and its variance keeps the process noise.
+// k stays a consider state on wheel updates. The rear/front ratio is a
+// relative scale and remains observable at constant speed.
 #pragma once
+
+#include "railbreak_backup_odometry/model_bank.hpp"
+#include "railbreak_backup_odometry/source_quality.hpp"
 
 #include <algorithm>
 #include <array>
@@ -70,6 +79,7 @@ struct Params {
   double zupt_v = 0.05;
   double zupt_hold_s = 1.0;
   double zupt_noise_mult = 3.0;
+  double zupt_v_max = 0.5;  // cap: 3*sqrt(r_max) would be 3 m/s, about 10.8 km/h
   double stop_sd_max = 3.0;
   double stop_sigma_floor = 1.0;
   double stop_gate = 3.0;
@@ -77,11 +87,17 @@ struct Params {
   double dt_max = 0.2;
   double max_gap_s = 30.0;  // longer gaps: reset the time base, do not integrate
   double v_max = 30.0;      // plausibility bound on a bogie sample (m/s)
-  double recover_s = 3.0;   // bogies agree but the model does not: trust bogies after this
+  double recover_s = 3.0;   // after this, agreeing bogies are not treated as trustworthy
   double load_factor = 1.0;  // scales a_tab only; 1 leaves the identified table
   double davis_a = 0.0;      // extra resistance, m/s^2, 1/s, 1/m; 0 is already in a_tab
   double davis_b = 0.0;
   double davis_c = 0.0;
+  // Bias adaptation. A long flat traction cruise does not identify ba.
+  double excite_v_start = 1.0;     // below this, the segment is a start
+  double excite_dv = 0.3;          // speed change that counts as acceleration
+  double excite_uniform_s = 5.0;   // flat traction cruise before ba is frozen
+  double excite_notch_s = 2.0;     // after a controller step, ba may still move
+  double excite_grade = 0.005;     // |dh/ds| that counts as a known grade
 };
 
 // Configuration is rejected before the first step. The numerical guard is not
@@ -101,6 +117,20 @@ inline void validate_params(const Params& p) {
     throw std::invalid_argument("sigma_k0 variance must be > 0");
   if (!std::isfinite(p.sigma_ba0) || p.sigma_ba0 == 0.0)
     throw std::invalid_argument("sigma_ba0 variance must be > 0");
+  if (!std::isfinite(p.zupt_v) || p.zupt_v < 0.0)
+    throw std::invalid_argument("zupt_v must be >= 0");
+  if (!std::isfinite(p.zupt_v_max) || !(p.zupt_v_max >= p.zupt_v))
+    throw std::invalid_argument("zupt_v_max must be >= zupt_v");
+  if (!std::isfinite(p.excite_v_start) || p.excite_v_start < 0.0)
+    throw std::invalid_argument("excite_v_start must be >= 0");
+  if (!std::isfinite(p.excite_dv) || !(p.excite_dv > 0.0))
+    throw std::invalid_argument("excite_dv must be > 0");
+  if (!std::isfinite(p.excite_uniform_s) || !(p.excite_uniform_s > 0.0))
+    throw std::invalid_argument("excite_uniform_s must be > 0");
+  if (!std::isfinite(p.excite_notch_s) || p.excite_notch_s < 0.0)
+    throw std::invalid_argument("excite_notch_s must be >= 0");
+  if (!std::isfinite(p.excite_grade) || p.excite_grade < 0.0)
+    throw std::invalid_argument("excite_grade must be >= 0");
 }
 
 // have_ring is false when the map is absent: relative odometry has no loop to wrap.
@@ -121,6 +151,37 @@ inline void validate_geometry(double gnss_window_s, double gnss_wait_s, double o
   if (!std::isfinite(initial_s_m)) throw std::invalid_argument("initial_s_m must be finite or unset");
   if (have_ring && !(initial_s_m >= -ring_len && initial_s_m <= 2.0 * ring_len))
     throw std::invalid_argument("initial_s_m is outside the ring and would wrap");
+}
+
+// A rover-only snap is the rover antenna. Master is rover_baseline_m behind it
+// along the ring. The publish offset is applied after this and lands on base_link.
+inline double arc_from_rover_only(double snap_s, double rover_baseline_m) {
+  return snap_s - rover_baseline_m;
+}
+
+// Both radii unset (the package default) leave k0 alone. A passport radius is
+// applied only when both are positive: k0 *= wheel / nominal. 0.35 m is not
+// a default and is not read from anywhere in this package.
+// Standstill gate. The noise term widens it when the bogies disagree, and
+// zupt_v_max stops R = 1 (m/s)^2 from calling 3 m/s a stop.
+inline double zupt_speed_threshold(double zupt_v, double noise_mult, double r, double zupt_v_max) {
+  const double noise = noise_mult * std::sqrt(std::max(r, 0.0));
+  return std::min(zupt_v_max, std::max(zupt_v, noise));
+}
+
+inline double apply_wheel_radius(double k0, double wheel_radius_m, double wheel_radius_nominal_m) {
+  if (wheel_radius_m > 0.0 && wheel_radius_nominal_m > 0.0)
+    return k0 * wheel_radius_m / wheel_radius_nominal_m;
+  return k0;
+}
+
+// Radius uncertainty enters the scale prior only when a radius pair is set.
+// An unset radius leaves sigma_k0 alone.
+inline double wheel_scale_sigma(double sigma_k0, double wheel_radius_m, double wheel_radius_nominal_m,
+                                double wheel_radius_sigma_m) {
+  if (!(wheel_radius_m > 0.0) || !(wheel_radius_nominal_m > 0.0) || !(wheel_radius_sigma_m > 0.0))
+    return sigma_k0;
+  return std::hypot(sigma_k0, wheel_radius_sigma_m / wheel_radius_nominal_m);
 }
 
 
@@ -296,7 +357,9 @@ inline void validate_assets(const Assets& a) {
   }
 }
 
-enum class Mode : std::uint8_t { kUninit = 0, kWheels = 1, kModel = 2, kZupt = 3, kFreeze = 4 };
+enum class Mode : std::uint8_t {
+  kUninit = 0, kWheels = 1, kModel = 2, kZupt = 3, kFreeze = 4, kCommon = 5
+};
 
 inline const char* mode_name(Mode m) {
   switch (m) {
@@ -305,6 +368,7 @@ inline const char* mode_name(Mode m) {
     case Mode::kModel: return "MODEL";
     case Mode::kZupt: return "ZUPT";
     case Mode::kFreeze: return "FREEZE";
+    case Mode::kCommon: return "COMMON_MODE_UNOBSERVABLE";
   }
   return "?";
 }
@@ -315,11 +379,23 @@ struct Bogie {
   double u = 0.0;  // m/s
 };
 
+// One dwell. The gate is not changed by writing this down.
+struct AnchorDecision {
+  double distance_since_anchor = 0.0;
+  double predicted_s = 0.0;
+  double candidate_s = 0.0;
+  double innovation = 0.0;
+  double gate = 0.0;
+  bool accepted = false;
+  const char* reason = "no_station";
+};
+
 
 class TrackOdometer {
  public:
-  static constexpr int N = 4;
+  static constexpr int N = 8;
   static constexpr int IS = 0, IV = 1, IK = 2, IBA = 3;
+  static constexpr int IKF = 4, IKR = 5, IBF = 6, IBR = 7;
   using Vec = std::array<double, N>;
   using Mat = std::array<std::array<double, N>, N>;
 
@@ -331,12 +407,18 @@ class TrackOdometer {
   }
 
   void reset() {
-    x_ = {0.0, 0.0, p_.k0, 0.0};
+    x_ = {0.0, 0.0, p_.k0, 0.0, 0.0, 0.0, 0.0, 0.0};
     P_ = {};
     P_[IS][IS] = 1.0;
     P_[IV][IV] = 0.01;
     P_[IK][IK] = p_.sigma_k0 * p_.sigma_k0;
     P_[IBA][IBA] = p_.sigma_ba0 * p_.sigma_ba0;
+    // Bogie scale and bias are not in the wheel Kalman gain. A large prior
+    // would not change S. The slow step below writes the mean.
+    P_[IKF][IKF] = 0.02 * 0.02;
+    P_[IKR][IKR] = 0.02 * 0.02;
+    P_[IBF][IBF] = 0.05 * 0.05;
+    P_[IBR][IBR] = 0.05 * 0.05;
     have_t_ = false;
     notch_ = 0;
     front_ = rear_ = Bogie{};
@@ -356,7 +438,26 @@ class TrackOdometer {
     wheel_consensus_have_ = false;
     mode_ = Mode::kWheels;
     n_anchor_ = n_rejected_ = n_gap_reset_ = n_guard_ = 0;
+    n_dropout_front_ = n_dropout_rear_ = 0;
+    n_outlier_front_ = n_outlier_rear_ = n_outlier_cmd_ = 0;
+    n_impossible_front_ = n_impossible_rear_ = 0;
+    front_reject_ = rear_reject_ = cmd_reject_ = "none";
+    have_cmd_ = false;
+    last_cmd_t_ = 0.0;
+    uniform_since_ = -1.0;
+    v_uniform_ = 0.0;
+    notch_mark_ = 0;
+    notch_changed_t_ = -1.0;
+    params_frozen_ = false;
+    segment_ = "start";
+    bank_ = ModelBank{};
+    bank_ready_ = false;
+    bank_t_ = 0.0;
+    notch_hist_n_ = 0;
+    anchor_log_.clear();
+    s_anchor_ref_ = 0.0;
     have_v_ = false;
+    common_unobservable_ = false;
     disagree_since_ = -1.0;
   }
 
@@ -368,6 +469,7 @@ class TrackOdometer {
       throw std::invalid_argument("initial s is outside the ring and would wrap");
     x_[IS] = s0;
     P_[IS][IS] = sigma_s0 * sigma_s0;
+    s_anchor_ref_ = s0;
   }
 
   void set_time(double t) {
@@ -382,6 +484,15 @@ class TrackOdometer {
     if (step_frozen_) mode_ = Mode::kFreeze;
     else if (mode_ == Mode::kFreeze) mode_ = Mode::kWheels;
     notch_ = std::clamp(position, kNotchMin, kNotchMax);
+    note_drive(t);
+    if (position < kNotchMin || position > kNotchMax) {
+      ++n_outlier_cmd_;
+      cmd_reject_ = "outlier";
+    } else {
+      cmd_reject_ = "none";
+    }
+    last_cmd_t_ = t;
+    have_cmd_ = true;
   }
 
   void on_bogie(double t, bool is_front, double raw) {
@@ -392,15 +503,35 @@ class TrackOdometer {
     predict(t);
     if (!std::isfinite(raw)) {
       ++n_rejected_;
+      if (is_front) {
+        ++n_outlier_front_;
+        front_reject_ = "outlier";
+      } else {
+        ++n_outlier_rear_;
+        rear_reject_ = "outlier";
+      }
       return;
     }
     const double u_raw = raw * p_.unit;
     if (std::fabs(u_raw) > p_.v_max) {
       ++n_rejected_;
+      if (is_front) {
+        ++n_impossible_front_;
+        front_reject_ = "impossible";
+      } else {
+        ++n_impossible_rear_;
+        rear_reject_ = "impossible";
+      }
       return;
     }
     Bogie& me = is_front ? front_ : rear_;
     const Bogie other = is_front ? rear_ : front_;
+    if (me.have && t - me.t > p_.wheel_stale_s) {
+      if (is_front) ++n_dropout_front_;
+      else ++n_dropout_rear_;
+    }
+    if (is_front) front_reject_ = "none";
+    else rear_reject_ = "none";
     me = {true, t, u_raw};
     const bool fresh_other = other.have && t >= other.t && t - other.t < p_.wheel_stale_s && std::isfinite(other.u);
     const double u = corrected(is_front, u_raw);
@@ -433,43 +564,39 @@ class TrackOdometer {
       if (!agree && std::fabs(u - pred) > std::fabs(uo - pred)) slip = true;
       const double uf = is_front ? u_raw : other.u;
       const double ur = is_front ? other.u : u_raw;
-      learn_pair(uf, ur);
+      // Two equally wrong bogies must not train the scale or the bias.
+      if (!common_unobservable_) learn_pair(uf, ur);
     }
-    // Both bogies agree with each other but not with the model: a short run is
-    // a slide or spin of both, a long one means the model state is wrong (after
-    // a dropout). Re-acquire from the bogies.
-    if (slip && agree) {
-      if (disagree_since_ < 0.0) {
-        disagree_since_ = t;
-      } else if (t - disagree_since_ >= p_.recover_s) {
-        const Vec x_keep = x_;
-        const Mat p_keep = P_;
-        x_[IV] = std::max(0.0, u * k);
-        for (int i = 0; i < N; ++i) P_[IV][i] = P_[i][IV] = 0.0;
-        P_[IV][IV] = r * k * k;
-        if (!state_numerical()) {
-          // The bogies were not copied into the state. Leave the slip flags
-          // as they were: this is not a recovered WHEELS step.
-          x_ = x_keep;
-          P_ = p_keep;
-          note_freeze();
-          disagree_since_ = -1.0;
-          return;
-        }
-        disagree_since_ = -1.0;
-        note_slip(is_front, false, t, innov * innov / S);
-        slip_ = false;
-        zupt(t);
-        if (mode_ != Mode::kZupt) mode_ = Mode::kWheels;
-        return;
+    // Agreement with each other is not an independent measurement of speed.
+    // After recover_s the episode stays unobservable until a station anchor.
+    // A new GNSS start and a third sensor are not available in this node.
+    if (slip && agree && !common_unobservable_) {
+      if (disagree_since_ < 0.0) disagree_since_ = t;
+      if (t - disagree_since_ >= p_.recover_s) {
+        common_unobservable_ = true;
+        P_[IS][IS] += 1.0;
+        P_[IV][IV] += 1.0;
       }
-    } else {
+    } else if (!common_unobservable_) {
       disagree_since_ = -1.0;
+    }
+    if (common_unobservable_) {
+      const double nis = S > 0.0 ? innov * innov / S : 0.0;
+      note_slip(true, true, t, nis);
+      note_slip(false, true, t, nis);
+      slip_ = true;
+      step_bank(t, std::max(0.0, x_[IV]));
+      zupt(t);
+      if (common_unobservable_ && mode_ != Mode::kZupt && mode_ != Mode::kFreeze)
+        mode_ = Mode::kCommon;
+      return;
     }
     note_slip(is_front, slip, t, innov * innov / S);
     slip_ = slip;
-    update_scalar(h, innov, slip ? p_.r_bad : r, true);
+    if (fresh_other && agree && !slip && !common_unobservable_) adapt_bogie_scale(is_front, innov, v);
+    update_scalar(h, innov, slip ? p_.r_bad : r, true, true);
     x_[IV] = std::max(0.0, x_[IV]);
+    step_bank(t, std::max(0.0, u * x_[IK]));
     zupt(t);
     if (step_frozen_) mode_ = Mode::kFreeze;
     else if (mode_ != Mode::kZupt) mode_ = slip ? Mode::kModel : Mode::kWheels;
@@ -478,11 +605,24 @@ class TrackOdometer {
   double s() const { return a_->map.wrap(x_[IS]); }
   double v() const { return x_[IV]; }
   double k() const { return x_[IK]; }
+  double k_front() const { return x_[IKF]; }
+  double k_rear() const { return x_[IKR]; }
+  double b_front() const { return x_[IBF]; }
+  double b_rear() const { return x_[IBR]; }
   double model_bias() const { return x_[IBA]; }
-  double rear_front_ratio() const { return std::exp(log_rho_); }
+  double sigma_ba() const { return std::sqrt(std::max(P_[IBA][IBA], 0.0)); }
+  bool params_frozen() const { return params_frozen_; }
+  const char* drive_segment() const { return segment_; }
+  const ModelConsensus& model_consensus() const { return bank_.consensus(); }
+  bool model_bank_ready() const { return bank_ready_; }
+  double rear_front_ratio() const { return (1.0 + x_[IKR]) / (1.0 + x_[IKF]); }
   double noise_sd() const { return std::sqrt(r_); }
   double sigma_s() const { return std::sqrt(std::max(P_[IS][IS], 0.0)); }
   double sigma_v() const { return std::sqrt(std::max(P_[IV][IV], 0.0)); }
+  double sigma_k() const { return std::sqrt(std::max(P_[IK][IK], 0.0)); }
+  double distance_since_anchor() const {
+    return std::fabs(ring_delta(a_->map.wrap(x_[IS]), s_anchor_ref_));
+  }
 
   // Numerical stops, not a physical identification of the scale or the bias.
   // 1/k then stays in [2/3, 2]. On the recorded runs k stays near 1 and b_a
@@ -507,6 +647,7 @@ class TrackOdometer {
   bool slip() const { return slip_; }
   // Last callback only. The other bogie keeps its own flag until it speaks.
   bool slip_front() const { return slip_front_; }
+  bool common_unobservable() const { return common_unobservable_; }
   bool slip_rear() const { return slip_rear_; }
   int slip_front_run() const { return slip_front_run_; }
   int slip_rear_run() const { return slip_rear_run_; }
@@ -520,6 +661,23 @@ class TrackOdometer {
   Mode mode() const { return mode_; }
   int notch() const { return notch_; }
   int n_anchor() const { return n_anchor_; }
+  SourceQuality bogie_quality(bool is_front) const {
+    const Bogie& b = is_front ? front_ : rear_;
+    const double age = (!b.have || !have_t_) ? 1.0e9 : std::max(0.0, t_ - b.t);
+    const bool slip = is_front ? slip_front_ : slip_rear_;
+    const bool disagree = b.have && pair_fresh() && !bogies_agree() && slip;
+    return classify_source(b.have, b.t, age, p_.wheel_stale_s, p_.unit,
+                           is_front ? n_dropout_front_ : n_dropout_rear_,
+                           is_front ? n_outlier_front_ : n_outlier_rear_,
+                           is_front ? n_impossible_front_ : n_impossible_rear_,
+                           is_front ? front_reject_ : rear_reject_, disagree);
+  }
+  SourceQuality cmd_quality() const {
+    const double age = (!have_cmd_ || !have_t_) ? 1.0e9 : std::max(0.0, t_ - last_cmd_t_);
+    return classify_source(have_cmd_, last_cmd_t_, age, p_.max_gap_s, 1.0, 0, n_outlier_cmd_, 0,
+                           cmd_reject_, false);
+  }
+  const std::vector<AnchorDecision>& anchor_log() const { return anchor_log_; }
   bool stamp_ok(double t) {
     if (!std::isfinite(t) || (have_t_ && t < t_)) {
       ++n_rejected_;
@@ -569,6 +727,8 @@ class TrackOdometer {
     if (have_rear_model_) return rear_model_resid_;
     return 0.0;
   }
+  double front_model_residual() const { return have_front_model_ ? front_model_resid_ : 0.0; }
+  double rear_model_residual() const { return have_rear_model_ ? rear_model_resid_ : 0.0; }
   // Same gate as anchor(), without applying it. 0, 1, or more.
   int station_candidates() const {
     const double s = a_->map.wrap(x_[IS]);
@@ -584,16 +744,64 @@ class TrackOdometer {
   }
 
  private:
+  // z = (1 + k_i) * (v / k) + b_i. The value returned is the wheel speed with
+  // that bogie's own scale and bias taken out, so it is compared with v/k.
   double corrected(bool is_front, double u) const {
-    const double half = 0.5 * log_rho_;
-    return is_front ? u * std::exp(half) : u * std::exp(-half);
+    const double ki = is_front ? x_[IKF] : x_[IKR];
+    const double bi = is_front ? x_[IBF] : x_[IBR];
+    const double denom = 1.0 + ki;
+    if (!(std::fabs(denom) > 0.5)) return u;
+    return (u - bi) / denom;
   }
 
-  double a_model(double v, double s) const {
+  double a_model(double v, double s) const { return a_for(notch_, v, s); }
+
+  double a_for(int notch, double v, double s) const {
     const double q = std::max(v, 0.0);
-    const double tab = a_->table.lookup(notch_, q);
+    const double tab = a_->table.lookup(notch, q);
     return p_.load_factor * tab - kG * a_->map.at(a_->map.grade, s) -
            (p_.davis_a + p_.davis_b * q + p_.davis_c * q * q);
+  }
+
+  void remember_notch(double t) {
+    if (notch_hist_n_ < 16) {
+      notch_hist_[notch_hist_n_++] = NotchMark{t, notch_};
+      return;
+    }
+    for (int i = 1; i < 16; ++i) notch_hist_[i - 1] = notch_hist_[i];
+    notch_hist_[15] = NotchMark{t, notch_};
+  }
+
+  int notch_at(double t_query) const {
+    int notch = notch_;
+    double best = -1.0e300;
+    for (int i = 0; i < notch_hist_n_; ++i) {
+      if (notch_hist_[i].t <= t_query && notch_hist_[i].t >= best) {
+        best = notch_hist_[i].t;
+        notch = notch_hist_[i].notch;
+      }
+    }
+    return notch;
+  }
+
+  void step_bank(double t, double u_mps) {
+    remember_notch(t);
+    if (!bank_ready_) {
+      bank_.init(x_[IS], x_[IV]);
+      bank_t_ = t;
+      bank_ready_ = true;
+      return;
+    }
+    const double dt = t - bank_t_;
+    if (!(dt > 0.0) || dt > p_.max_gap_s) {
+      bank_t_ = t;
+      return;
+    }
+    const double a_now = a_for(notch_, x_[IV], x_[IS]) + x_[IBA];
+    const double a_delayed = a_for(notch_at(t - ModelBank::kDelayS), x_[IV], x_[IS]) + x_[IBA];
+    const double meas = std::max(r_, 1.0e-6) * x_[IK] * x_[IK];
+    bank_.step(dt, a_now, a_delayed, u_mps, meas);
+    bank_t_ = t;
   }
 
   double quad(const Vec& h) const {
@@ -639,15 +847,19 @@ class TrackOdometer {
       r_ += p_.r_alpha_grow * (0.5 * ec * ec - r_);
     }
     r_ = std::clamp(r_, p_.r_min, p_.r_max);
-    // Per fresh pair, not per second. Recordings are about 10 Hz per bogie, and
-    // both callbacks learn, so the same step is not a time constant at 20 or 50 Hz.
-    if (uf > p_.rho_v_min && ur > p_.rho_v_min && std::abs(notch_) <= p_.rho_notch_max) {
-      const double lr = std::log(ur / uf);
-      if (std::fabs(lr) < p_.rho_max + 0.02) {
-        log_rho_ += lr > log_rho_ ? p_.rho_step : -p_.rho_step;
-        log_rho_ = std::clamp(log_rho_, -p_.rho_max, p_.rho_max);
-      }
-    }
+  }
+
+  // One sign step. Only a pair that agrees with itself and with the model
+  // may move a bogie scale. A diverging bogie, and a pair that diverges
+  // together, leave both scales where they are.
+  void adapt_bogie_scale(bool is_front, double innov, double v) {
+    if (std::abs(notch_) > p_.rho_notch_max || v < p_.rho_v_min) return;
+    double& ki = is_front ? x_[IKF] : x_[IKR];
+    double& bi = is_front ? x_[IBF] : x_[IBR];
+    const double ks = innov > 0.0 ? p_.rho_step : (innov < 0.0 ? -p_.rho_step : 0.0);
+    const double bs = innov > 0.0 ? 0.5 * p_.rho_step : (innov < 0.0 ? -0.5 * p_.rho_step : 0.0);
+    if (v >= 2.0) ki = std::clamp(ki + ks, -p_.rho_max, p_.rho_max);
+    else bi = std::clamp(bi + bs, -0.5, 0.5);
   }
 
   bool state_numerical() const {
@@ -713,8 +925,11 @@ class TrackOdometer {
       for (int i = 0; i < N; ++i)
         for (int j = 0; j < N; ++j)
           for (int m = 0; m < N; ++m) out[i][j] += FP[i][m] * F[j][m];
-      out[IS][IS] += p_.q_s * dt;
-      out[IV][IV] += p_.q_v * dt;
+      // While both bogies only agree with each other, do not let that
+      // measurement collapse the motion covariance.
+      const double q_motion = common_unobservable_ ? 10.0 : 1.0;
+      out[IS][IS] += p_.q_s * dt * q_motion;
+      out[IV][IV] += p_.q_v * dt * q_motion;
       out[IK][IK] += p_.q_k * dt;
       out[IBA][IBA] += p_.q_ba * dt;
       P_ = out;
@@ -730,7 +945,42 @@ class TrackOdometer {
     t_ = t;
   }
 
-  void update_scalar(const Vec& h, double innov, double r, bool consider_k) {
+  void note_drive(double t) {
+    if (notch_ != notch_mark_) {
+      notch_changed_t_ = t;
+      notch_mark_ = notch_;
+    }
+    const double grade = a_->map.s.empty() ? 0.0
+                                         : a_->map.at(a_->map.grade, a_->map.wrap(x_[IS]));
+    const double notch_age = notch_changed_t_ < 0.0 ? 1.0e9 : std::max(0.0, t - notch_changed_t_);
+    const bool start = mode_ == Mode::kZupt || x_[IV] < p_.excite_v_start;
+    const bool notch_edge = notch_changed_t_ >= 0.0 && notch_age <= p_.excite_notch_s;
+    const bool brake = notch_ < 0;
+    const bool coast = notch_ == 0;
+    const bool grade_on = std::fabs(grade) >= p_.excite_grade;
+    const bool accel = uniform_since_ >= 0.0 && std::fabs(x_[IV] - v_uniform_) >= p_.excite_dv;
+    if (start || brake || coast || notch_edge || grade_on || accel) {
+      uniform_since_ = -1.0;
+      v_uniform_ = x_[IV];
+      params_frozen_ = false;
+      if (start) segment_ = "start";
+      else if (brake) segment_ = "brake";
+      else if (coast) segment_ = "coast";
+      else if (notch_edge) segment_ = "notch";
+      else if (grade_on) segment_ = "grade";
+      else segment_ = "accel";
+      return;
+    }
+    if (uniform_since_ < 0.0) {
+      uniform_since_ = t;
+      v_uniform_ = x_[IV];
+    }
+    params_frozen_ = (t - uniform_since_) >= p_.excite_uniform_s;
+    segment_ = params_frozen_ ? "uniform" : "hold";
+  }
+
+  void update_scalar(const Vec& h, double innov, double r, bool consider_k, bool gate_bias = false) {
+    note_drive(t_);
     Vec Ph{};
     for (int i = 0; i < N; ++i)
       for (int j = 0; j < N; ++j) Ph[i] += P_[i][j] * h[j];
@@ -742,6 +992,7 @@ class TrackOdometer {
     Vec K{};
     for (int i = 0; i < N; ++i) K[i] = Ph[i] / S;
     if (consider_k) K[IK] = 0.0;
+    if (gate_bias && params_frozen_) K[IBA] = 0.0;
     for (int i = 0; i < N; ++i) x_[i] += K[i] * innov;
     // Joseph form, valid for the suboptimal (consider) gain.
     Mat A{}, AP{}, out{};
@@ -770,7 +1021,7 @@ class TrackOdometer {
   }
 
   void zupt(double t) {
-    const double thr = std::max(p_.zupt_v, p_.zupt_noise_mult * std::sqrt(r_));
+    const double thr = zupt_speed_threshold(p_.zupt_v, p_.zupt_noise_mult, r_, p_.zupt_v_max);
     const bool both_still = front_.have && rear_.have && std::fabs(front_.u) < thr &&
                             std::fabs(rear_.u) < thr &&
                             std::fabs(front_.t - rear_.t) < p_.wheel_stale_s;
@@ -808,23 +1059,75 @@ class TrackOdometer {
     const double s = a_->map.wrap(x_[IS]);
     const double sig = std::sqrt(std::max(P_[IS][IS], 0.0));
     int n_cand = 0;
-    double best_d = 0.0, best_r = 0.0;
+    int n_seen = 0;
+    double best_d = 0.0, best_r = 0.0, best_s = 0.0, best_gate = 0.0;
+    double near_abs = std::numeric_limits<double>::infinity();
+    double near_d = 0.0, near_gate = 0.0, near_s = std::numeric_limits<double>::quiet_NaN();
     for (const auto& st : a_->stops) {
       if (st.sd_m > p_.stop_sd_max) continue;
+      ++n_seen;
       const double r_sd = std::max(st.sd_m, p_.stop_sigma_floor);
       const double gate = p_.stop_gate * std::sqrt(sig * sig + r_sd * r_sd);
       const double d = ring_delta(st.s_m, s);
+      if (std::fabs(d) < near_abs) {
+        near_abs = std::fabs(d);
+        near_d = d;
+        near_gate = gate;
+        near_s = st.s_m;
+      }
       if (std::fabs(d) <= gate) {
         ++n_cand;
-        best_d = d;
-        best_r = r_sd;
+        if (n_cand == 1 || std::fabs(d) < std::fabs(best_d)) {
+          best_d = d;
+          best_r = r_sd;
+          best_s = st.s_m;
+          best_gate = gate;
+        }
       }
     }
+    AnchorDecision row;
+    row.distance_since_anchor = std::fabs(ring_delta(s, s_anchor_ref_));
+    row.predicted_s = s;
+    if (n_cand == 1) {
+      row.candidate_s = best_s;
+      row.innovation = best_d;
+      row.gate = best_gate;
+      row.accepted = true;
+      row.reason = "accepted";
+    } else if (n_seen == 0) {
+      row.reason = "no_station";
+    } else if (n_cand == 0) {
+      row.candidate_s = near_s;
+      row.innovation = near_d;
+      row.gate = near_gate;
+      row.reason = "outside_gate";
+    } else {
+      row.candidate_s = best_s;
+      row.innovation = best_d;
+      row.gate = best_gate;
+      row.reason = "ambiguous";
+    }
+    anchor_log_.push_back(row);
     if (n_cand != 1) return;  // none, or ambiguous: do not guess
+    const double travelled = ring_delta(s, s_anchor_ref_);
+    const int guards_before = n_guard_;
     Vec h{};
     h[IS] = 1.0;
     update_scalar(h, best_d, best_r * best_r, false);
+    // The station measures position. The missed distance over the run is the
+    // common scale. A short dwell does not identify it.
+    if (n_guard_ == guards_before && std::fabs(travelled) >= 50.0 && best_r > 0.0) {
+      const double innov_k = x_[IK] * best_d / travelled;
+      const double sig_k = std::max(1e-6, std::fabs(x_[IK]) * best_r / std::fabs(travelled));
+      Vec hk{};
+      hk[IK] = 1.0;
+      update_scalar(hk, innov_k, sig_k * sig_k, false);
+    }
+    s_anchor_ref_ = a_->map.wrap(x_[IS]);
     ++n_anchor_;
+    // A station is an independent reference. Agreement of the two bogies is not.
+    common_unobservable_ = false;
+    disagree_since_ = -1.0;
   }
 
   const Assets* a_;
@@ -855,11 +1158,37 @@ class TrackOdometer {
   double wheel_consensus_resid_ = 0.0;
   bool wheel_consensus_have_ = false;
   bool have_v_ = false;
+  bool common_unobservable_ = false;
   bool step_frozen_ = false;
   double disagree_since_ = -1.0;
   Mode mode_ = Mode::kWheels;
   int n_anchor_ = 0;
+  double s_anchor_ref_ = 0.0;
+  std::vector<AnchorDecision> anchor_log_;
   int n_rejected_ = 0;
+  int n_dropout_front_ = 0, n_dropout_rear_ = 0;
+  int n_outlier_front_ = 0, n_outlier_rear_ = 0, n_outlier_cmd_ = 0;
+  int n_impossible_front_ = 0, n_impossible_rear_ = 0;
+  const char* front_reject_ = "none";
+  const char* rear_reject_ = "none";
+  const char* cmd_reject_ = "none";
+  bool have_cmd_ = false;
+  double last_cmd_t_ = 0.0;
+  double uniform_since_ = -1.0;
+  double v_uniform_ = 0.0;
+  int notch_mark_ = 0;
+  double notch_changed_t_ = -1.0;
+  bool params_frozen_ = false;
+  const char* segment_ = "start";
+  ModelBank bank_{};
+  bool bank_ready_ = false;
+  double bank_t_ = 0.0;
+  struct NotchMark {
+    double t = 0.0;
+    int notch = 0;
+  };
+  NotchMark notch_hist_[16]{};
+  int notch_hist_n_ = 0;
   int n_gap_reset_ = 0;
   int n_guard_ = 0;
 };

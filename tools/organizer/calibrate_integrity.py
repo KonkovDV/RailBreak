@@ -1,5 +1,9 @@
 """Fit the empirical along-track bound on the train split.
 
+Val is the independent check. Refitting q on val would cover that split by
+construction and is not a calibration. The statement on the written file is
+"empirical bound, not certified protection level".
+
 q_0.99 is the pooled 99th percentile of |e_s| / sigma_s on clean train fixes
 whose shadow status is NOMINAL and sigma_s is at least 0.05 m. Validation is
 scored with those coefficients and is not used to choose them. The hidden
@@ -124,6 +128,8 @@ def _replay(path: Path, fault: str) -> dict | None:
             od, float(od.t), stamp_regressed=regressed, absolute_start=True, map_in_domain=True,
         )
         report = mon.update(snap)
+        if report.status not in STATUSES:
+            continue
         ss, _vv, _kk, sg = od.state()
         et.append(float(od.t))
         es.append(ss)
@@ -348,6 +354,9 @@ def main() -> int:
         "b_map_m": b_map,
         "b_map_identified": False,
         "formula": "q_0.99 * sigma_s + B_mode + B_time + B_map",
+        "statement": "empirical bound, not certified protection level",
+        "coefficient_fit_split": "train",
+        "independent_check_split": "val",
         "n_train_rides": len(clean),
         "n_train_nominal_fixes": int(nominal.sum()),
         "n_val_rides": len(val_rows),
