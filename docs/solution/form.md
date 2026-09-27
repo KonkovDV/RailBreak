@@ -95,7 +95,7 @@ https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/assumptions.md
 ## Поле 5. Точность и быстродействие
 
 ```
-Таблицы — против GNSS. Судья сравнивает положение с kinematic_state по x, y, z. Графиков нет. На текущем HEAD выполнен собственный rate-1 acceptance-прогон одной записи. Он прошёл локальные контрактные проверки. Официальный hackathon_solution_checker и полные замеры RSS и CPU этого дерева не запускались. Ряд 1.467 / 5.828 / 84.0 м — старое дерево. 14.282 м — свой score_ros, не официальный балл. callback_max_us — не задержка вход→выход.
+Таблицы — против GNSS. Судья сравнивает положение с kinematic_state по x, y, z. Графиков нет. На текущем HEAD выполнен собственный rate-1 acceptance-прогон одной записи. Он прошёл локальные контрактные проверки. Официальный checker на 30618_88aea4d9, rate 10: положение 3D RMSE 9.481493 м, max 25.691509 м. Скорость RMSE 0.077394 м/с. Это не ряд 1.467 м. Rate 1 этой записи не доигран. У скорости на rate 10 max gap 0.894 с. RSS и CPU не сняты. callback_max_us — не задержка вход→выход.
 
 https://github.com/KonkovDV/RailBreak/blob/main/docs/solution/results.md
 ```
