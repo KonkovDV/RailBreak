@@ -357,6 +357,31 @@ class IntegrityTests(unittest.TestCase):
         self.assertGreater(od.distance_since_anchor(), 100.0)
         self.assertLess(od.state()[0], 20.0)
 
+    def test_gnss_anchor_moves_s_like_a_station(self):
+        import numpy as np
+        from odometer import Odometer, Params
+
+        n = 400
+        s = np.arange(n, dtype=float)
+        od = Odometer(
+            s, np.zeros(n), np.zeros((31, 18)), np.arange(-15, 16),
+            np.arange(18) + 0.5, [], Params(), ring_len=float(n - 1),
+        )
+        od.init(0.0, 1.0)
+        od.t = 0.0
+        for i in range(50):
+            t = 0.1 * i
+            od.on_cmd(t + 0.025, 0)
+            od.on_bogie(t, "front", 36.0)
+            od.on_bogie(t + 0.05, "rear", 36.0)
+        before = od.state()[0]
+        self.assertFalse(od.gnss_anchor(before + 8.0, 0.0))
+        self.assertTrue(od.gnss_anchor(before + 8.0, 2.0))
+        self.assertEqual(od.n_gnss_anchor, 1)
+        self.assertGreater(od.state()[0], before + 1.0)
+        self.assertLess(od.state()[0], before + 8.0)
+        self.assertLess(od.distance_since_anchor(), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

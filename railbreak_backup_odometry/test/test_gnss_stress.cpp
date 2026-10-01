@@ -137,7 +137,7 @@ TEST(GnssDrain, queued_fix_survives_wheels_and_invalid_after_close_is_ignored) {
   ASSERT_TRUE(spin_until(
       exec,
       [&] {
-        return GnssDrainProbe::closed(*node) && diag_value(last_diag, "gnss") == "closed";
+        return GnssDrainProbe::closed(*node) && diag_value(last_diag, "gnss") == "correcting";
       },
       10000))
       << "the start window did not close";
@@ -162,7 +162,7 @@ TEST(GnssDrain, queued_fix_survives_wheels_and_invalid_after_close_is_ignored) {
       5000));
   EXPECT_EQ(GnssDrainProbe::fixes_used(*node), used);
   EXPECT_TRUE(GnssDrainProbe::closed(*node));
-  EXPECT_EQ(diag_value(last_diag, "gnss"), "closed");
+  EXPECT_EQ(diag_value(last_diag, "gnss"), "correcting");
   EXPECT_GT(pose_stamps.size(), n_pose);
 
   const int behind_before = GnssDrainProbe::behind(*node);
@@ -179,5 +179,5 @@ TEST(GnssDrain, queued_fix_survives_wheels_and_invalid_after_close_is_ignored) {
       5000));
   for (double s : pose_stamps) EXPECT_GT(std::fabs(s - 7.5), 1e-3) << "regressed stamp was published";
   EXPECT_GT(GnssDrainProbe::behind(*node), behind_before);
-  EXPECT_EQ(diag_value(last_diag, "gnss"), "closed");
+  EXPECT_EQ(diag_value(last_diag, "gnss"), "correcting");
 }

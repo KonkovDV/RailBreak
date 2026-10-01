@@ -234,6 +234,7 @@ def run(path: Path, cl, model, stops, window: float, p: Params, fault: str = "no
         "rmse_3d": float(np.sqrt(np.mean(e3 ** 2))),
         "k_end": float(est["k"][-1]),
         "n_anchor": od.n_anchor,
+        "n_unique_far": int(sum(1 for row in od.anchor_log if row.get("reason") == "unique_far")),
         "slip_frac": float(np.mean(est["slip"])),
         "finite": bool(np.all(np.isfinite(est["s"])) and np.all(np.isfinite(est["v"]))),
     }

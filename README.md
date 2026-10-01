@@ -122,7 +122,7 @@ ros2 bag play <каталог rosbag2> --rate 1                      # терм�
 |---|---|
 | `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` | `tram_vehicle_msgs/VelocitySensor`, в записях км/ч; нода делит на 3.6 |
 | `/vehicle/driver_position_cmd` | `tram_vehicle_msgs/DriverControllerCommand`, ручка −15…+15 |
-| `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix`, только окно старта |
+| `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix`, окно старта и редкая поправка на оси |
 
 | Выход | Тип | Смысл |
 |---|---|---|

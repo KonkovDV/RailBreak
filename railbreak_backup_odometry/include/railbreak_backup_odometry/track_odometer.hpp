@@ -444,7 +444,7 @@ class TrackOdometer {
     wheel_consensus_resid_ = 0.0;
     wheel_consensus_have_ = false;
     mode_ = Mode::kWheels;
-    n_anchor_ = n_rejected_ = n_gap_reset_ = n_guard_ = 0;
+    n_anchor_ = n_gnss_anchor_ = n_rejected_ = n_gap_reset_ = n_guard_ = 0;
     n_dropout_front_ = n_dropout_rear_ = 0;
     n_outlier_front_ = n_outlier_rear_ = n_outlier_cmd_ = 0;
     n_impossible_front_ = n_impossible_rear_ = 0;
@@ -669,6 +669,22 @@ class TrackOdometer {
   Mode mode() const { return mode_; }
   int notch() const { return notch_; }
   int n_anchor() const { return n_anchor_; }
+  int n_gnss_anchor() const { return n_gnss_anchor_; }
+  // Absolute arc from a fix already accepted as on-axis. Same s update as a station.
+  bool gnss_anchor(double s_meas, double sigma_m) {
+    if (!have_t_ || !std::isfinite(s_meas) || !(sigma_m > 0.0)) return false;
+    const double d = ring_delta(s_meas, a_->map.wrap(x_[IS]));
+    Vec h{};
+    h[IS] = 1.0;
+    update_scalar(h, d, sigma_m * sigma_m, false);
+    s_anchor_ref_ = a_->map.wrap(x_[IS]);
+    path_since_anchor_ = 0.0;
+    ++n_anchor_;
+    ++n_gnss_anchor_;
+    common_unobservable_ = false;
+    disagree_since_ = -1.0;
+    return true;
+  }
   SourceQuality bogie_quality(bool is_front) const {
     const Bogie& b = is_front ? front_ : rear_;
     const double age = (!b.have || !have_t_) ? 1.0e9 : std::max(0.0, t_ - b.t);
@@ -1164,6 +1180,7 @@ class TrackOdometer {
   double disagree_since_ = -1.0;
   Mode mode_ = Mode::kWheels;
   int n_anchor_ = 0;
+  int n_gnss_anchor_ = 0;
   double s_anchor_ref_ = 0.0;
   double path_since_anchor_ = 0.0;
   std::vector<AnchorDecision> anchor_log_;

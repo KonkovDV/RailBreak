@@ -2,10 +2,10 @@
 //
 // Inputs (main loop):  /vehicle/front_bogie_velocity, /vehicle/rear_bogie_velocity
 //                      (VelocitySensor), /vehicle/driver_position_cmd (DriverControllerCommand).
-// Start only:          /sensing/gnss/{master,rover}/fix for gnss_init_window_s from the
-//                      first valid fix of either antenna. The arc is anchored at the
-//                      stamp of the authoritative sample, then both subscriptions
-//                      are destroyed.
+// GNSS:                /sensing/gnss/{master,rover}/fix. The first gnss_init_window_s
+//                      anchor the arc. After that a rare RTK pair updates s only when
+//                      it lies on the ring. A fix farther than gnss_correction_cross_m
+//                      is refused. Set gnss_correction false to drop the subscriptions.
 // Outputs:             /result/velocity (VelocitySensor, m/s), /result/position (Odometry,
 //                      MGRS metres of base_link, see output_frame),
 //                      /result/diagnostics.
@@ -48,6 +48,7 @@
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/extrap_stamp.hpp"
+#include "railbreak_backup_odometry/gnss_correction.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
@@ -106,6 +107,12 @@ class BackupOdometryNode : public rclcpp::Node {
     }
     win_.window_s = declare_parameter("gnss_init_window_s", 3.0);
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
+    gnss_correction_ = declare_parameter("gnss_correction", true);
+    gnss_lim_.min_s = declare_parameter("gnss_correction_min_s", 30.0);
+    gnss_lim_.min_m = declare_parameter("gnss_correction_min_m", 150.0);
+    gnss_lim_.gate_m = declare_parameter("gnss_correction_gate_m", 25.0);
+    gnss_lim_.cross_m = declare_parameter("gnss_correction_cross_m", 3.0);
+    gnss_sigma_m_ = declare_parameter("gnss_correction_sigma_m", 2.0);
     // Watermark is the slowest live stream minus this hold. Default hold is 0.
     // A stream more than order_stall_s behind the freshest is ORDER_NOT_RESTORED.
     // While that stream is still delivering, it stays in the min.
@@ -136,6 +143,7 @@ class BackupOdometryNode : public rclcpp::Node {
     off_along_ = declare_parameter("output_offset_along_m", 9.873);
     off_up_ = declare_parameter("output_offset_up_m", -3.0);
     rover_baseline_m_ = declare_parameter("rover_baseline_m", 12.436);
+    gnss_lim_.baseline_m = rover_baseline_m_;
     initial_s_ = declare_parameter("initial_s_m", std::numeric_limits<double>::quiet_NaN());
     initial_lat_ = declare_parameter("initial_lat_deg", std::numeric_limits<double>::quiet_NaN());
     initial_lon_ = declare_parameter("initial_lon_deg", std::numeric_limits<double>::quiet_NaN());
@@ -242,7 +250,10 @@ class BackupOdometryNode : public rclcpp::Node {
  private:
   // --- start window --------------------------------------------------------
   void on_fix(const sensor_msgs::msg::NavSatFix& m, bool master) {
-    if (win_.closed) return;
+    if (win_.closed) {
+      if (gnss_correction_ && initialised_ && !relative_) note_correction_fix(m, master);
+      return;
+    }
     const double t = stamp_s(m.header.stamp);
     const bool valid = railbreak::gnss_fix_ok(
         t, m.latitude, m.longitude, m.altitude, m.status.status,
@@ -341,6 +352,7 @@ class BackupOdometryNode : public rclcpp::Node {
     // so their first sample is the map point in that grid, not (0, 0, 0).
     anchor_frame_to_output();
     initialised_ = true;
+    last_gnss_t_ = t_epoch;
     n_fix_used_ = static_cast<int>(m_lat_.size() + r_lat_.size());
     const char* note = rover_only ? "initialised with rover only; no master"
                        : heading   ? "initialised with master+rover azimuth"
@@ -378,6 +390,7 @@ class BackupOdometryNode : public rclcpp::Node {
     anchor_frame_to_output();
     initialised_ = true;
     n_fix_used_ = 0;
+    last_gnss_t_ = od_->have_time() ? od_->time_s() : 0.0;
     close_gnss("no fix; initial position from parameters");
     RCLCPP_INFO(get_logger(), "manual s0 %.1f m", s0);
     return true;
@@ -385,10 +398,63 @@ class BackupOdometryNode : public rclcpp::Node {
 
   void close_gnss(const char* why) {
     win_.closed = true;
-    sub_gm_.reset();
-    sub_gr_.reset();
-    gnss_note_ = why;
-    RCLCPP_INFO(get_logger(), "GNSS unsubscribed: %s", why);
+    const bool keep = gnss_correction_ && initialised_ && !relative_ && assets_ok_ && !assets_.map.empty();
+    if (!keep) {
+      sub_gm_.reset();
+      sub_gr_.reset();
+      gnss_note_ = why;
+      RCLCPP_INFO(get_logger(), "GNSS unsubscribed: %s", why);
+      return;
+    }
+    gnss_note_ = "rare on-axis correction";
+    RCLCPP_INFO(get_logger(), "GNSS stays for rare on-axis corrections: %s", why);
+  }
+
+  struct CorrFix {
+    bool have = false;
+    double t = 0.0;
+    double lat = 0.0;
+    double lon = 0.0;
+  };
+
+  void note_correction_fix(const sensor_msgs::msg::NavSatFix& m, bool master) {
+    const double t = stamp_s(m.header.stamp);
+    if (!railbreak::gnss_fix_ok(t, m.latitude, m.longitude, m.altitude, m.status.status,
+                                sensor_msgs::msg::NavSatStatus::STATUS_GBAS_FIX))
+      return;
+    CorrFix& slot = master ? corr_master_ : corr_rover_;
+    slot.have = true;
+    slot.t = t;
+    slot.lat = m.latitude;
+    slot.lon = m.longitude;
+    if (!corr_master_.have || !corr_rover_.have) return;
+    if (std::fabs(corr_master_.t - corr_rover_.t) > 0.5) return;
+    const double t_now = std::max(corr_master_.t, corr_rover_.t);
+    if (t_now <= last_pair_t_) return;
+    last_pair_t_ = t_now;
+    try_gnss_correction(t_now);
+  }
+
+  void try_gnss_correction(double t_now) {
+    if (!od_ || !od_->have_time()) return;
+    double me = 0.0, mn = 0.0, re = 0.0, rn = 0.0;
+    assets_.map.enu(corr_master_.lat, corr_master_.lon, me, mn);
+    assets_.map.enu(corr_rover_.lat, corr_rover_.lon, re, rn);
+    const double baseline = std::hypot(re - me, rn - mn);
+    const auto snap = railbreak::init_on_ring(assets_.map, corr_master_.lat, corr_master_.lon, true,
+                                               corr_rover_.lat, corr_rover_.lon);
+    const double along = snap.ok ? railbreak::arc_delta(assets_.map, snap.s0, od_->s()) : 0.0;
+    const auto decision = railbreak::gnss_correction_decision(
+        t_now - last_gnss_t_, od_->distance_since_anchor(), snap.ok ? snap.d0 : 1.0e9, along, baseline,
+        true, gnss_lim_);
+    if (decision != railbreak::GnssCorr::kApply) {
+      ++n_gnss_rejected_;
+      return;
+    }
+    const double sigma = std::max(gnss_sigma_m_, snap.d0);
+    if (!od_->gnss_anchor(snap.s0, sigma)) return;
+    last_gnss_t_ = t_now;
+    ++n_fix_used_;
   }
 
   // --- main loop -----------------------------------------------------------
@@ -787,7 +853,9 @@ class BackupOdometryNode : public rclcpp::Node {
     kv("n_order_held", std::to_string(reorder_.pending()));
     kv("order_watermark_s", std::isfinite(order_watermark_) ? std::to_string(order_watermark_) : "null");
     kv("order_reason", order_reason_ == nullptr ? "" : order_reason_);
-    kv("gnss", win_.closed ? "closed" : "open");
+    kv("gnss", !win_.closed ? "open" : (sub_gm_ ? "correcting" : "closed"));
+    kv("n_gnss_anchor", std::to_string(od_ ? od_->n_gnss_anchor() : 0));
+    kv("n_gnss_rejected", std::to_string(n_gnss_rejected_));
     kv("gnss_note", gnss_note_);
     kv("gnss_fixes_used", std::to_string(n_fix_used_));
     kv("relative", relative_ ? "true" : "false");
@@ -1011,6 +1079,14 @@ class BackupOdometryNode : public rclcpp::Node {
   railbreak::AdhesionReport last_adhesion_{};
   bool have_adhesion_ = false;
   railbreak::GnssWindow win_;
+  bool gnss_correction_ = true;
+  railbreak::GnssCorrLimits gnss_lim_{};
+  double gnss_sigma_m_ = 2.0;
+  CorrFix corr_master_{};
+  CorrFix corr_rover_{};
+  double last_gnss_t_ = -1.0e9;
+  double last_pair_t_ = -1.0e9;
+  int n_gnss_rejected_ = 0;
   railbreak::InputReorder<VehicleSample> reorder_;
   const char* order_reason_ = "";
   double order_watermark_ = std::numeric_limits<double>::quiet_NaN();

@@ -155,6 +155,7 @@ class Odometer:
         self.wheel_consensus = None
         self.mode = "WHEELS"
         self.n_anchor = 0
+        self.n_gnss_anchor = 0
         self.n_guard = 0
         self.anchor_log = []
         self.s_anchor_ref = 0.0
@@ -531,6 +532,22 @@ class Odometer:
         self.n_anchor += 1
         self.common_unobservable = False
         self.disagree_since = None
+
+    def gnss_anchor(self, s_meas: float, sigma_m: float) -> bool:
+        """Absolute arc from a fix already accepted as on-axis. Same s update as a station."""
+        if self.t is None or not math.isfinite(s_meas) or not (sigma_m > 0.0):
+            return False
+        d = self.ring_delta(s_meas, self.wrap(self.x[IS]))
+        h = np.zeros(N)
+        h[IS] = 1.0
+        self._update_scalar(h, d, sigma_m ** 2)
+        self.s_anchor_ref = float(self.wrap(self.x[IS]))
+        self.path_since_anchor = 0.0
+        self.n_anchor += 1
+        self.n_gnss_anchor += 1
+        self.common_unobservable = False
+        self.disagree_since = None
+        return True
 
     def distance_since_anchor(self) -> float:
         return self.path_since_anchor

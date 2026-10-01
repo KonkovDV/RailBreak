@@ -9,6 +9,7 @@
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/extrap_stamp.hpp"
+#include "railbreak_backup_odometry/gnss_correction.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
@@ -2077,6 +2078,38 @@ int main() {
     const auto second = next_extrap_stamp(10.0, 0.08, first.value_or(0.0));
     check(first.has_value() && second.has_value() && *second > *first,
           "extrapolated stamps increase");
+  }
+  {
+    railbreak::GnssCorrLimits lim;
+    check(railbreak::gnss_correction_decision(10.0, 200.0, 1.0, 4.0, 12.436, true, lim) ==
+              railbreak::GnssCorr::kTooSoon,
+          "a GNSS pair sooner than 30 s is not an anchor");
+    check(railbreak::gnss_correction_decision(40.0, 20.0, 1.0, 4.0, 12.436, true, lim) ==
+              railbreak::GnssCorr::kTooSoon,
+          "a GNSS pair before 150 m is not an anchor");
+    check(railbreak::gnss_correction_decision(40.0, 200.0, 1.0, 4.0, 8.0, true, lim) ==
+              railbreak::GnssCorr::kBaseline,
+          "a GNSS pair with the wrong antenna baseline is refused");
+    check(railbreak::gnss_correction_decision(40.0, 200.0, 12.0, 4.0, 12.436, true, lim) ==
+              railbreak::GnssCorr::kOffAxis,
+          "a GNSS pair more than 3 m off the ring is the siding and is refused");
+    check(railbreak::gnss_correction_decision(40.0, 200.0, 1.0, 40.0, 12.436, true, lim) ==
+              railbreak::GnssCorr::kAlong,
+          "an along-track jump beyond 25 m is refused");
+    check(railbreak::gnss_correction_decision(40.0, 200.0, 1.0, 4.0, 12.436, true, lim) ==
+              railbreak::GnssCorr::kApply,
+          "a rare on-axis RTK pair is accepted");
+    auto line = flat_ring(2000.0);
+    line.stops.clear();
+    railbreak::TrackOdometer od(&line, p);
+    od.init(0.0, 1.0);
+    drive(od, 0.0, 20.0, 36.0);
+    const double s_before = od.s();
+    check(od.gnss_anchor(s_before + 8.0, 2.0) && od.n_gnss_anchor() == 1 && od.s() > s_before + 1.0 &&
+              od.s() < s_before + 8.0,
+          "an accepted GNSS arc moves s part-way and counts one anchor");
+    check(od.distance_since_anchor() < 1.0, "a GNSS anchor clears the path since the anchor");
+    check(!od.gnss_anchor(od.s(), 0.0), "a GNSS anchor with no sigma is ignored");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;

@@ -2,7 +2,7 @@
 
 # railbreak_backup_odometry
 
-Пакет ROS 2 Humble на C++17. Считает продольную скорость и положение трамвая по двум тележкам и ручке контроллера. GNSS читается только 3 с на старте, чтобы поставить вагон на карту маршрута, затем подписка удаляется.
+Пакет ROS 2 Humble на C++17. Считает продольную скорость и положение трамвая по двум тележкам и ручке контроллера. GNSS ставит вагон на карту за первые 3 с. Потом редкая пара RTK двигает путь s, только если обе антенны на оси кольца. Фикс дальше 3 м от оси не берётся. `gnss_correction: false` снимает подписки после старта.
 
 | Что | Где |
 |---|---|
@@ -21,7 +21,7 @@
 |---|---|---|
 | `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` | `tram_vehicle_msgs/VelocitySensor` | поле `velocity` в записях — км/ч; нода делит на 3.6 (`wheel_unit_scale`) |
 | `/vehicle/driver_position_cmd` | `tram_vehicle_msgs/DriverControllerCommand` | позиция ручки −15…+15: больше нуля тяга, меньше нуля торможение, ноль выбег |
-| `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix` | только окно старта 3 с, затем подписки удаляются |
+| `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix` | окно старта 3 с, затем редкая пара RTK на оси кольца |
 | `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | продольная скорость, м/с |
 | `/result/position` | `nav_msgs/Odometry` | точка `base_link` в MGRS, `frame_id` `map`, `child_frame_id` `base_link`, скорость в `twist.twist.linear.x` |
 | `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, целостность, доверие скорости и положения, GNSS, порядок входов |
@@ -129,6 +129,9 @@ ros2 launch railbreak_backup_odometry backup_odometry.launch.py output_frame:=mk
 |---|---|---|
 | `output_frame` | `mgrs` | оси выхода: `mgrs`, `mkrs_start`, `mkrs`, `grid_start`, `enu` |
 | `gnss_init_window_s`, `gnss_wait_s` | 3 с, 10 с | окно старта и ожидание первого фикса |
+| `gnss_correction` | true | редкая поправка s по паре RTK. false снимает подписки после старта |
+| `gnss_correction_min_s`, `gnss_correction_min_m` | 30 с, 150 м | не чаще этого после прошлого абсолютного обновления |
+| `gnss_correction_cross_m`, `gnss_correction_gate_m` | 3 м, 25 м | дальше от оси или вдоль пути — фикс не берётся |
 | `wheel_unit_scale` | 1/3.6 | единица скорости тележек |
 | `initial_s_m`, `initial_lat_deg`, `initial_lon_deg` | не заданы | ручной старт без GNSS |
 | `load_factor`, `wheel_radius_m`, `davis_*` | 1, 0, 0 | масса, радиус и сопротивление: по умолчанию не подставляются, всё уже в таблице тяги |

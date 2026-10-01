@@ -7,6 +7,16 @@ backup_odometry:
     gnss_init_window_s: 3.0
     # No fix this long after the first input: publish relative odometry from the start point.
     gnss_wait_s: 10.0
+    # After the start window, a rare RTK pair may move s. Both antennas, baseline
+    # 12.436 ± 2 m, snap within 3 m of the ring, along-track innovation within 25 m,
+    # and at least 30 s and 150 m since the previous absolute update. A fix on a
+    # siding the ring does not contain is refused. false unsubscribes after the start.
+    gnss_correction: true
+    gnss_correction_min_s: 30.0
+    gnss_correction_min_m: 150.0
+    gnss_correction_gate_m: 25.0
+    gnss_correction_cross_m: 3.0
+    gnss_correction_sigma_m: 2.0
     # Bogie and notch headers arrive out of stamp order across streams. The
     # watermark is the slowest live stream minus this hold. Samples are applied
     # in stamp order up to that watermark. There is no timer and no /clock.
