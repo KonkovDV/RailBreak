@@ -38,7 +38,7 @@
     },
     "tools/organizer/eval_odometer.py": {
       "commit": "HEAD",
-      "sha256": "adfb5c22fefd95932bdc222737c754adb89333321ead092104cc77ae10a4f997"
+      "sha256": "815575066ac815f616a3328d7e2dc4d4da8d8bbe2250125943e44a9d1de764ab"
     },
     "tools/organizer/score_ros.py": {
       "commit": "HEAD",
