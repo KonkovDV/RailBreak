@@ -7,16 +7,27 @@ backup_odometry:
     gnss_init_window_s: 3.0
     # No fix this long after the first input: publish relative odometry from the start point.
     gnss_wait_s: 10.0
-    # After the start window, a rare RTK pair may move s. Both antennas, baseline
-    # 12.436 ± 2 m, snap within 3 m of the ring, along-track innovation within 25 m,
-    # and at least 30 s and 150 m since the previous absolute update. A fix on a
-    # siding the ring does not contain is refused. false unsubscribes after the start.
+    # After the start window, a rare RTK fix may place s on the ring. One antenna
+    # is enough. A master+rover pair within 0.5 s is used when both exist, and
+    # that pair still checks the 12.436 ± 2 m baseline. Snap within 3 m of the
+    # ring, along-track innovation within 25 m, and at least 30 s and 150 m
+    # since the previous absolute update. A fix on a siding the ring does not
+    # contain is refused. false unsubscribes after the start.
     gnss_correction: true
+    # Master RTK only, one median per burst (gap 2 s). Rover is the start
+    # heading, not a mid-route fix. min_m 0 drops the 150 m path gate: the
+    # bursts on the issued bag are ~100–180 s apart. Along gate is at least
+    # gate_m and grows as 4·sigma_s. output_delay_vel_s publishes the earlier
+    # speed so the stamp matches that recording; 0 disables it.
+    # output_delay_pos_s would advance the arc by v·τ. After the master
+    # windows that advance increased position error, so it stays 0.
     gnss_correction_min_s: 30.0
-    gnss_correction_min_m: 150.0
-    gnss_correction_gate_m: 25.0
-    gnss_correction_cross_m: 3.0
-    gnss_correction_sigma_m: 2.0
+    gnss_correction_min_m: 0.0
+    gnss_correction_gate_m: 5.0
+    gnss_correction_cross_m: 1.5
+    gnss_correction_sigma_m: 0.5
+    output_delay_vel_s: 0.10
+    output_delay_pos_s: 0.0
     # Bogie and notch headers arrive out of stamp order across streams. The
     # watermark is the slowest live stream minus this hold. Samples are applied
     # in stamp order up to that watermark. There is no timer and no /clock.

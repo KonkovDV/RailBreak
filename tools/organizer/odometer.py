@@ -549,6 +549,24 @@ class Odometer:
         self.disagree_since = None
         return True
 
+    def gnss_snap(self, s_meas: float, sigma_m: float) -> bool:
+        """Put s on a measured arc. Does not move k. Wheel updates keep P_ss
+        too small for gnss_anchor to correct a drifted path."""
+        if self.t is None or not math.isfinite(s_meas) or not (sigma_m > 0.0):
+            return False
+        d = self.ring_delta(s_meas, self.wrap(self.x[IS]))
+        self.x[IS] = self.wrap(float(self.x[IS]) + d)
+        self.P[IS, :] = 0.0
+        self.P[:, IS] = 0.0
+        self.P[IS, IS] = sigma_m ** 2
+        self.s_anchor_ref = float(self.wrap(self.x[IS]))
+        self.path_since_anchor = 0.0
+        self.n_anchor += 1
+        self.n_gnss_anchor += 1
+        self.common_unobservable = False
+        self.disagree_since = None
+        return True
+
     def distance_since_anchor(self) -> float:
         return self.path_since_anchor
 

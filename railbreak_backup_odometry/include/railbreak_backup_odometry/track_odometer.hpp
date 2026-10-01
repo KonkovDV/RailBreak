@@ -685,6 +685,27 @@ class TrackOdometer {
     disagree_since_ = -1.0;
     return true;
   }
+
+  // Place s on the measured arc. Wheel updates keep P_ss tiny, so the soft
+  // anchor above does not move a drifted path. k is left alone: a GNSS snap
+  // is not a scale measurement.
+  bool gnss_snap(double s_meas, double sigma_m) {
+    if (!have_t_ || !std::isfinite(s_meas) || !(sigma_m > 0.0)) return false;
+    const double d = ring_delta(s_meas, a_->map.wrap(x_[IS]));
+    x_[IS] = a_->map.wrap(x_[IS] + d);
+    for (int j = 0; j < N; ++j) {
+      P_[IS][j] = 0.0;
+      P_[j][IS] = 0.0;
+    }
+    P_[IS][IS] = sigma_m * sigma_m;
+    s_anchor_ref_ = x_[IS];
+    path_since_anchor_ = 0.0;
+    ++n_anchor_;
+    ++n_gnss_anchor_;
+    common_unobservable_ = false;
+    disagree_since_ = -1.0;
+    return true;
+  }
   SourceQuality bogie_quality(bool is_front) const {
     const Bogie& b = is_front ? front_ : rear_;
     const double age = (!b.have || !have_t_) ? 1.0e9 : std::max(0.0, t_ - b.t);

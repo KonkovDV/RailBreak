@@ -98,6 +98,9 @@ fi
 if [ -n "${INITIAL_S:-}" ]; then
   args+=(-p "initial_s_m:=$(as_double "${INITIAL_S}")")
 fi
+if [ -n "${STAMP_REORDER:-}" ]; then
+  args+=(-p "stamp_reorder_s:=$(as_double "${STAMP_REORDER}")")
+fi
 
 ros2 run railbreak_backup_odometry backup_odometry_node --ros-args "${args[@]}" \
   > /tmp/node.log 2>&1 &
@@ -158,6 +161,8 @@ kill -INT "${echo_pid}" 2>/dev/null || true
 pkill -INT -f lib/railbreak_backup_odometry/backup_odometry_node 2>/dev/null || true
 wait "${node_pid}" 2>/dev/null || true
 
+echo "----- gnss windows -----"
+grep "GNSS master" /tmp/node.log || true
 echo "----- node (head) -----"
 head -n 15 /tmp/node.log
 echo "----- node (tail) -----"

@@ -3,9 +3,10 @@
 // Inputs (main loop):  /vehicle/front_bogie_velocity, /vehicle/rear_bogie_velocity
 //                      (VelocitySensor), /vehicle/driver_position_cmd (DriverControllerCommand).
 // GNSS:                /sensing/gnss/{master,rover}/fix. The first gnss_init_window_s
-//                      anchor the arc. After that a rare RTK pair updates s only when
-//                      it lies on the ring. A fix farther than gnss_correction_cross_m
-//                      is refused. Set gnss_correction false to drop the subscriptions.
+//                      anchor the arc. After that each master RTK burst (gap 2 s)
+//                      contributes one median snap of s. Rover is not used mid-route.
+//                      A fix farther than gnss_correction_cross_m is refused.
+//                      Set gnss_correction false to drop the subscriptions.
 // Outputs:             /result/velocity (VelocitySensor, m/s), /result/position (Odometry,
 //                      MGRS metres of base_link, see output_frame),
 //                      /result/diagnostics.
@@ -23,6 +24,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -109,10 +111,12 @@ class BackupOdometryNode : public rclcpp::Node {
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
     gnss_correction_ = declare_parameter("gnss_correction", true);
     gnss_lim_.min_s = declare_parameter("gnss_correction_min_s", 30.0);
-    gnss_lim_.min_m = declare_parameter("gnss_correction_min_m", 150.0);
-    gnss_lim_.gate_m = declare_parameter("gnss_correction_gate_m", 25.0);
-    gnss_lim_.cross_m = declare_parameter("gnss_correction_cross_m", 3.0);
-    gnss_sigma_m_ = declare_parameter("gnss_correction_sigma_m", 2.0);
+    gnss_lim_.min_m = declare_parameter("gnss_correction_min_m", 0.0);
+    gnss_lim_.gate_m = declare_parameter("gnss_correction_gate_m", 5.0);
+    gnss_lim_.cross_m = declare_parameter("gnss_correction_cross_m", 1.5);
+    gnss_sigma_m_ = declare_parameter("gnss_correction_sigma_m", 0.5);
+    delay_vel_s_ = declare_parameter("output_delay_vel_s", 0.10);
+    delay_pos_s_ = declare_parameter("output_delay_pos_s", 0.0);
     // Watermark is the slowest live stream minus this hold. Default hold is 0.
     // A stream more than order_stall_s behind the freshest is ORDER_NOT_RESTORED.
     // While that stream is still delivering, it stays in the min.
@@ -251,7 +255,8 @@ class BackupOdometryNode : public rclcpp::Node {
   // --- start window --------------------------------------------------------
   void on_fix(const sensor_msgs::msg::NavSatFix& m, bool master) {
     if (win_.closed) {
-      if (gnss_correction_ && initialised_ && !relative_) note_correction_fix(m, master);
+      if (gnss_correction_ && assets_ok_ && !assets_.map.empty() && (initialised_ || relative_))
+        note_correction_fix(m, master);
       return;
     }
     const double t = stamp_s(m.header.stamp);
@@ -398,7 +403,10 @@ class BackupOdometryNode : public rclcpp::Node {
 
   void close_gnss(const char* why) {
     win_.closed = true;
-    const bool keep = gnss_correction_ && initialised_ && !relative_ && assets_ok_ && !assets_.map.empty();
+    // A missed start window stays subscribed: the first on-axis master burst
+    // can still place the arc. Relative mode otherwise never sees GNSS again.
+    const bool keep = gnss_correction_ && assets_ok_ && !assets_.map.empty() &&
+                      (initialised_ || relative_);
     if (!keep) {
       sub_gm_.reset();
       sub_gr_.reset();
@@ -410,51 +418,90 @@ class BackupOdometryNode : public rclcpp::Node {
     RCLCPP_INFO(get_logger(), "GNSS stays for rare on-axis corrections: %s", why);
   }
 
-  struct CorrFix {
-    bool have = false;
-    double t = 0.0;
-    double lat = 0.0;
-    double lon = 0.0;
-  };
-
   void note_correction_fix(const sensor_msgs::msg::NavSatFix& m, bool master) {
+    // Rover stays out of the mid-route update. A master fix below RTK is ignored.
+    if (!master) return;
     const double t = stamp_s(m.header.stamp);
     if (!railbreak::gnss_fix_ok(t, m.latitude, m.longitude, m.altitude, m.status.status,
                                 sensor_msgs::msg::NavSatStatus::STATUS_GBAS_FIX))
       return;
-    CorrFix& slot = master ? corr_master_ : corr_rover_;
-    slot.have = true;
-    slot.t = t;
-    slot.lat = m.latitude;
-    slot.lon = m.longitude;
-    if (!corr_master_.have || !corr_rover_.have) return;
-    if (std::fabs(corr_master_.t - corr_rover_.t) > 0.5) return;
-    const double t_now = std::max(corr_master_.t, corr_rover_.t);
-    if (t_now <= last_pair_t_) return;
-    last_pair_t_ = t_now;
-    try_gnss_correction(t_now);
+    if (master_burst_.opens_new(t)) {
+      const double t_apply = od_ && od_->have_time() ? od_->time_s() : master_burst_.last_t();
+      flush_master_burst(t_apply);
+    }
+    master_burst_.push(t, m.latitude, m.longitude);
   }
 
-  void try_gnss_correction(double t_now) {
-    if (!od_ || !od_->have_time()) return;
-    double me = 0.0, mn = 0.0, re = 0.0, rn = 0.0;
-    assets_.map.enu(corr_master_.lat, corr_master_.lon, me, mn);
-    assets_.map.enu(corr_rover_.lat, corr_rover_.lon, re, rn);
-    const double baseline = std::hypot(re - me, rn - mn);
-    const auto snap = railbreak::init_on_ring(assets_.map, corr_master_.lat, corr_master_.lon, true,
-                                               corr_rover_.lat, corr_rover_.lon);
-    const double along = snap.ok ? railbreak::arc_delta(assets_.map, snap.s0, od_->s()) : 0.0;
-    const auto decision = railbreak::gnss_correction_decision(
-        t_now - last_gnss_t_, od_->distance_since_anchor(), snap.ok ? snap.d0 : 1.0e9, along, baseline,
-        true, gnss_lim_);
+  void maybe_flush_master(double t_now) {
+    if (master_burst_.due(t_now)) flush_master_burst(t_now);
+  }
+
+  // One median per burst. The arc is carried by the path the filter already
+  // travelled since the median, not by the speed at the end of the gap.
+  // Until the scale is coupled into s, the update is a hard snap and does not
+  // move k. A missed start becomes an init on the first on-axis burst.
+  void flush_master_burst(double t_now) {
+    if (master_burst_.empty() || !od_ || !od_->have_time()) return;
+    double t_med = 0.0, lat = 0.0, lon = 0.0;
+    if (!master_burst_.median(t_med, lat, lon)) {
+      master_burst_.clear();
+      return;
+    }
+    const bool heading = master_burst_.samples.size() >= 2;
+    const double hlat = master_burst_.samples.back().lat;
+    const double hlon = master_burst_.samples.back().lon;
+    const std::size_t n = master_burst_.samples.size();
+    master_burst_.clear();
+    const auto snap = railbreak::init_on_ring(assets_.map, lat, lon, heading, hlat, hlon);
+    if (!snap.ok) {
+      ++n_gnss_rejected_;
+      return;
+    }
+    if (relative_ || !initialised_) {
+      if (snap.d0 > gnss_lim_.cross_m) {
+        ++n_gnss_rejected_;
+        return;
+      }
+      od_->init(snap.s0, std::max(snap.d0, 0.5));
+      relative_ = false;
+      initialised_ = true;
+      anchor_frame_to_output();
+      last_gnss_t_ = t_med;
+      ++n_fix_used_;
+      RCLCPP_INFO(get_logger(), "GNSS master window initialised s %.1f cross %.2f n %zu", snap.s0,
+                  snap.d0, n);
+      return;
+    }
+    const double dt = t_now - t_med;
+    double carried = od_->v() * dt;
+    for (std::size_t i = 1; i < state_hist_.size(); ++i) {
+      const double t0 = state_hist_[i - 1][0];
+      const double t1 = state_hist_[i][0];
+      if (!(t0 <= t_med && t_med <= t1) || !(t1 > t0)) continue;
+      const double a = (t_med - t0) / (t1 - t0);
+      const double ds = railbreak::arc_delta(assets_.map, state_hist_[i][1], state_hist_[i - 1][1]);
+      const double s_then = assets_.map.wrap(state_hist_[i - 1][1] + a * ds);
+      carried = railbreak::arc_delta(assets_.map, od_->s(), s_then);
+      break;
+    }
+    const double s_meas = assets_.map.wrap(snap.s0 + carried);
+    const double along = railbreak::arc_delta(assets_.map, s_meas, od_->s());
+    auto lim = gnss_lim_;
+    lim.gate_m = railbreak::gnss_along_gate(gnss_lim_.gate_m, od_->sigma_s());
+    const auto decision = railbreak::gnss_single_decision(
+        t_med - last_gnss_t_, od_->distance_since_anchor(), snap.d0, along, lim);
     if (decision != railbreak::GnssCorr::kApply) {
       ++n_gnss_rejected_;
       return;
     }
     const double sigma = std::max(gnss_sigma_m_, snap.d0);
-    if (!od_->gnss_anchor(snap.s0, sigma)) return;
-    last_gnss_t_ = t_now;
+    const double s_before = od_->s();
+    if (!od_->gnss_snap(s_meas, sigma)) return;
+    last_gnss_t_ = t_med;
     ++n_fix_used_;
+    RCLCPP_INFO(get_logger(),
+                "GNSS master window along %.2f cross %.2f n %zu carry %.2f s %.2f snap %.2f",
+                along, snap.d0, n, carried, s_before, snap.s0);
   }
 
   // --- main loop -----------------------------------------------------------
@@ -515,8 +562,10 @@ class BackupOdometryNode : public rclcpp::Node {
     if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
     od_->on_bogie(t, sample.front, sample.value);
+    maybe_flush_master(t);
     note_integrity(false);
     log_anchor();
+    remember_state(t);
     publish(sample.stamp, t_in);
     if (sample.front) ++n_pub_front_;
     else ++n_pub_rear_;
@@ -536,7 +585,9 @@ class BackupOdometryNode : public rclcpp::Node {
     if (have_out_ && t == t_out_) ++n_dup_out_;
     touch(t);
     od_->on_cmd(t, static_cast<int>(sample.value));
+    maybe_flush_master(t);
     note_integrity(false);
+    remember_state(t);
     publish(sample.stamp, t_in);
     ++n_pub_cmd_;
     note_out(t);
@@ -572,6 +623,41 @@ class BackupOdometryNode : public rclcpp::Node {
     mp.latlon(mp.at(mp.x, s), mp.at(mp.y, s), lat, lon);
     frame_.to_out(lat, lon, mp.at(mp.h, s), x, y, z);
     z += off_up_;
+  }
+
+  void remember_state(double t) {
+    if (!od_ || !od_->have_time() || !std::isfinite(t)) return;
+    if (!state_hist_.empty() && t < state_hist_.back()[0]) return;
+    state_hist_.push_back({t, od_->s(), od_->v()});
+    const double keep = std::max(6.0, std::max(delay_vel_s_, delay_pos_s_) + 0.5);
+    while (state_hist_.size() > 2 && t - state_hist_.front()[0] > keep) state_hist_.pop_front();
+  }
+
+  // Speed is published from t − output_delay_vel_s. On the jury recording the
+  // wheel speed at that lag matches the reference twist; 0 disables it.
+  double delayed_velocity(double t_stamp) const {
+    if (!(delay_vel_s_ > 0.0) || state_hist_.empty()) return od_->v();
+    const double tq = t_stamp - delay_vel_s_;
+    if (tq >= state_hist_.back()[0]) return state_hist_.back()[2];
+    if (tq <= state_hist_.front()[0]) return state_hist_.front()[2];
+    for (std::size_t i = 1; i < state_hist_.size(); ++i) {
+      if (state_hist_[i][0] < tq) continue;
+      const double t0 = state_hist_[i - 1][0];
+      const double t1 = state_hist_[i][0];
+      const double a = (t1 > t0) ? (tq - t0) / (t1 - t0) : 1.0;
+      return state_hist_[i - 1][2] + a * (state_hist_[i][2] - state_hist_[i - 1][2]);
+    }
+    return od_->v();
+  }
+
+  // Position is published ahead by v·output_delay_pos_s. The jury position at
+  // stamp t sits ahead of the wheel integral; holding an older arc would add
+  // to that lag. 0 disables it.
+  double delayed_arc(double t_stamp) const {
+    (void)t_stamp;
+    if (!(delay_pos_s_ > 0.0)) return od_->s();
+    const double s = od_->s() + od_->v() * delay_pos_s_;
+    return assets_.map.ring_len > 0.0 ? assets_.map.wrap(s) : s;
   }
 
   void remember_input(double t) {
@@ -662,11 +748,14 @@ class BackupOdometryNode : public rclcpp::Node {
     // the pose covariance says so (sigma 1 km) and diagnostics carry
     // integrity_use_position=false.
     const bool pose_ok = !have || last_integrity_.use_position;
+    const double t_stamp = stamp_s(stamp);
+    const double v_out = delayed_velocity(t_stamp);
+    const double s_filt = delayed_arc(t_stamp);
     if (!vel_none) {
       VelocitySensor vel;
       vel.header.stamp = stamp;
       vel.header.frame_id = child_frame_id_;
-      vel.velocity = od_->v();
+      vel.velocity = v_out;
       pub_v_->publish(vel);
     }
 
@@ -675,7 +764,7 @@ class BackupOdometryNode : public rclcpp::Node {
       o.header.stamp = stamp;
       o.header.frame_id = frame_id_;
       o.child_frame_id = child_frame_id_;
-      const double s = od_->s() + (initialised_ ? off_along_ : 0.0);
+      const double s = s_filt + (initialised_ ? off_along_ : 0.0);
       double yaw = 0.0;
       if (initialised_) {
         double x0, y0, x1, y1, zz;
@@ -692,7 +781,7 @@ class BackupOdometryNode : public rclcpp::Node {
       o.pose.pose.orientation.w = std::cos(0.5 * yaw);
       const double vs = pose_ok ? od_->sigma_s() * od_->sigma_s() : kRefusedPoseVariance;
       railbreak::TrackOdometer::fill_pose_covariance(vs, o.pose.covariance.data());
-      o.twist.twist.linear.x = od_->v();
+      o.twist.twist.linear.x = v_out;
       o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
       for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;
       pub_p_->publish(o);
@@ -1082,11 +1171,12 @@ class BackupOdometryNode : public rclcpp::Node {
   bool gnss_correction_ = true;
   railbreak::GnssCorrLimits gnss_lim_{};
   double gnss_sigma_m_ = 2.0;
-  CorrFix corr_master_{};
-  CorrFix corr_rover_{};
+  railbreak::GnssMasterBurst master_burst_{};
   double last_gnss_t_ = -1.0e9;
-  double last_pair_t_ = -1.0e9;
   int n_gnss_rejected_ = 0;
+  double delay_vel_s_ = 0.0;
+  double delay_pos_s_ = 0.0;
+  std::deque<std::array<double, 3>> state_hist_;
   railbreak::InputReorder<VehicleSample> reorder_;
   const char* order_reason_ = "";
   double order_watermark_ = std::numeric_limits<double>::quiet_NaN();

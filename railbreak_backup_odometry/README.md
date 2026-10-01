@@ -2,7 +2,7 @@
 
 # railbreak_backup_odometry
 
-Пакет ROS 2 Humble на C++17. Считает продольную скорость и положение трамвая по двум тележкам и ручке контроллера. GNSS ставит вагон на карту за первые 3 с. Потом редкая пара RTK двигает путь s, только если обе антенны на оси кольца. Фикс дальше 3 м от оси не берётся. `gnss_correction: false` снимает подписки после старта.
+Пакет ROS 2 Humble на C++17. Считает продольную скорость и положение трамвая по двум тележкам и ручке контроллера. GNSS ставит вагон на карту за первые 3 с. Потом каждое окно master RTK (разрыв больше 2 с) один раз ставит путь s на ось: медиана окна, rover в этой поправке не участвует. Фикс дальше 1,5 м от оси не берётся. `gnss_correction: false` снимает подписки после старта.
 
 | Что | Где |
 |---|---|
@@ -21,7 +21,7 @@
 |---|---|---|
 | `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` | `tram_vehicle_msgs/VelocitySensor` | поле `velocity` в записях — км/ч; нода делит на 3.6 (`wheel_unit_scale`) |
 | `/vehicle/driver_position_cmd` | `tram_vehicle_msgs/DriverControllerCommand` | позиция ручки −15…+15: больше нуля тяга, меньше нуля торможение, ноль выбег |
-| `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix` | окно старта 3 с, затем редкая пара RTK на оси кольца |
+| `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | `sensor_msgs/NavSatFix` | окно старта 3 с; дальше одно окно master RTK — одна медиана s. Rover после старта не правит путь |
 | `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | продольная скорость, м/с |
 | `/result/position` | `nav_msgs/Odometry` | точка `base_link` в MGRS, `frame_id` `map`, `child_frame_id` `base_link`, скорость в `twist.twist.linear.x` |
 | `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, целостность, доверие скорости и положения, GNSS, порядок входов |

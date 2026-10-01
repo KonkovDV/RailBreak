@@ -381,6 +381,12 @@ class IntegrityTests(unittest.TestCase):
         self.assertGreater(od.state()[0], before + 1.0)
         self.assertLess(od.state()[0], before + 8.0)
         self.assertLess(od.distance_since_anchor(), 1.0)
+        k_before = od.state()[2]
+        placed = od.state()[0]
+        self.assertTrue(od.gnss_snap(placed + 6.0, 0.5))
+        self.assertAlmostEqual(od.state()[0], placed + 6.0, places=6)
+        self.assertAlmostEqual(od.state()[2], k_before, places=12)
+        self.assertEqual(od.n_gnss_anchor, 2)
 
 
 if __name__ == "__main__":

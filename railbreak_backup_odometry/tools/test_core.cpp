@@ -2099,6 +2099,33 @@ int main() {
     check(railbreak::gnss_correction_decision(40.0, 200.0, 1.0, 4.0, 12.436, true, lim) ==
               railbreak::GnssCorr::kApply,
           "a rare on-axis RTK pair is accepted");
+    check(railbreak::gnss_single_decision(10.0, 200.0, 1.0, 4.0, lim) == railbreak::GnssCorr::kTooSoon,
+          "one RTK antenna sooner than 30 s is not an anchor");
+    check(railbreak::gnss_single_decision(40.0, 200.0, 12.0, 4.0, lim) == railbreak::GnssCorr::kOffAxis,
+          "one RTK antenna more than 3 m off the ring is refused");
+    check(railbreak::gnss_single_decision(40.0, 200.0, 1.0, 4.0, lim) == railbreak::GnssCorr::kApply,
+          "one on-axis RTK antenna is accepted");
+    railbreak::GnssCorrLimits tight = lim;
+    tight.cross_m = 1.5;
+    tight.gate_m = 5.0;
+    tight.min_m = 0.0;
+    check(railbreak::gnss_single_decision(40.0, 0.0, 3.0, 1.0, tight) == railbreak::GnssCorr::kOffAxis,
+          "a master fix 3 m off the ring is refused at the 1.5 m gate");
+    check(railbreak::gnss_single_decision(40.0, 0.0, 1.0, 4.0, tight) == railbreak::GnssCorr::kApply,
+          "the path gate is not required for a master window");
+    check(std::fabs(railbreak::gnss_along_gate(5.0, 0.1) - 5.0) < 1e-9, "along gate stays at 5 m when sigma is small");
+    check(std::fabs(railbreak::gnss_along_gate(5.0, 2.0) - 8.0) < 1e-9, "along gate grows as 4 sigma");
+    railbreak::GnssMasterBurst burst;
+    for (int i = 0; i < 9; ++i) burst.push(100.0 + 0.1 * i, 55.80, 37.40);
+    burst.push(100.9, 55.80 + 10.0 / 111320.0, 37.40);
+    check(!burst.due(101.0), "a burst is not applied while samples are still arriving");
+    check(burst.due(103.0), "a burst is applied 2 s after its last fix");
+    double mt = 0, mlat = 0, mlon = 0;
+    check(burst.median(mt, mlat, mlon) && std::fabs(mlat - 55.80) < 1e-9,
+          "the median of ten fixes ignores one 10 m outlier");
+    check(!burst.opens_new(101.5) && burst.opens_new(103.0), "a fix inside 2 s stays in the burst");
+    check(std::fabs(railbreak::antenna_to_master_arc(100.0, false, 12.436) - (100.0 - 12.436)) < 1e-9,
+          "a rover snap steps back to the master arc");
     auto line = flat_ring(2000.0);
     line.stops.clear();
     railbreak::TrackOdometer od(&line, p);
@@ -2110,6 +2137,12 @@ int main() {
           "an accepted GNSS arc moves s part-way and counts one anchor");
     check(od.distance_since_anchor() < 1.0, "a GNSS anchor clears the path since the anchor");
     check(!od.gnss_anchor(od.s(), 0.0), "a GNSS anchor with no sigma is ignored");
+    const double k_before = od.k();
+    const double s_soft = od.s();
+    check(od.gnss_snap(s_soft + 6.0, 0.5) && std::fabs(od.s() - (s_soft + 6.0)) < 1e-6,
+          "a GNSS snap places s on the measured arc");
+    check(std::fabs(od.k() - k_before) < 1e-12, "a GNSS snap does not move k");
+    check(od.n_gnss_anchor() == 2, "a GNSS snap counts one anchor");
   }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;
