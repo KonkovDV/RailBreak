@@ -93,6 +93,9 @@ TEST(GnssDrain, queued_fix_survives_wheels_and_invalid_after_close_is_ignored) {
   rclcpp::NodeOptions options;
   options.append_parameter_override("assets_dir", std::string(RAILBREAK_ASSETS_DIR));
   options.append_parameter_override("diagnostics_every_n", 1);
+  // Default is off: the node drops GNSS after the start window. This case is
+  // the live subscription, which stays and reports gnss=correcting.
+  options.append_parameter_override("gnss_correction", true);
   auto node = std::make_shared<BackupOdometryNode>(options);
   auto io = std::make_shared<rclcpp::Node>("gnss_stress_io");
 
