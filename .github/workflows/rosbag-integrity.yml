@@ -18,5 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: install metadata parser
+        run: python -m pip install --disable-pip-version-check pyyaml
       - name: synthetic metadata integrity tests
         run: PYTHONPATH=tools/eval python tools/eval/test_audit_rosbag_integrity.py
