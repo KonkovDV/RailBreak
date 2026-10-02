@@ -487,6 +487,30 @@ class TrackOdometer {
   }
 
   void on_cmd(double t, int position) {
+    if (!std::isfinite(t)) {
+      ++n_rejected_;
+      return;
+    }
+    // A live lever whose stamp trails the bogies by a fraction of a second
+    // still names the notch. It does not step the filter. A command from
+    // seconds earlier, or one older than the notch already applied, does not.
+    if (have_t_ && t < t_) {
+      ++n_rejected_;
+      const bool newer = !have_cmd_ || t >= last_cmd_t_;
+      if (newer && (t_ - t) <= 0.5) {
+        notch_ = std::clamp(position, kNotchMin, kNotchMax);
+        note_drive(t_);
+        last_cmd_t_ = t;
+        have_cmd_ = true;
+        if (position < kNotchMin || position > kNotchMax) {
+          ++n_outlier_cmd_;
+          cmd_reject_ = "outlier";
+        } else {
+          cmd_reject_ = "late";
+        }
+      }
+      return;
+    }
     if (!stamp_ok(t)) return;
     step_frozen_ = false;
     predict(t);
@@ -1301,6 +1325,14 @@ inline void mkrs_forward(double lat_deg, double lon_deg, double& east, double& n
 // the checker did not define numerically). kMkrs: the same grid, absolute.
 // kMgrs / kGridStart: UTM 37N. kEnu: WGS84 tangent at the start.
 enum class FrameMode { kMkrsStart, kMkrs, kMgrs, kGridStart, kEnu };
+
+// MGRS and full MKRS are absolute grids. A path counted from zero must not
+// be written there: the checker would score it as a hundred-kilometre miss.
+// An empty map has no grid, and that relative path is the no-assets output.
+inline bool publish_unanchored_path(bool map_loaded, FrameMode mode) {
+  if (!map_loaded) return true;
+  return mode != FrameMode::kMgrs && mode != FrameMode::kMkrs;
+}
 
 struct OutputFrame {
   FrameMode mode = FrameMode::kMkrsStart;

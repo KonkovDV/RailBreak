@@ -67,6 +67,13 @@ class InputReorder {
     stall_s_ = std::isfinite(stall_s) && stall_s > 0.0 ? stall_s : kDefaultStallS;
   }
 
+  // This stream is still released in stamp order, but its latest stamp does
+  // not hold the others. The driver command is that stream: its header sits
+  // behind the bogies, and waiting for it was the 53–305 ms output delay.
+  void ignore_watermark(int stream) {
+    if (stream >= 0 && stream < kMaxStreams) holds_[stream] = false;
+  }
+
   double hold_s() const { return hold_s_; }
   double stall_s() const { return stall_s_; }
 
@@ -112,14 +119,18 @@ class InputReorder {
     reason = "";
     if (!named_) return t_max_ - hold_s_;
     double freshest = -std::numeric_limits<double>::infinity();
+    bool any_hold = false;
     for (int i = 0; i < kMaxStreams; ++i) {
-      if (seen_[i]) freshest = std::max(freshest, latest_[i]);
+      if (!seen_[i] || !holds_[i]) continue;
+      any_hold = true;
+      freshest = std::max(freshest, latest_[i]);
     }
+    if (!any_hold) return t_max_ - hold_s_;
     double slow = std::numeric_limits<double>::infinity();
     double cap = std::numeric_limits<double>::infinity();
     bool lagging = false;
     for (int i = 0; i < kMaxStreams; ++i) {
-      if (!seen_[i]) continue;
+      if (!seen_[i] || !holds_[i]) continue;
       const double lead = freshest - latest_[i];
       if (lead > stall_s_) lagging = true;
       const bool silent = seq_ - last_push_[i] > kSilentPushes;
@@ -142,6 +153,7 @@ class InputReorder {
   double t_max_ = 0.0;
   bool have_max_ = false;
   bool named_ = false;
+  bool holds_[kMaxStreams] = {true, true, true, true};
   bool seen_[kMaxStreams] = {};
   double latest_[kMaxStreams] = {};
   std::uint64_t last_push_[kMaxStreams] = {};

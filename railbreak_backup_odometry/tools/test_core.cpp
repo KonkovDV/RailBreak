@@ -440,6 +440,11 @@ int main() {
     od.on_cmd(9.9, 8);
     check(od.notch() == 4, "a command at 9.9 does not replace the notch");
     check(od.n_rejected() == rej2 + 2, "the command at 9.9 is counted");
+    od.on_bogie(10.40, false, 36.0);
+    const double s_late = od.s();
+    od.on_cmd(10.25, 6);
+    check(od.notch() == 6, "a command a fraction behind the bogies still sets the notch");
+    check(std::fabs(od.s() - s_late) < 1e-9, "that late command does not move s");
     for (double skew : {0.05, 0.10, 0.30}) {
       od.on_bogie(20.0, true, 36.0);
       const double sb = od.s();
@@ -449,8 +454,10 @@ int main() {
       od.on_bogie(20.0 - skew, false, 50.0);
       od.on_cmd(20.0 - skew, 7);
       check(std::fabs(od.s() - sb) < 1e-9 && std::fabs(od.rear_front_ratio() - rb) < 1e-12 &&
-                od.notch() == nb && od.n_rejected() == kb + 2,
-            "a stamp 50/100/300 ms behind is not a pair and not a notch");
+                od.n_rejected() == kb + 2,
+            "a bogie stamp 50/100/300 ms behind is not a pair");
+      check(od.notch() == 7, "a newer command within 0.5 s still sets the notch");
+      (void)nb;
     }
     // 100 ms lag still applies when the later stamp is processed second.
     const int before = od.n_rejected();
@@ -2120,6 +2127,27 @@ int main() {
     burst.push(100.9, 55.80 + 10.0 / 111320.0, 37.40);
     check(!burst.due(101.0), "a burst is not applied while samples are still arriving");
     check(burst.due(103.0), "a burst is applied 2 s after its last fix");
+    check(railbreak::gnss_first_fix_bypasses_interval(railbreak::GnssCorr::kTooSoon, false),
+          "the first RTK burst is not refused for arriving inside 30 s");
+    check(!railbreak::gnss_first_fix_bypasses_interval(railbreak::GnssCorr::kTooSoon, true),
+          "a later RTK burst keeps the 30 s interval");
+    check(!railbreak::gnss_first_fix_bypasses_interval(railbreak::GnssCorr::kOffAxis, false),
+          "the first RTK burst is still refused off the axis");
+    check(railbreak::publish_unanchored_path(false, railbreak::FrameMode::kMgrs),
+          "an empty map still publishes the relative path");
+    check(!railbreak::publish_unanchored_path(true, railbreak::FrameMode::kMgrs),
+          "MGRS with a map does not publish a path counted from zero");
+    check(!railbreak::publish_unanchored_path(true, railbreak::FrameMode::kMkrs),
+          "full MKRS with a map does not publish a path counted from zero");
+    check(railbreak::publish_unanchored_path(true, railbreak::FrameMode::kMkrsStart),
+          "a start-relative frame may publish before an absolute fix");
+    railbreak::InputReorder<int> late_cmd;
+    late_cmd.ignore_watermark(2);
+    late_cmd.push(10.0, 1, 0);
+    late_cmd.push(10.0, 2, 1);
+    late_cmd.push(9.70, 3, 2);
+    const auto released = late_cmd.drain();
+    check(released.ready.size() == 3, "a late command does not hold the bogies");
     double mt = 0, mlat = 0, mlon = 0;
     check(burst.median(mt, mlat, mlon) && std::fabs(mlat - 55.80) < 1e-9,
           "the median of ten fixes ignores one 10 m outlier");

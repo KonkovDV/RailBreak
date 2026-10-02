@@ -58,6 +58,12 @@ inline double gnss_along_gate(double gate_m, double sigma_s) {
   return std::max(gate_m, 4.0 * std::max(0.0, sigma_s));
 }
 
+// The 3 s start median can be status 0. The first status-2 burst may then
+// fall inside min_s. It still has to pass the cross and along gates.
+inline bool gnss_first_fix_bypasses_interval(GnssCorr decision, bool have_rtk_anchor) {
+  return decision == GnssCorr::kTooSoon && !have_rtk_anchor;
+}
+
 // One master burst: fixes closer than kGapS belong together. The correction is
 // the median, applied once the next sample (or the wheel clock) is kGapS later.
 struct GnssMasterBurst {

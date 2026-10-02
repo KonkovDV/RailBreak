@@ -122,6 +122,9 @@ class BackupOdometryNode : public rclcpp::Node {
     // While that stream is still delivering, it stays in the min.
     reorder_.set_hold(declare_parameter("stamp_reorder_s", 0.0));
     reorder_.set_stall(declare_parameter("order_stall_s", railbreak::InputReorder<int>::kDefaultStallS));
+    // Stream 2 is the driver command. Its stamp trails the bogies; it must
+    // not hold /result. A late command still sets the notch in on_cmd.
+    reorder_.ignore_watermark(2);
     diag_every_ = std::max<int64_t>(1, declare_parameter("diagnostics_every_n", 20));
     frame_id_ = declare_parameter("frame_id", std::string("map"));
     child_frame_id_ = declare_parameter("child_frame_id", std::string("base_link"));
@@ -271,6 +274,7 @@ class BackupOdometryNode : public rclcpp::Node {
         m_lon_.push_back(m.longitude);
         m_alt_.push_back(m.altitude);
         m_t_.push_back(t);
+        m_status_.push_back(m.status.status);
       } else if (!master && in_window) {
         r_lat_.push_back(m.latitude);
         r_lon_.push_back(m.longitude);
@@ -353,6 +357,9 @@ class BackupOdometryNode : public rclcpp::Node {
     const double t_epoch = median(master ? m_t_ : r_t_);
     const double s_epoch = railbreak::arc_at(arc_hist_, t_epoch);
     od_->init(railbreak::align_s(s0, od_->s(), s_epoch), std::max(r.d0, 0.5));
+    for (int status : m_status_) {
+      if (status >= sensor_msgs::msg::NavSatStatus::STATUS_GBAS_FIX) have_rtk_anchor_ = true;
+    }
     // Start-relative frames subtract this point. Absolute mkrs and mgrs do not,
     // so their first sample is the map point in that grid, not (0, 0, 0).
     anchor_frame_to_output();
@@ -488,8 +495,15 @@ class BackupOdometryNode : public rclcpp::Node {
     const double along = railbreak::arc_delta(assets_.map, s_meas, od_->s());
     auto lim = gnss_lim_;
     lim.gate_m = railbreak::gnss_along_gate(gnss_lim_.gate_m, od_->sigma_s());
-    const auto decision = railbreak::gnss_single_decision(
+    auto decision = railbreak::gnss_single_decision(
         t_med - last_gnss_t_, od_->distance_since_anchor(), snap.d0, along, lim);
+    if (railbreak::gnss_first_fix_bypasses_interval(decision, have_rtk_anchor_)) {
+      auto open = lim;
+      open.min_s = 0.0;
+      open.min_m = 0.0;
+      decision = railbreak::gnss_single_decision(
+          t_med - last_gnss_t_, od_->distance_since_anchor(), snap.d0, along, open);
+    }
     if (decision != railbreak::GnssCorr::kApply) {
       ++n_gnss_rejected_;
       return;
@@ -497,6 +511,7 @@ class BackupOdometryNode : public rclcpp::Node {
     const double sigma = std::max(gnss_sigma_m_, snap.d0);
     const double s_before = od_->s();
     if (!od_->gnss_snap(s_meas, sigma)) return;
+    have_rtk_anchor_ = true;
     last_gnss_t_ = t_med;
     ++n_fix_used_;
     RCLCPP_INFO(get_logger(),
@@ -697,7 +712,8 @@ class BackupOdometryNode : public rclcpp::Node {
       vel.velocity = od_->v();
       pub_v_->publish(vel);
     }
-    if (initialised_ || relative_) {
+    const bool map_loaded = assets_ok_ && !assets_.map.empty();
+    if (initialised_ || (relative_ && railbreak::publish_unanchored_path(map_loaded, frame_.mode))) {
       nav_msgs::msg::Odometry o;
       o.header.stamp = stamp;
       o.header.frame_id = frame_id_;
@@ -759,7 +775,8 @@ class BackupOdometryNode : public rclcpp::Node {
       pub_v_->publish(vel);
     }
 
-    if (initialised_ || relative_) {
+    const bool map_loaded = assets_ok_ && !assets_.map.empty();
+    if (initialised_ || (relative_ && railbreak::publish_unanchored_path(map_loaded, frame_.mode))) {
       nav_msgs::msg::Odometry o;
       o.header.stamp = stamp;
       o.header.frame_id = frame_id_;
@@ -1186,6 +1203,8 @@ class BackupOdometryNode : public rclcpp::Node {
   double s_at_first_fix_ = -1e9, s_rel_origin_ = 0.0;
   std::vector<railbreak::ArcMark> arc_hist_;
   std::vector<double> m_lat_, m_lon_, m_alt_, m_t_, r_lat_, r_lon_, r_alt_, r_t_;
+  std::vector<int> m_status_;
+  bool have_rtk_anchor_ = false;
   bool initialised_ = false, relative_ = false;
   bool drain_gnss_queue_ = true;
   bool have_out_ = false;

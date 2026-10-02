@@ -168,6 +168,7 @@ class Odometer:
         self.v_uniform = 0.0
         self.notch_mark = 0
         self.notch_changed_t = None
+        self.last_cmd_t = None
         self.params_frozen = False
         self.drive_segment = "start"
         _require_config(self.p)
@@ -310,6 +311,15 @@ class Odometer:
         return math.isfinite(t) and (self.t is None or t >= self.t)
 
     def on_cmd(self, t: float, position: int) -> None:
+        if not math.isfinite(t):
+            return
+        if self.t is not None and t < self.t:
+            newer = self.last_cmd_t is None or t >= self.last_cmd_t
+            if newer and (self.t - t) <= 0.5:
+                self.notch = int(position)
+                self._note_drive(self.t)
+                self.last_cmd_t = t
+            return
         if not self._stamp_ok(t):
             return
         self.step_frozen = False
@@ -320,6 +330,7 @@ class Odometer:
             self.mode = "WHEELS"
         self.notch = int(position)
         self._note_drive(t)
+        self.last_cmd_t = t
 
     def _note_drive(self, t: float) -> None:
         if self.notch != self.notch_mark:
