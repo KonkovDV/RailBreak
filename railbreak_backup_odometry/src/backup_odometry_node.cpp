@@ -7,7 +7,10 @@
 //                      contributes one median snap of s. Rover is not used mid-route.
 //                      A fix farther than gnss_correction_cross_m is refused.
 //                      Set gnss_correction false to drop the subscriptions.
-// Outputs:             /result/velocity (VelocitySensor, m/s), /result/position (Odometry,
+// Outputs:             /result/velocity (VelocitySensor, m/s). Default is the raw
+//                      bogie mean while the bogies agree; the filter is the
+//                      fallback. The velocity header is the input stamp plus
+//                      output_stamp_offset_s. /result/position (Odometry,
 //                      MGRS metres of base_link, see output_frame),
 //                      /result/diagnostics.
 //
@@ -61,6 +64,7 @@
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/extrap_stamp.hpp"
 #include "railbreak_backup_odometry/gnss_correction.hpp"
+#include "railbreak_backup_odometry/velocity_output.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/input_reorder.hpp"
 #include "railbreak_backup_odometry/integrity_bound.hpp"
@@ -119,7 +123,7 @@ class BackupOdometryNode : public rclcpp::Node {
     }
     win_.window_s = declare_parameter("gnss_init_window_s", 3.0);
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
-    gnss_correction_ = declare_parameter("gnss_correction", false);
+    gnss_correction_ = declare_parameter("gnss_correction", true);
     gnss_lim_.min_s = declare_parameter("gnss_correction_min_s", 30.0);
     gnss_lim_.min_m = declare_parameter("gnss_correction_min_m", 0.0);
     gnss_lim_.gate_m = declare_parameter("gnss_correction_gate_m", 5.0);
@@ -127,7 +131,10 @@ class BackupOdometryNode : public rclcpp::Node {
     gnss_sigma_m_ = declare_parameter("gnss_correction_sigma_m", 0.5);
     delay_vel_s_ = declare_parameter("output_delay_vel_s", 0.10);
     delay_pos_s_ = declare_parameter("output_delay_pos_s", 0.0);
-    stamp_offset_s_ = declare_parameter("output_stamp_offset_s", 0.10);
+    stamp_offset_s_ = declare_parameter("output_stamp_offset_s", 0.105);
+    vel_fade_s_ = declare_parameter("output_velocity_fade_s", 0.5);
+    wheels_out_ = railbreak::velocity_source_is_wheels(
+        declare_parameter("output_velocity_source", std::string("wheels_mean")));
     // Watermark is the slowest live stream minus this hold. Default hold is 0.
     // A stream more than order_stall_s behind the freshest is ORDER_NOT_RESTORED.
     // While that stream is still delivering, it stays in the min.
@@ -592,7 +599,7 @@ class BackupOdometryNode : public rclcpp::Node {
     note_integrity(false);
     log_anchor();
     remember_state(t);
-    publish(sample.stamp, t_in);
+    publish(sample.stamp, t_in, true);
     if (sample.front) ++n_pub_front_;
     else ++n_pub_rear_;
     note_out(t);
@@ -614,7 +621,7 @@ class BackupOdometryNode : public rclcpp::Node {
     maybe_flush_master(t);
     note_integrity(false);
     remember_state(t);
-    publish(sample.stamp, t_in);
+    publish(sample.stamp, t_in, false);
     ++n_pub_cmd_;
     note_out(t);
     remember_input(t);
@@ -720,7 +727,7 @@ class BackupOdometryNode : public rclcpp::Node {
       VelocitySensor vel;
       vel.header.stamp = stamp;
       vel.header.frame_id = child_frame_id_;
-      vel.velocity = od_->v();
+      vel.velocity = wheels_out_ ? last_v_pub_ : od_->v();
       pub_v_->publish(vel);
     }
     const bool map_loaded = assets_ok_ && !assets_.map.empty();
@@ -746,7 +753,7 @@ class BackupOdometryNode : public rclcpp::Node {
       o.pose.pose.orientation.w = std::cos(0.5 * yaw);
       const double vs = pose_ok ? od_->sigma_s() * od_->sigma_s() : kRefusedPoseVariance;
       railbreak::TrackOdometer::fill_pose_covariance(vs, o.pose.covariance.data());
-      o.twist.twist.linear.x = od_->v();
+      o.twist.twist.linear.x = wheels_out_ ? last_v_pub_ : od_->v();
       o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
       for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;
       pub_p_->publish(o);
@@ -759,7 +766,7 @@ class BackupOdometryNode : public rclcpp::Node {
 #endif
 
   void publish(const builtin_interfaces::msg::Time& stamp,
-               std::chrono::steady_clock::time_point t_in) {
+               std::chrono::steady_clock::time_point t_in, bool from_bogie = false) {
 #if !RAILBREAK_HAS_DRIVER_CMD
     // An extrapolated stamp may sit ahead of the next real input. Skip the
     // message; the filter step already happened in the caller. Do not treat
@@ -776,13 +783,29 @@ class BackupOdometryNode : public rclcpp::Node {
     // integrity_use_position=false.
     const bool pose_ok = !have || last_integrity_.use_position;
     const double t_stamp = stamp_s(stamp);
-    // Velocity stamp moves onto the lagged jury twist. delayed_velocity then
-    // reads t_vel − delay, so a 0.10 s offset and a 0.10 s delay publish v(t)
-    // at stamp t+0.10. Position keeps t_stamp.
+    // The organiser kinematic twist lags the bogies by about 0.105 s. The
+    // header moves by that offset. The value, when the bogies agree, is their
+    // raw mean at the input stamp, not the filter state and not a second lag.
+    // Position keeps t_stamp.
     const double t_vel = railbreak::velocity_output_stamp(t_stamp, stamp_offset_s_);
-    const double v_out = delayed_velocity(t_vel);
+    double v_out = delayed_velocity(t_vel);
+    if (wheels_out_) {
+      double dt = 0.0;
+      if (have_vel_fade_t_) dt = t_stamp - vel_fade_t_;
+      if (!std::isfinite(dt) || dt < 0.0) dt = 0.0;
+      vel_fade_t_ = t_stamp;
+      have_vel_fade_t_ = true;
+      v_out = railbreak::blend_velocity(od_->wheels_mean_mps(), od_->v(), od_->wheels_trusted(),
+                                        dt, vel_fade_s_, vel_fade_);
+    }
+    last_v_pub_ = v_out;
     const double s_filt = delayed_arc(t_stamp);
-    if (!vel_none) {
+    // A command between bogies would restamp the previous wheel mean and
+    // pull the velocity RMSE up. The mean is published when both bogies share
+    // the stamp. While they disagree, the filter value still goes out.
+    const bool mates = od_ && std::fabs(od_->front_t() - od_->rear_t()) < 1e-3;
+    const bool emit_vel = !wheels_out_ || !od_->wheels_trusted() || (from_bogie && mates);
+    if (!vel_none && emit_vel) {
       VelocitySensor vel;
       vel.header.stamp = time_from_s(t_vel);
       vel.header.frame_id = child_frame_id_;
@@ -1200,7 +1223,13 @@ class BackupOdometryNode : public rclcpp::Node {
   railbreak::AdhesionReport last_adhesion_{};
   bool have_adhesion_ = false;
   railbreak::GnssWindow win_;
-  bool gnss_correction_ = false;
+  bool gnss_correction_ = true;
+  bool wheels_out_ = true;
+  double vel_fade_s_ = 0.5;
+  double vel_fade_ = 0.0;
+  double vel_fade_t_ = 0.0;
+  bool have_vel_fade_t_ = false;
+  double last_v_pub_ = 0.0;
   railbreak::GnssCorrLimits gnss_lim_{};
   double gnss_sigma_m_ = 2.0;
   railbreak::GnssMasterBurst master_burst_{};

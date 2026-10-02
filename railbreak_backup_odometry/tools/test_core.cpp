@@ -9,6 +9,7 @@
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
 #include "railbreak_backup_odometry/extrap_stamp.hpp"
+#include "railbreak_backup_odometry/velocity_output.hpp"
 #include "railbreak_backup_odometry/gnss_correction.hpp"
 #include "railbreak_backup_odometry/gnss_window.hpp"
 #include "railbreak_backup_odometry/input_reorder.hpp"
@@ -96,6 +97,13 @@ int main() {
     check(std::fabs(od.v() - 10.0) < 0.05, "constant speed is tracked");
     std::printf("     s=%.2f v=%.3f k=%.5f\n", od.s(), od.v(), od.k());
     check(std::fabs(od.s() - 600.0) < 2.0, "path integrates speed");
+    check(od.wheels_trusted() && std::fabs(od.wheels_mean_mps() - 10.0) < 0.05,
+          "agreed bogies publish their raw mean, not k times that mean");
+    const double v_before = od.v();
+    od.on_bogie(60.0, true, 36.0 + 7.2);
+    od.on_bogie(60.0, false, 36.0);
+    check(!od.wheels_trusted(), "a 2 m/s bogie split is not the published speed");
+    check(std::fabs(od.v() - v_before) < 0.5, "the filter keeps the healthy bogie within 0.5 m/s");
   }
   {
     railbreak::TrackOdometer od(&assets, p);
@@ -2084,6 +2092,19 @@ int main() {
           "velocity stamp is the input plus the offset");
     check(std::abs(railbreak::velocity_state_time(10.0, 0.10, 0.0) - 9.90) < 1e-12,
           "without a stamp offset the delay still reads 0.10 s earlier");
+    double fade = 0.0;
+    const double mid = railbreak::blend_velocity(10.0, 8.0, true, 0.25, 0.5, fade);
+    check(std::fabs(fade - 0.5) < 1e-12 && std::fabs(mid - 9.0) < 1e-12,
+          "the wheel mean takes over across 0.5 s");
+    const double full = railbreak::blend_velocity(10.0, 8.0, true, 0.25, 0.5, fade);
+    check(std::fabs(fade - 1.0) < 1e-12 && std::fabs(full - 10.0) < 1e-12,
+          "after the crossfade the output is the wheel mean");
+    const double back = railbreak::blend_velocity(12.0, 8.0, false, 0.5, 0.5, fade);
+    check(std::fabs(fade) < 1e-12 && std::fabs(back - 8.0) < 1e-12,
+          "a rejected wheel pair returns to the filter within the crossfade");
+    check(railbreak::velocity_source_is_wheels("wheels_mean") &&
+              !railbreak::velocity_source_is_wheels("filter"),
+          "only the filter source name turns the wheel mean off");
     check(!next_extrap_stamp(10.0, 0.08, 10.08).has_value(),
           "a stamp at or behind the last output is not published");
     const auto first = next_extrap_stamp(10.0, 0.05, 10.0);

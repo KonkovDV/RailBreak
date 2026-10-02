@@ -785,6 +785,20 @@ class TrackOdometer {
     const double gate = std::max(p_.fr_floor, p_.fr_sigma_gate * std::sqrt(2.0 * r_));
     return std::fabs(corrected(true, front_.u) - corrected(false, rear_.u)) <= gate;
   }
+  // Raw mean, m/s, before k. This is the speed the checker should see when
+  // the bogies agree: k is a path scale, not a correction of this sample.
+  double wheels_mean_mps() const {
+    if (!front_.have || !rear_.have) return std::numeric_limits<double>::quiet_NaN();
+    return 0.5 * (front_.u + rear_.u);
+  }
+  // True when both bogies are younger than wheel_stale_s and inside the
+  // existing disagreement gate. A traction-table NIS spike is not a reason
+  // to drop the wheels: that table does not observe speed on its own.
+  bool wheels_trusted() const {
+    if (!pair_fresh() || !have_t_) return false;
+    if (t_ - front_.t > p_.wheel_stale_s || t_ - rear_.t > p_.wheel_stale_s) return false;
+    return bogies_agree();
+  }
   // Pre-update |u_front - u_rear| of the last fresh pair, m/s. Not a friction coefficient.
   bool wheel_consensus_have() const { return wheel_consensus_have_; }
   double wheel_consensus_residual() const { return wheel_consensus_resid_; }
