@@ -245,9 +245,18 @@ struct TrackMap {
   }
 
   // Linear interpolation of column c at wrapped s. Empty map (assets missing): 0.
+  // The final CSV sample normally stops a few metres before ring_len. Interpolate
+  // that seam to the first sample instead of holding the last value until wrap;
+  // otherwise grade and height jump at the lap boundary.
   double at(const std::vector<double>& c, double sv) const {
     if (s.size() < 2 || c.size() != s.size()) return 0.0;
     const double q = wrap(sv);
+    const double seam = ring_len - s.back() + s.front();
+    if (ring_len > 0.0 && seam > 1e-9 && (q >= s.back() || q < s.front())) {
+      const double seam_q = q >= s.back() ? q - s.back() : q + ring_len - s.back();
+      const double t = std::clamp(seam_q / seam, 0.0, 1.0);
+      return c.back() + t * (c.front() - c.back());
+    }
     if (q <= s.front()) return c.front();
     if (q >= s.back()) return c.back();
     const auto it = std::upper_bound(s.begin(), s.end(), q);
@@ -346,12 +355,21 @@ inline Assets load_assets(const std::string& dir) {
   a.k0 = detail::yaml_number(meta, "k0");
   const auto notch = detail::read_csv(dir + "/notch.csv");
   if (notch.size() != 31) throw std::runtime_error("notch.csv needs 31 rows");
+  // Check the row shape before indexing r[0]. A truncated or empty row is
+  // an input error, not a reason to enter undefined behaviour or allocate an
+  // enormous vector after size_t underflow.
+  if (notch.front().size() < 2) throw std::runtime_error("notch.csv needs a speed column");
   const std::size_t nv = notch.front().size() - 1;
+  for (const auto& r : notch) {
+    if (r.size() != nv + 1) throw std::runtime_error("notch.csv row");
+  }
   for (std::size_t j = 0; j < nv; ++j) a.table.v_centre.push_back(static_cast<double>(j) + 0.5);
   for (const auto& r : notch) {
     const int n = static_cast<int>(std::lround(r[0]));
-    if (n < kNotchMin || n > kNotchMax || r.size() != nv + 1) throw std::runtime_error("notch.csv row");
-    a.table.a[static_cast<std::size_t>(n - kNotchMin)].assign(r.begin() + 1, r.end());
+    if (n < kNotchMin || n > kNotchMax) throw std::runtime_error("notch.csv notch");
+    auto& row = a.table.a[static_cast<std::size_t>(n - kNotchMin)];
+    if (!row.empty()) throw std::runtime_error("notch.csv duplicate notch");
+    row.assign(r.begin() + 1, r.end());
   }
   for (const auto& r : detail::read_csv(dir + "/stops.csv")) {
     if (r.size() < 3) throw std::runtime_error("stops.csv row");
@@ -369,6 +387,8 @@ inline void validate_assets(const Assets& a) {
   if (m.s.size() < 2) return;
   if (!std::isfinite(m.ring_len) || !(m.ring_len > 0.0))
     throw std::invalid_argument("ring_len must be > 0");
+  if (!(m.s.front() >= 0.0) || !(m.s.back() < m.ring_len))
+    throw std::invalid_argument("ring s must lie in [0, ring_len)");
   if (!std::isfinite(m.lat0) || !std::isfinite(m.lon0) || !std::isfinite(m.off_ks))
     throw std::invalid_argument("map origin is not finite");
   const std::vector<double>* cols[] = {&m.s, &m.x, &m.y, &m.h, &m.grade};
@@ -381,8 +401,11 @@ inline void validate_assets(const Assets& a) {
   for (std::size_t i = 1; i < m.s.size(); ++i) {
     if (!(m.s[i] > m.s[i - 1])) throw std::invalid_argument("map s is not strictly increasing");
   }
-  for (double v : a.table.v_centre) {
-    if (!std::isfinite(v)) throw std::invalid_argument("notch speed is not finite");
+  if (a.table.v_centre.empty()) throw std::invalid_argument("notch speed table is empty");
+  for (std::size_t i = 0; i < a.table.v_centre.size(); ++i) {
+    if (!std::isfinite(a.table.v_centre[i])) throw std::invalid_argument("notch speed is not finite");
+    if (i > 0 && !(a.table.v_centre[i] > a.table.v_centre[i - 1]))
+      throw std::invalid_argument("notch speed table is not increasing");
   }
   for (const auto& row : a.table.a) {
     for (double v : row) {

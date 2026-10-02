@@ -1,0 +1,10 @@
+RailBreak corrected source release
+==================================
+original_archive_sha256=e71303fccde3122b72f6d532ef7ed3edf7609df3eca737833fd273b631e4faca
+original_head=c6a8c140435abad5b4c3dd2b736e135958c8e716
+corrected_archive=RailBreak_corrected_source.zip
+corrected_archive_sha256=148cfc37f4a8b25df6df770ffbfcf81befafa9f4ebc4143650218b6178baf44d
+corrected_archive_sha256_file=RailBreak_corrected_source.zip.sha256
+source_tree_file_hash_manifest_sha256=6ec174ec41687a66dd2ac2184862040a8fec3e3c460b6b70d7d290f6b7c76a9d
+source_tree_hash_manifest=/data/railbreak_source_file_hashes.txt
+notes=Source-only archive; Git-dependent provenance tests require a normal Git checkout.

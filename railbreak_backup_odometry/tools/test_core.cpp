@@ -86,6 +86,19 @@ void drive(railbreak::TrackOdometer& od, double t0, double t1, double v_kmh,
 
 int main() {
   const auto assets = flat_ring(2000.0);
+  {
+    railbreak::TrackMap seam;
+    seam.s = {0.0, 10.0};
+    seam.x = {0.0, 10.0};
+    seam.y = {0.0, 20.0};
+    seam.h = {100.0, 110.0};
+    seam.grade = {0.0, 1.0};
+    seam.ring_len = 12.0;
+    check(std::fabs(seam.at(seam.x, 11.0) - 5.0) < 1e-9,
+          "map interpolation closes the final ring seam");
+    check(std::fabs(seam.at(seam.y, 11.0) - 10.0) < 1e-9,
+          "height and geometry columns use the same seam interpolation");
+  }
   railbreak::Params p;
   p.unit = 1.0 / 3.6;
 
@@ -1970,10 +1983,10 @@ int main() {
     check(std::fabs(back.candidate_s - 10.0) < 1e-9 && back.along_track_error < -4.0 &&
               back.branch_probability <= 0.25,
           "reverse motion at speed is rejected");
-    railbreak::Stop one[] = {{50.0, 0.5}};
+    railbreak::Stop one[] = {{50.0, 0.5, 0}};
     const auto held = railbreak::match_ring(line, 10.0, 11.0, 11.0, 0.0, 10.0, 0.1, one, 1);
     check(std::fabs(held.candidate_s - 11.0) < 0.05, "a stop does not pull the candidate arc");
-    railbreak::Stop two[] = {{10.0, 0.5}, {14.0, 0.5}};
+    railbreak::Stop two[] = {{10.0, 0.5, 0}, {14.0, 0.5, 0}};
     const auto ambiguous = railbreak::match_ring(line, 10.0, 12.0, 12.0, 0.0, 10.0, 0.1, two, 2);
     check(ambiguous.branch_probability <= 0.5 && std::fabs(ambiguous.candidate_s - 10.0) > 0.5 &&
               std::fabs(ambiguous.candidate_s - 14.0) > 0.5,
