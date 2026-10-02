@@ -2078,6 +2078,12 @@ int main() {
     const auto capped = next_extrap_stamp(10.0, 0.3, 10.0);
     check(capped.has_value() && std::fabs(*capped - 10.1) < 1e-12,
           "extrapolation stays within 0.1 s of the last input");
+    check(std::abs(railbreak::velocity_state_time(10.0, 0.10, 0.10) - 10.0) < 1e-12,
+          "stamp +0.10 s with the same delay publishes the speed at the input");
+    check(std::abs(railbreak::velocity_output_stamp(10.0, 0.10) - 10.10) < 1e-12,
+          "velocity stamp is the input plus the offset");
+    check(std::abs(railbreak::velocity_state_time(10.0, 0.10, 0.0) - 9.90) < 1e-12,
+          "without a stamp offset the delay still reads 0.10 s earlier");
     check(!next_extrap_stamp(10.0, 0.08, 10.08).has_value(),
           "a stamp at or behind the last output is not published");
     const auto first = next_extrap_stamp(10.0, 0.05, 10.0);

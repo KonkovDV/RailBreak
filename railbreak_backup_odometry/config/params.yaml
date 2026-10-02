@@ -7,13 +7,10 @@ backup_odometry:
     gnss_init_window_s: 3.0
     # No fix this long after the first input: publish relative odometry from the start point.
     gnss_wait_s: 10.0
-    # After the start window, a rare RTK fix may place s on the ring. One antenna
-    # is enough. A master+rover pair within 0.5 s is used when both exist, and
-    # that pair still checks the 12.436 ± 2 m baseline. Snap within 3 m of the
-    # ring, along-track innovation within 25 m, and at least 30 s and 150 m
-    # since the previous absolute update. A fix on a siding the ring does not
-    # contain is refused. false unsubscribes after the start.
-    gnss_correction: true
+    # false: unsubscribe after the 3 s start. true: one master-RTK median per
+    # burst may set s. The dataset text calls GNSS in the main loop disqualifying;
+    # the organisers later allowed rare fixes. The default follows the dataset text.
+    gnss_correction: false
     # Master RTK only, one median per burst (gap 2 s). Rover is the start
     # heading, not a mid-route fix. min_m 0 drops the 150 m path gate: the
     # bursts on the issued bag are ~100–180 s apart. Along gate is at least
@@ -28,6 +25,9 @@ backup_odometry:
     gnss_correction_sigma_m: 0.5
     output_delay_vel_s: 0.10
     output_delay_pos_s: 0.0
+    # Velocity header only. With delay 0.10 this publishes v(t) at stamp t+0.10.
+    # Position keeps the input stamp.
+    output_stamp_offset_s: 0.10
     # Bogie and notch headers arrive out of stamp order across streams. The
     # watermark is the slowest live stream minus this hold. Samples are applied
     # in stamp order up to that watermark. There is no timer and no /clock.

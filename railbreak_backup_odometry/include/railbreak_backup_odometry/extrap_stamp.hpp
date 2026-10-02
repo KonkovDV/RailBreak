@@ -10,6 +10,23 @@
 
 namespace railbreak {
 
+// The jury twist at stamp t matches wheel speed from about t − 0.10 s.
+// Publishing v(t − delay) at stamp t is the same pairing as publishing
+// v(t − delay + offset) at stamp t + offset. Position keeps the input stamp:
+// the reference pose does not share that lag. note_out() must stay on the
+// input stamp, or the next sample looks late.
+inline double velocity_output_stamp(double t_input, double stamp_offset_s) {
+  if (!std::isfinite(t_input)) return t_input;
+  if (!std::isfinite(stamp_offset_s)) return t_input;
+  return t_input + stamp_offset_s;
+}
+
+inline double velocity_state_time(double t_input, double delay_s, double stamp_offset_s) {
+  const double stamp = velocity_output_stamp(t_input, stamp_offset_s);
+  const double delay = (std::isfinite(delay_s) && delay_s > 0.0) ? delay_s : 0.0;
+  return stamp - delay;
+}
+
 // t_real: stamp of the last applied input, seconds.
 // dt: time since that input was applied, seconds.
 // t_pub_last: stamp of the last published output, or NaN if nothing was published.

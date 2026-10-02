@@ -119,7 +119,7 @@ class BackupOdometryNode : public rclcpp::Node {
     }
     win_.window_s = declare_parameter("gnss_init_window_s", 3.0);
     win_.wait_s = declare_parameter("gnss_wait_s", 10.0);
-    gnss_correction_ = declare_parameter("gnss_correction", true);
+    gnss_correction_ = declare_parameter("gnss_correction", false);
     gnss_lim_.min_s = declare_parameter("gnss_correction_min_s", 30.0);
     gnss_lim_.min_m = declare_parameter("gnss_correction_min_m", 0.0);
     gnss_lim_.gate_m = declare_parameter("gnss_correction_gate_m", 5.0);
@@ -127,6 +127,7 @@ class BackupOdometryNode : public rclcpp::Node {
     gnss_sigma_m_ = declare_parameter("gnss_correction_sigma_m", 0.5);
     delay_vel_s_ = declare_parameter("output_delay_vel_s", 0.10);
     delay_pos_s_ = declare_parameter("output_delay_pos_s", 0.0);
+    stamp_offset_s_ = declare_parameter("output_stamp_offset_s", 0.10);
     // Watermark is the slowest live stream minus this hold. Default hold is 0.
     // A stream more than order_stall_s behind the freshest is ORDER_NOT_RESTORED.
     // While that stream is still delivering, it stays in the min.
@@ -775,11 +776,15 @@ class BackupOdometryNode : public rclcpp::Node {
     // integrity_use_position=false.
     const bool pose_ok = !have || last_integrity_.use_position;
     const double t_stamp = stamp_s(stamp);
-    const double v_out = delayed_velocity(t_stamp);
+    // Velocity stamp moves onto the lagged jury twist. delayed_velocity then
+    // reads t_vel − delay, so a 0.10 s offset and a 0.10 s delay publish v(t)
+    // at stamp t+0.10. Position keeps t_stamp.
+    const double t_vel = railbreak::velocity_output_stamp(t_stamp, stamp_offset_s_);
+    const double v_out = delayed_velocity(t_vel);
     const double s_filt = delayed_arc(t_stamp);
     if (!vel_none) {
       VelocitySensor vel;
-      vel.header.stamp = stamp;
+      vel.header.stamp = time_from_s(t_vel);
       vel.header.frame_id = child_frame_id_;
       vel.velocity = v_out;
       pub_v_->publish(vel);
@@ -1195,7 +1200,7 @@ class BackupOdometryNode : public rclcpp::Node {
   railbreak::AdhesionReport last_adhesion_{};
   bool have_adhesion_ = false;
   railbreak::GnssWindow win_;
-  bool gnss_correction_ = true;
+  bool gnss_correction_ = false;
   railbreak::GnssCorrLimits gnss_lim_{};
   double gnss_sigma_m_ = 2.0;
   railbreak::GnssMasterBurst master_burst_{};
@@ -1203,6 +1208,7 @@ class BackupOdometryNode : public rclcpp::Node {
   int n_gnss_rejected_ = 0;
   double delay_vel_s_ = 0.0;
   double delay_pos_s_ = 0.0;
+  double stamp_offset_s_ = 0.0;
   std::deque<std::array<double, 3>> state_hist_;
   railbreak::InputReorder<VehicleSample> reorder_;
   const char* order_reason_ = "";
