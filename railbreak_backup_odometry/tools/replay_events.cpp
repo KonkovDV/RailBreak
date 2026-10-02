@@ -18,7 +18,8 @@ int main(int argc, char** argv) {
   railbreak::TrackOdometer od(&assets, railbreak::Params{});
   std::ifstream in(argv[2]);
   std::ofstream out(argv[3]);
-  out.precision(10);
+  out.setf(std::ios::fixed);
+  out.precision(6);
   out << "t,s,v,k,sigma_s,mode\n";
   std::string line;
   std::getline(in, line);

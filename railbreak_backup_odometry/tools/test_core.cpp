@@ -2105,6 +2105,30 @@ int main() {
     check(railbreak::velocity_source_is_wheels("wheels_mean") &&
               !railbreak::velocity_source_is_wheels("filter"),
           "only the filter source name turns the wheel mean off");
+    double rt[8], rv[8];
+    const int ngrid = railbreak::velocity_resample(0.0, 10.0, 0.1, 12.0, 0.04, rt, rv, 8);
+    check(ngrid == 3 && std::fabs(rt[0] - 0.04) < 1e-9 && std::fabs(rv[0] - 10.8) < 1e-9 &&
+              std::fabs(rt[2] - 0.1) < 1e-9 && std::fabs(rv[2] - 12.0) < 1e-9 && rt[1] > rt[0],
+          "wheel means are interpolated on the open-closed grid");
+    check(railbreak::velocity_resample(0.2, 1.0, 0.1, 3.0, 0.04, rt, rv, 8) == 1 &&
+              std::fabs(rt[0] - 0.1) < 1e-9,
+          "a backwards pair publishes the current sample only");
+    {
+      auto line = flat_ring(100.0);
+      double lat = 0.0, lon = 0.0;
+      line.map.latlon(10.5, 0.0, lat, lon);
+      const auto mid = railbreak::init_on_ring(line.map, lat, lon, false, 0.0, 0.0);
+      line.map.latlon(10.0, 0.0, lat, lon);
+      const auto vtx = railbreak::init_on_ring(line.map, lat, lon, false, 0.0, 0.0);
+      check(mid.ok && std::fabs(mid.s0 - 10.5) < 1e-4, "a fix between vertices projects onto the segment");
+      check(vtx.ok && std::fabs(vtx.s0 - 10.0) < 1e-6, "a fix on a vertex stays on that vertex");
+      bool averaged = false;
+      const double both = railbreak::dual_antenna_arc(100.0, 112.436, 12.436, 2001.0, 5.0, averaged);
+      bool kept = true;
+      const double far = railbreak::dual_antenna_arc(100.0, 120.0, 12.436, 2001.0, 5.0, kept);
+      check(averaged && std::fabs(both - 100.0) < 1e-6, "agreeing antennas average onto the master arc");
+      check(!kept && std::fabs(far - 100.0) < 1e-9, "antennas more than 5 m apart keep the master arc");
+    }
     check(!next_extrap_stamp(10.0, 0.08, 10.08).has_value(),
           "a stamp at or behind the last output is not published");
     const auto first = next_extrap_stamp(10.0, 0.05, 10.0);

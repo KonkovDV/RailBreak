@@ -18,6 +18,10 @@ backup_odometry:
     # speed so the stamp matches that recording; 0 disables it.
     # output_delay_pos_s would advance the arc by v·τ. After the master
     # windows that advance increased position error, so it stays 0.
+    # output_pos_lag_s subtracts v·τ. 0.05 s is the lag of the organiser
+    # position behind the arc on the issued recording (master bursts gave
+    # about 0.057 s). It is that reference's lag, not a GNSS clock bias.
+    # The position header stays the input stamp.
     gnss_correction_min_s: 30.0
     gnss_correction_min_m: 0.0
     gnss_correction_gate_m: 5.0
@@ -25,14 +29,21 @@ backup_odometry:
     gnss_correction_sigma_m: 0.5
     output_delay_vel_s: 0.10
     output_delay_pos_s: 0.0
+    output_pos_lag_s: 0.05
     # Velocity header only. 0.105 s is the lag of the organiser kinematic twist
     # behind the bogies on the issued recording. It is not a GNSS clock bias:
     # train master speed and the bogies agree at lag 0. The value at that
     # header is the raw bogie mean (wheels_mean), not the filter delayed again.
-    # filter keeps the previous delayed filter speed. Position keeps the input stamp.
+    # Between bogie pairs the mean is linearly resampled at output_velocity_resample_s.
+    # 0 publishes the pair once. filter keeps the previous delayed filter speed.
+    # Position keeps the input stamp.
     output_stamp_offset_s: 0.105
     output_velocity_source: wheels_mean
     output_velocity_fade_s: 0.5
+    output_velocity_resample_s: 0.04
+    # Start arc is the mean of both antennas, each reduced to the master, when
+    # they agree within 5 m. false keeps the master median and the rover heading.
+    gnss_init_dual_antenna: true
     # Bogie and notch headers arrive out of stamp order across streams. The
     # watermark is the slowest live stream minus this hold. Samples are applied
     # in stamp order up to that watermark. There is no timer and no /clock.
@@ -79,7 +90,10 @@ backup_odometry:
     davis_a: 0.0
     davis_b: 0.0
     davis_c: 0.0
-    sigma_k0: 0.004
+    # The node declares 0.0015. The spread of k across train rides is about
+    # 0.15 %, and a 0.4 % prior let the start error move the scale. The Params
+    # struct used by the core tests stays 0.004.
+    sigma_k0: 0.0015
     q_v: 0.05
     q_s: 0.0001
     q_k: 1.0e-9

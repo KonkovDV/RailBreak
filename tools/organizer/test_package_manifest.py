@@ -46,14 +46,14 @@ def main() -> int:
     defaults = data.get("defaults") or {}
     if defaults.get("wheel_unit_scale") != 0.2777777777777778:
         errors.append("wheel_unit_scale")
-    if defaults.get("sigma_k0") != 0.004:
+    if defaults.get("sigma_k0") != 0.0015:
         errors.append("sigma_k0")
     if defaults.get("output_frame") != "mgrs":
         errors.append("output_frame")
     params = (ROOT / "railbreak_backup_odometry/config/params.yaml").read_text(encoding="utf-8")
     for line in (
         "wheel_unit_scale: 0.2777777777777778",
-        "sigma_k0: 0.004",
+        "sigma_k0: 0.0015",
         "output_frame: mgrs",
     ):
         if line not in params:

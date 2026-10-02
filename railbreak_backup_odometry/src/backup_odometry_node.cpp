@@ -131,8 +131,13 @@ class BackupOdometryNode : public rclcpp::Node {
     gnss_sigma_m_ = declare_parameter("gnss_correction_sigma_m", 0.5);
     delay_vel_s_ = declare_parameter("output_delay_vel_s", 0.10);
     delay_pos_s_ = declare_parameter("output_delay_pos_s", 0.0);
+    // The organiser position lags the arc. 0.05 s is that lag on the issued
+    // recording (master bursts, about 0.057 s). The header stays the input stamp.
+    pos_lag_s_ = declare_parameter("output_pos_lag_s", 0.05);
     stamp_offset_s_ = declare_parameter("output_stamp_offset_s", 0.105);
     vel_fade_s_ = declare_parameter("output_velocity_fade_s", 0.5);
+    vel_resample_s_ = declare_parameter("output_velocity_resample_s", 0.04);
+    gnss_init_dual_ = declare_parameter("gnss_init_dual_antenna", true);
     wheels_out_ = railbreak::velocity_source_is_wheels(
         declare_parameter("output_velocity_source", std::string("wheels_mean")));
     // Watermark is the slowest live stream minus this hold. Default hold is 0.
@@ -180,7 +185,7 @@ class BackupOdometryNode : public rclcpp::Node {
     p.davis_a = declare_parameter("davis_a", 0.0);
     p.davis_b = declare_parameter("davis_b", 0.0);
     p.davis_c = declare_parameter("davis_c", 0.0);
-    p.sigma_k0 = declare_parameter("sigma_k0", p.sigma_k0);
+    p.sigma_k0 = declare_parameter("sigma_k0", 0.0015);
     p.q_v = declare_parameter("q_v", p.q_v);
     p.q_s = declare_parameter("q_s", p.q_s);
     p.q_k = declare_parameter("q_k", p.q_k);
@@ -371,6 +376,15 @@ class BackupOdometryNode : public rclcpp::Node {
     // median of the authoritative antenna, so the carried path starts at that
     // sample's stamp, not at the rover and not at the next wheel.
     double s0 = r.s0;
+    bool dual = false;
+    if (gnss_init_dual_ && master && heading) {
+      const auto rover =
+          railbreak::init_on_ring(assets_.map, median(r_lat_), median(r_lon_), false, 0.0, 0.0);
+      if (rover.ok) {
+        s0 = railbreak::dual_antenna_arc(r.s0, rover.s0, rover_baseline_m_, assets_.map.ring_len, 5.0,
+                                         dual);
+      }
+    }
     if (rover_only) s0 = railbreak::arc_from_rover_only(s0, rover_baseline_m_);
     const double t_epoch = median(master ? m_t_ : r_t_);
     const double s_epoch = railbreak::arc_at(arc_hist_, t_epoch);
@@ -385,6 +399,7 @@ class BackupOdometryNode : public rclcpp::Node {
     last_gnss_t_ = t_epoch;
     n_fix_used_ = static_cast<int>(m_lat_.size() + r_lat_.size());
     const char* note = rover_only ? "initialised with rover only; no master"
+                       : dual      ? "initialised with the mean of both antennas"
                        : heading   ? "initialised with master+rover azimuth"
                                    : "initialised with master only";
     close_gnss(note);
@@ -688,8 +703,9 @@ class BackupOdometryNode : public rclcpp::Node {
   // to that lag. 0 disables it.
   double delayed_arc(double t_stamp) const {
     (void)t_stamp;
-    if (!(delay_pos_s_ > 0.0)) return od_->s();
-    const double s = od_->s() + od_->v() * delay_pos_s_;
+    double s = od_->s();
+    if (delay_pos_s_ > 0.0) s += od_->v() * delay_pos_s_;
+    if (pos_lag_s_ > 0.0) s -= od_->v() * pos_lag_s_;
     return assets_.map.ring_len > 0.0 ? assets_.map.wrap(s) : s;
   }
 
@@ -765,6 +781,20 @@ class BackupOdometryNode : public rclcpp::Node {
   }
 #endif
 
+  void publish_one_velocity(double t_sample, double v) {
+    const double t_vel = railbreak::velocity_output_stamp(t_sample, stamp_offset_s_);
+    if (!std::isfinite(t_vel) || !std::isfinite(v)) return;
+    if (have_vel_hdr_ && t_vel <= vel_hdr_last_) return;
+    vel_hdr_last_ = t_vel;
+    have_vel_hdr_ = true;
+    last_v_pub_ = v;
+    VelocitySensor vel;
+    vel.header.stamp = time_from_s(t_vel);
+    vel.header.frame_id = child_frame_id_;
+    vel.velocity = v;
+    pub_v_->publish(vel);
+  }
+
   void publish(const builtin_interfaces::msg::Time& stamp,
                std::chrono::steady_clock::time_point t_in, bool from_bogie = false) {
 #if !RAILBREAK_HAS_DRIVER_CMD
@@ -806,11 +836,20 @@ class BackupOdometryNode : public rclcpp::Node {
     const bool mates = od_ && std::fabs(od_->front_t() - od_->rear_t()) < 1e-3;
     const bool emit_vel = !wheels_out_ || !od_->wheels_trusted() || (from_bogie && mates);
     if (!vel_none && emit_vel) {
-      VelocitySensor vel;
-      vel.header.stamp = time_from_s(t_vel);
-      vel.header.frame_id = child_frame_id_;
-      vel.velocity = v_out;
-      pub_v_->publish(vel);
+      const bool grid = wheels_out_ && from_bogie && mates && od_->wheels_trusted() && vel_resample_s_ > 0.0;
+      const double gap = have_pair_v_ ? t_stamp - pair_t_ : 0.0;
+      const bool gap_ok = grid && gap > 0.0 && gap <= 0.35;
+      double ts[32], vs[32];
+      const int n = railbreak::velocity_resample(gap_ok ? pair_t_ : std::numeric_limits<double>::quiet_NaN(),
+                                                 pair_v_, t_stamp, v_out, vel_resample_s_, ts, vs, 32);
+      for (int i = 0; i < n; ++i) publish_one_velocity(ts[i], vs[i]);
+      if (grid) {
+        pair_t_ = t_stamp;
+        pair_v_ = v_out;
+        have_pair_v_ = true;
+      } else if (!od_->wheels_trusted()) {
+        have_pair_v_ = false;
+      }
     }
 
     const bool map_loaded = assets_ok_ && !assets_.map.empty();
@@ -1237,7 +1276,15 @@ class BackupOdometryNode : public rclcpp::Node {
   int n_gnss_rejected_ = 0;
   double delay_vel_s_ = 0.0;
   double delay_pos_s_ = 0.0;
+  double pos_lag_s_ = 0.05;
   double stamp_offset_s_ = 0.0;
+  double vel_resample_s_ = 0.04;
+  bool gnss_init_dual_ = true;
+  bool have_pair_v_ = false;
+  double pair_t_ = 0.0;
+  double pair_v_ = 0.0;
+  bool have_vel_hdr_ = false;
+  double vel_hdr_last_ = 0.0;
   std::deque<std::array<double, 3>> state_hist_;
   railbreak::InputReorder<VehicleSample> reorder_;
   const char* order_reason_ = "";

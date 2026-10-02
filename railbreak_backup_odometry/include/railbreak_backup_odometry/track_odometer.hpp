@@ -166,6 +166,37 @@ inline double arc_from_rover_only(double snap_s, double rover_baseline_m) {
   return snap_s - rover_baseline_m;
 }
 
+// Shortest signed arc a − b on a ring. A positive value means a is ahead of b.
+inline double shortest_arc_delta(double a, double b, double ring_len) {
+  double d = a - b;
+  if (ring_len > 0.0 && std::isfinite(ring_len)) {
+    d = std::fmod(d, ring_len);
+    if (d > 0.5 * ring_len) d -= ring_len;
+    if (d < -0.5 * ring_len) d += ring_len;
+  }
+  return d;
+}
+
+// Both snaps are antenna arcs. The rover is baseline_m ahead of the master, so
+// s_rover − baseline is the same arc the master measures. When those two
+// estimates agree, the start is their mean. A disagreement keeps the master.
+inline double dual_antenna_arc(double s_master, double s_rover, double baseline_m, double ring_len,
+                               double agree_m, bool& averaged) {
+  averaged = false;
+  if (!std::isfinite(s_master)) return s_master;
+  if (!std::isfinite(s_rover) || !(baseline_m > 0.0) || !(agree_m > 0.0)) return s_master;
+  const double from_rover = s_rover - baseline_m;
+  const double d = shortest_arc_delta(s_master, from_rover, ring_len);
+  if (!(std::fabs(d) < agree_m)) return s_master;
+  averaged = true;
+  double s = from_rover + 0.5 * d;
+  if (ring_len > 0.0 && std::isfinite(ring_len)) {
+    s = std::fmod(s, ring_len);
+    if (s < 0.0) s += ring_len;
+  }
+  return s;
+}
+
 // Both radii unset (the package default) leave k0 alone. A passport radius is
 // applied only when both are positive: k0 *= wheel / nominal. 0.35 m is not
 // a default and is not read from anywhere in this package.
@@ -1439,6 +1470,7 @@ inline InitResult init_on_ring(const TrackMap& m, double lat, double lon, bool h
   for (std::size_t j = 0; j < N; ++j) dmin = std::min(dmin, std::hypot(m.x[j] - e, m.y[j] - n));
   const double lim = std::max(3.0, dmin + 0.5);
   double best = std::numeric_limits<double>::infinity();
+  std::size_t best_j = 0;
   for (std::size_t j = 0; j < N; ++j) {
     const double d = std::hypot(m.x[j] - e, m.y[j] - n);
     if (d > lim) continue;
@@ -1451,11 +1483,45 @@ inline InitResult init_on_ring(const TrackMap& m, double lat, double lon, bool h
     }
     if (d + penalty < best) {
       best = d + penalty;
+      best_j = j;
       r.s0 = m.s[j];
       r.d0 = d;
       r.ok = true;
     }
   }
+  if (!r.ok) return r;
+  // The vertex is the track choice. The arc is the projection onto the two
+  // segments that meet there, so a fix between samples is not rounded to 1 m.
+  auto project = [&](std::size_t a, std::size_t b, double& s, double& d) {
+    const double ax = m.x[a], ay = m.y[a], bx = m.x[b], by = m.y[b];
+    const double dx = bx - ax, dy = by - ay;
+    const double len2 = dx * dx + dy * dy;
+    if (!(len2 > 0.0)) return;
+    double t = ((e - ax) * dx + (e - ay) * dy) / len2;
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+    const double px = ax + t * dx, py = ay + t * dy;
+    d = std::hypot(e - px, n - py);
+    double ds = m.s[b] - m.s[a];
+    if (m.ring_len > 0.0 && ds < -0.5 * m.ring_len) ds += m.ring_len;
+    s = m.s[a] + t * ds;
+    if (m.ring_len > 0.0) {
+      s = std::fmod(s, m.ring_len);
+      if (s < 0.0) s += m.ring_len;
+    }
+  };
+  const std::size_t prev = best_j == 0 ? N - 1 : best_j - 1;
+  const std::size_t next = best_j + 1 < N ? best_j + 1 : 0;
+  double s_seg = r.s0, d_seg = r.d0;
+  project(prev, best_j, s_seg, d_seg);
+  double s_b = s_seg, d_b = d_seg;
+  project(best_j, next, s_b, d_b);
+  if (d_b < d_seg) {
+    s_seg = s_b;
+    d_seg = d_b;
+  }
+  r.s0 = s_seg;
+  r.d0 = d_seg;
   return r;
 }
 
