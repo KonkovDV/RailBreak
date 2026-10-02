@@ -16,8 +16,34 @@ find_package(diagnostic_msgs REQUIRED)
 find_package(tram_vehicle_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
+# Regenerated when the typesupport library changes, including a rebuild that
+# leaves the old driver_controller_command.hpp in install/.
+set(_railbreak_cmd_hpp "${CMAKE_CURRENT_BINARY_DIR}/railbreak_driver_cmd.hpp")
+set(_railbreak_ts "")
+if(tram_vehicle_msgs_DIR)
+  get_filename_component(_railbreak_tv_prefix "${tram_vehicle_msgs_DIR}/../../.." ABSOLUTE)
+  set(_railbreak_ts "${_railbreak_tv_prefix}/lib/libtram_vehicle_msgs__rosidl_typesupport_cpp.so")
+endif()
+if(EXISTS "${_railbreak_ts}")
+  add_custom_command(
+    OUTPUT "${_railbreak_cmd_hpp}"
+    COMMAND ${CMAKE_COMMAND}
+      -DTS=${_railbreak_ts}
+      -DOUT=${_railbreak_cmd_hpp}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/detect_driver_cmd.cmake
+    DEPENDS "${_railbreak_ts}"
+    VERBATIM)
+else()
+  file(WRITE "${_railbreak_cmd_hpp}" "/* typesupport library not found; __has_include decides */\n")
+endif()
+
+add_custom_target(railbreak_driver_cmd DEPENDS "${_railbreak_cmd_hpp}")
+
 add_executable(backup_odometry_node src/backup_odometry_node.cpp)
-target_include_directories(backup_odometry_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_dependencies(backup_odometry_node railbreak_driver_cmd)
+target_include_directories(backup_odometry_node PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_BINARY_DIR})
 ament_target_dependencies(backup_odometry_node rclcpp nav_msgs sensor_msgs diagnostic_msgs
   tram_vehicle_msgs ament_index_cpp)
 
@@ -41,7 +67,9 @@ if(BUILD_TESTING)
   if(TARGET test_gnss_stress)
     target_include_directories(test_gnss_stress PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
-      ${CMAKE_CURRENT_SOURCE_DIR}/src)
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${CMAKE_CURRENT_BINARY_DIR})
+    add_dependencies(test_gnss_stress railbreak_driver_cmd)
     target_compile_definitions(test_gnss_stress PRIVATE
       RAILBREAK_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets")
     ament_target_dependencies(test_gnss_stress rclcpp nav_msgs sensor_msgs diagnostic_msgs

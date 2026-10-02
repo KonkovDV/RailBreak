@@ -38,14 +38,24 @@
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "tram_vehicle_msgs/msg/velocity_sensor.hpp"
 // The check-code archive omits DriverControllerCommand.msg, and the organiser's
-// test container has no /vehicle/driver_position_cmd. Without that header the
+// test container has no /vehicle/driver_position_cmd. Without that type the
 // node runs on the bogies with the notch held at 0 and says so in the log and
-// in diagnostics (notch_input=type_absent).
+// in diagnostics (notch_input=type_absent). The build writes
+// railbreak_driver_cmd.hpp from the typesupport library that is linked.
+// __has_include is only the fallback: a leftover header in install/ still
+// matches after the .msg is gone, and the node then fails to link.
+#if __has_include("railbreak_driver_cmd.hpp")
+#include "railbreak_driver_cmd.hpp"
+#endif
+#ifndef RAILBREAK_HAS_DRIVER_CMD
 #if __has_include("tram_vehicle_msgs/msg/driver_controller_command.hpp")
-#include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #define RAILBREAK_HAS_DRIVER_CMD 1
 #else
 #define RAILBREAK_HAS_DRIVER_CMD 0
+#endif
+#endif
+#if RAILBREAK_HAS_DRIVER_CMD
+#include "tram_vehicle_msgs/msg/driver_controller_command.hpp"
 #endif
 
 #include "railbreak_backup_odometry/adhesion_proxy.hpp"
