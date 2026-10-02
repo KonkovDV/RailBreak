@@ -31,6 +31,8 @@ services:
       REQUIRE_POSITION: ${REQUIRE_POSITION:-1}
       RELATIVE_PATH: ${RELATIVE_PATH:-0}
       FAIL_CLOSED: ${FAIL_CLOSED:-0}
+      PLAY_LEAD: ${PLAY_LEAD:-0}
+      OFFICIAL: ${OFFICIAL:-0}
     command: ["bash", "/opt/jury_inside.sh"]
 
 volumes:

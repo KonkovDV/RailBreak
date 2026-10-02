@@ -102,6 +102,35 @@ if [ -n "${STAMP_REORDER:-}" ]; then
   args+=(-p "stamp_reorder_s:=$(as_double "${STAMP_REORDER}")")
 fi
 
+play=(ros2 bag play /bag --rate "${RATE:-1}")
+if [ "${CLOCK:-0}" = "1" ]; then
+  play+=(--clock)
+fi
+if [ -n "${TOPICS:-}" ]; then
+  # shellcheck disable=SC2206
+  extra=(${TOPICS})
+  play+=(--topics "${extra[@]}")
+fi
+
+run_play() {
+  if [ -n "${DURATION:-}" ]; then
+    timeout "${DURATION}" "${play[@]}"
+  else
+    "${play[@]}"
+  fi
+}
+
+play_pid=""
+lead="${PLAY_LEAD:-0}"
+case "${lead}" in
+  ''|0|0.0) ;;
+  *)
+    run_play > /tmp/play.log 2>&1 &
+    play_pid=$!
+    sleep "${lead}"
+    ;;
+esac
+
 ros2 run railbreak_backup_odometry backup_odometry_node --ros-args "${args[@]}" \
   > /tmp/node.log 2>&1 &
 node_pid=$!
@@ -128,23 +157,21 @@ if [ "${RECORD:-0}" = "1" ]; then
   sleep 2
 fi
 
-play=(ros2 bag play /bag --rate "${RATE:-1}")
-if [ "${CLOCK:-0}" = "1" ]; then
-  play+=(--clock)
-fi
-if [ -n "${TOPICS:-}" ]; then
-  # shellcheck disable=SC2206
-  extra=(${TOPICS})
-  play+=(--topics "${extra[@]}")
+checker_pid=""
+if [ "${OFFICIAL:-0}" = "1" ] && [ -f /opt/checker/metrics.py ]; then
+  python3 -u /opt/checker/metrics.py > /tmp/checker.log 2>&1 &
+  checker_pid=$!
+  sleep 1
 fi
 
 set +e
-if [ -n "${DURATION:-}" ]; then
-  timeout "${DURATION}" "${play[@]}"
+if [ -n "${play_pid}" ]; then
+  wait "${play_pid}"
+  play_status=$?
 else
-  "${play[@]}"
+  run_play
+  play_status=$?
 fi
-play_status=$?
 set -e
 
 sleep 2
@@ -156,6 +183,12 @@ fi
 if [ "${RECORD:-0}" = "1" ]; then
   kill -INT "${rec_pid}" 2>/dev/null || true
   wait "${rec_pid}" 2>/dev/null || true
+fi
+if [ -n "${checker_pid}" ]; then
+  kill -INT "${checker_pid}" 2>/dev/null || true
+  wait "${checker_pid}" 2>/dev/null || true
+  echo "----- official checker -----"
+  grep -E "Position metrics|Velocity metrics" /tmp/checker.log | tail -n 2 || true
 fi
 kill -INT "${echo_pid}" 2>/dev/null || true
 pkill -INT -f lib/railbreak_backup_odometry/backup_odometry_node 2>/dev/null || true
