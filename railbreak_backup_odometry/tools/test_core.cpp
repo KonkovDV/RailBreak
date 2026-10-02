@@ -98,6 +98,20 @@ int main() {
           "map interpolation closes the final ring seam");
     check(std::fabs(seam.at(seam.y, 11.0) - 10.0) < 1e-9,
           "height and geometry columns use the same seam interpolation");
+    check(std::fabs(seam.at(seam.h, 11.0) - 105.0) < 1e-9,
+          "height is interpolated across the seam");
+    check(std::fabs(seam.at(seam.x, 10.0) - 10.0) < 1e-9,
+          "the seam starts on the last sample");
+    check(std::fabs(seam.at(seam.x, 12.0) - 0.0) < 1e-9,
+          "a lap boundary lands on the first sample");
+    auto past = flat_ring(10.0);
+    past.map.s.back() = past.map.ring_len;
+    check(rejected([&] { railbreak::validate_assets(past); }, "ring s"),
+          "a sample at ring_len is rejected");
+    auto rev = flat_ring(10.0);
+    std::swap(rev.table.v_centre[0], rev.table.v_centre[1]);
+    check(rejected([&] { railbreak::validate_assets(rev); }, "not increasing"),
+          "a notch speed table that steps backward is rejected");
   }
   railbreak::Params p;
   p.unit = 1.0 / 3.6;
@@ -1991,6 +2005,16 @@ int main() {
     check(ambiguous.branch_probability <= 0.5 && std::fabs(ambiguous.candidate_s - 10.0) > 0.5 &&
               std::fabs(ambiguous.candidate_s - 14.0) > 0.5,
           "two stops in the gate lower the branch probability and do not snap");
+    railbreak::TrackMap seam_line;
+    seam_line.s = {0.0, 5.0, 10.0};
+    seam_line.x = {0.0, 0.0, 1.0};
+    seam_line.y = {0.0, 1.0, 0.0};
+    seam_line.h = {0.0, 0.0, 0.0};
+    seam_line.grade = {0.0, 0.0, 0.0};
+    seam_line.ring_len = 12.0;
+    const auto seam_hit = railbreak::match_ring(seam_line, 10.2, 11.0, 0.5, 0.0, 2.0, 0.4, nullptr, 0);
+    check(std::string(seam_hit.candidate_path) == "ring" && std::fabs(seam_hit.candidate_s - 11.0) < 0.05,
+          "a point on the closing chord keeps the short seam arc");
 
     railbreak::TrackMap fork;
     for (int i = 0; i <= 4; ++i) {

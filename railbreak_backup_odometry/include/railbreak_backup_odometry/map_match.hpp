@@ -91,8 +91,14 @@ inline MapMatch match_ring(const TrackMap& m, double s_prev, double s_now, doubl
 
   for (std::size_t j = 1; j < m.s.size(); ++j)
     consider(m.x[j - 1], m.y[j - 1], m.x[j], m.y[j], m.s[j - 1], m.s[j]);
-  if (std::hypot(m.x.front() - m.x.back(), m.y.front() - m.y.back()) < 5.0)
-    consider(m.x.back(), m.y.back(), m.x.front(), m.y.front(), m.s.back(), m.s.front());
+  // The closing chord is the lap seam only when the leftover arc is that same
+  // short segment. A chord that cuts across a much longer arc is another path.
+  const double seam_arc = m.ring_len - m.s.back() + m.s.front();
+  const double chord = std::hypot(m.x.front() - m.x.back(), m.y.front() - m.y.back());
+  if (seam_arc > 1.0e-6 && seam_arc < 8.0 && chord < 5.0 && seam_arc - chord < 1.5) {
+    const double s1 = m.s.back() + seam_arc;
+    consider(m.x.back(), m.y.back(), m.x.front(), m.y.front(), m.s.back(), s1);
+  }
 
   if (!local.ok) {
     out.candidate_path = "ring";
