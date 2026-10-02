@@ -154,8 +154,13 @@ def observe_result(bag: Path) -> dict:
             vals = rec.get("values") or {}
             if "gnss" in vals:
                 gnss = vals["gnss"]
-    obs["gnss_closed"] = gnss == "closed"
+    obs["gnss_closed"] = gnss_window_finished(gnss)
     return obs
+
+
+def gnss_window_finished(value: str | None) -> bool:
+    """The 3 s start window is done. `correcting` keeps the master subscription."""
+    return value in ("closed", "correcting")
 
 
 def main(argv: list[str] | None = None) -> int:

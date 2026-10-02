@@ -36,6 +36,12 @@ class JuryAcceptTests(unittest.TestCase):
     def test_a_complete_observation_passes(self):
         self.assertEqual(ja.acceptance_failures(clean()), [])
 
+    def test_mid_route_correction_is_a_finished_window(self):
+        self.assertTrue(ja.gnss_window_finished("correcting"))
+        self.assertTrue(ja.gnss_window_finished("closed"))
+        self.assertFalse(ja.gnss_window_finished("open"))
+        self.assertFalse(ja.gnss_window_finished(None))
+
     def test_each_broken_check_is_a_reason(self):
         cases = [
             ({"node_alive": False}, "node died"),
