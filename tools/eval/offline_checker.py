@@ -135,8 +135,14 @@ class ApproximateTime:
                 self.num_non_empty += 1
 
     def _virtual_time(self, index: int) -> float:
+        """Humble getVirtualTime. The lower bound on the gap is zero here."""
         queue = self.deques[index]
         if not queue:
+            if not self.past[index]:
+                return self.pivot_time
+            last = self.past[index][-1][0]
+            if last > self.pivot_time:
+                return last
             return self.pivot_time
         return queue[0][0]
 
