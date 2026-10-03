@@ -25,21 +25,54 @@ Build against the full `tram_vehicle_msgs` from the dataset. `check-code-with-ba
 
 ## What was measured
 
-Submission, commit `5cd35fa`, 2026-09-27, official checker, `--rate 1`, bag `30618_88aea4d9`: position 2.151 m (maximum 5.649 m), speed 0.051 m/s. Mixed input-to-output latency on that tree: median 53 ms, p95 154 ms, maximum 305 ms. Val, 21 rides: along-track median 1.469 m, p95 5.828 m.
+Bag `30618_88aea4d9` unless a row says otherwise. Official checker is `hackathon_solution_checker` / `metrics.py` (queue 100, slop 0.05 s). A later row does not replace an earlier one. The submission row is commit `5cd35fa`, 2026-09-27. The node speed on the current tree, 0.024691 m/s, remains above the 0.024 m/s line.
 
-Current tree, 2026-10-03, same bag, full driver command, `play_status=0`, start arc `s0` 10943.893 m. These rows do not replace the submission or the `9a954fd` row (1.164429 m and 0.024692 m/s).
+| Run | Rate | 3D, m | max, m | pairs | x | y | z | speed, m/s | max | pairs |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `5ed4a7c` | — | 6.174 | 19.309 | — | — | — | — | 0.067 | — | — |
+| `5cd35fa`, submission, full command | 1 | 2.151 | 5.649 | 50168 | 1.530 | 1.474 | 0.336 | 0.051 | 0.337 | 50481 |
+| `1178c67`, full command, one container | 1 | 2.111 | 5.503 | 50124 | 1.481 | 1.467 | 0.337 | 0.0505 | 0.337 | 50508 |
+| `e863195`, no command type, 20 Hz hold | 1 | 5.454 | 22.191 | 25488 | 5.110 | 1.872 | 0.366 | 0.044 | 0.307 | 25511 |
+| Later tree, no command type | 1 | 1.325 | 4.806 | 25406 | 0.974 | 0.834 | 0.336 | 0.027 | 0.341 | 25429 |
+| Later tree, no command type | 10 | 1.315 | — | 12180 | — | — | — | 0.027 | — | — |
+| Full command, before the +0.10 s speed stamp | 10 | 1.622 | 4.913 | 49623 | 1.234 | 1.005 | 0.316 | 0.035 | 0.340 | 49807 |
+| Full command, before the +0.10 s speed stamp | 1 | 1.615 | 4.899 | 49768 | 1.231 | 0.996 | 0.319 | 0.035 | 0.341 | 50006 |
+| Speed stamp +0.10 s, GNSS snaps on | 10 | 1.624 | 4.909 | 49776 | — | — | — | 0.034 | 0.325 | 41383 |
+| GNSS snaps off | 10 | 2.093 | 6.467 | 49737 | — | — | — | 0.030 | — | 41364 |
+| Wheel-mean speed, before the geodesic arc | 10 | 1.403506 | 4.940951 | 49643 | 0.964917 | 0.963472 | 0.332393 | 0.026695 | 0.289518 | 12117 |
+| Wheel-mean speed, before the geodesic arc | 1 | 1.372506 | 4.922128 | 49956 | 0.934009 | 0.949411 | 0.331689 | 0.026633 | 0.289518 | 12205 |
+| Geodesic arc, before the seam chord | 10 | 1.164891 | 3.692287 | 49972 | 0.889213 | 0.724400 | 0.203755 | 0.024677 | 0.289518 | 38302 |
+| Geodesic arc, before the seam chord | 1 | 1.163029 | 3.682215 | 49940 | 0.888103 | 0.722818 | 0.203576 | 0.024695 | 0.289518 | 38388 |
+| After the seam chord | 10 | 1.165573 | 3.692415 | 49914 | 0.889815 | 0.724788 | 0.203648 | 0.024665 | 0.289518 | 38294 |
+| `9a954fd`, after the seam chord | 1 | 1.164429 | 3.684696 | 49943 | 0.889361 | 0.723523 | 0.203581 | 0.024692 | 0.289518 | 38392 |
+| 2026-10-03, pose still used the command stamp | 10 | 1.165815 | — | 50075 | — | — | — | 0.024692 | 0.289518 | 38348 |
+| 2026-10-03, pose uses the bogie stamp, `play_status=0`, `s0` 10943.893 m | 1 | 1.157702 | 3.674567 | 24376 | 0.887955 | 0.714807 | 0.202139 | 0.024691 | 0.289518 | 38396 |
+| 2026-10-03, pose uses the bogie stamp, `play_status=0` | 10 | 1.159811 | 3.676738 | 24355 | 0.889699 | 0.716041 | 0.202192 | 0.024686 | 0.289518 | 38306 |
 
-| Check | Result |
+Before the 20 Hz hold, the no-command container was 5.216 m and 0.055 m/s at 9.3 Hz. The `--rate 10` row with 12180 pairs gives that one pair count for 1.315 m and 0.027 m/s. Replaying the recorded velocity at `--rate 10` printed 0.025424 m/s and 26124 pairs after the player reported an empty read queue. That row is not a delivery.
+
+| Other measurement | Result |
 |---|---|
-| Official checker, `--rate 1`, position 3D RMSE | 1.157702 m (x 0.887955, y 0.714807, z 0.202139), maximum 3.674567 m, 24376 pairs |
-| Official checker, `--rate 1`, speed RMSE | 0.024691 m/s, maximum 0.289518 m/s, 38396 pairs |
-| Official checker, `--rate 10` | position 1.159811 m (24355 pairs), speed 0.024686 m/s (38306 pairs) |
-| Latency, `/result/position`, `--rate 1` | median 0.20 ms, p95 0.63 ms, p99 1.09 ms, maximum 100.7 ms, 24388 pairs; 2 pairs over 100 ms; none over 250 ms |
-| Stamp rate, `--rate 1` | velocity 29.47 Hz; position unique stamps 9.31 Hz, messages 18.61 Hz, largest gap 0.296 s |
+| Val, 21 rides, tree `6af0037` | along-track median 1.467 m, p95 5.828 m |
+| Val reprint on the same map | median 1.469 m, p95 5.828 m, speed 0.032 m/s |
+| Python twin, path carried through the RTK pause | 1.395 m, maximum 4.910 m, speed 0.035 m/s |
+| Core harness `tools/v2`, k₀ 1.001234 | 1.009 m, maximum 2.94 m. This is not the node pose and not the checker |
+| Offline bogie mean, stamp +0.105 s, previous port | 0.023698 m/s, maximum 0.289518 m/s, bias +0.003012 m/s, 12206 pairs |
+| Recorded node velocity, official checker replay, `--rate 1` | 0.024719 m/s, maximum 0.289518 m/s, 38334 pairs |
+| Same recording, Humble Python synchronizer, arrival order | 0.024713 m/s, maximum 0.289518 m/s, 38658 pairs, bias +0.002926 m/s |
+| Same recording, stamp order | 0.024128 m/s, 38658 pairs |
+| `scripts/jury.sh acceptance`, teaching bag `30618_e9a34502` | exit code 0 |
+| Memory and CPU, submission tree | 24.1 MB RSS, 0.89% of one core |
 
-The node speed, 0.024691 m/s, remains above the 0.024 m/s line. The along-track bound is an empirical bound, not certified protection level. Coefficient of adhesion is not observable from two wheel speeds and driver command alone.
+| Latency of `/result/position`, `--rate 1` | median | p95 | p99 | max | pairs |
+|---|---|---|---|---|---|
+| Submission mixed probe | 53 ms | 154 ms | 203 ms | 305 ms | — |
+| 2026-10-03, pose still carried the command stamp | 52.6 ms | 154.3 ms | 203.4 ms | 305.8 ms | 50563 after 10 warmup pairs |
+| 2026-10-03, pose uses the bogie stamp | 0.20 ms | 0.63 ms | 1.09 ms | 100.7 ms | 24388 |
 
-The Russian runbook below is the same procedure. Method and the older rows are in [results.md](docs/solution/results.md).
+On the last probe, 2 pairs exceed 100 ms and none exceed 250 ms. Unique position stamps are 9.31 Hz (18.61 Hz by message count, largest gap 0.296 s). Velocity stamps are 29.47 Hz. The along-track bound is an empirical bound, not certified protection level. Coefficient of adhesion is not observable from two wheel speeds and driver command alone.
+
+The Russian runbook below is the same procedure. The long write-up is [results.md](docs/solution/results.md).
 
 # RailBreak: резервная одометрия для автономного трамвая Москвы
 
@@ -74,25 +107,52 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 
 ## Итог проверки
 
-Коммит `5cd35fa`, 2026-09-27, ROS 2 Humble в Docker, `ros2 bag play --rate 1`, полный пакет сообщений организатора. В `1178c67` нода научилась работать без ручки и выдавать положение всегда; фильтр тот же. Одиночный повтор checker на этой ноде: положение 2.111 м (максимум 5.503 м), скорость 0.0505 м/с, штамп назад 0 раз.
+Запись `30618_88aea4d9`, если в строке не названа другая. Официальный checker — `hackathon_solution_checker` / `metrics.py`, очередь 100, допуск 0.05 с. Поздняя строка раннюю не заменяет. Сдача — коммит `5cd35fa`, 2026-09-27. На текущем дереве скорость 0.024691 м/с остаётся выше порога 0.024 м/с.
 
-| Проверка | Итог |
+| Прогон | Rate | 3D, м | max, м | пар | x | y | z | скорость, м/с | max | пар |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `5ed4a7c` | — | 6.174 | 19.309 | — | — | — | — | 0.067 | — | — |
+| `5cd35fa`, сдача, полная ручка | 1 | 2.151 | 5.649 | 50168 | 1.530 | 1.474 | 0.336 | 0.051 | 0.337 | 50481 |
+| `1178c67`, полная ручка, один контейнер | 1 | 2.111 | 5.503 | 50124 | 1.481 | 1.467 | 0.337 | 0.0505 | 0.337 | 50508 |
+| `e863195`, без типа ручки, удержание 20 Гц | 1 | 5.454 | 22.191 | 25488 | 5.110 | 1.872 | 0.366 | 0.044 | 0.307 | 25511 |
+| Позднее дерево, без типа ручки | 1 | 1.325 | 4.806 | 25406 | 0.974 | 0.834 | 0.336 | 0.027 | 0.341 | 25429 |
+| Позднее дерево, без типа ручки | 10 | 1.315 | — | 12180 | — | — | — | 0.027 | — | — |
+| Полная ручка, до сдвига штампа скорости +0.10 с | 10 | 1.622 | 4.913 | 49623 | 1.234 | 1.005 | 0.316 | 0.035 | 0.340 | 49807 |
+| Полная ручка, до сдвига штампа скорости +0.10 с | 1 | 1.615 | 4.899 | 49768 | 1.231 | 0.996 | 0.319 | 0.035 | 0.341 | 50006 |
+| Штамп скорости +0.10 с, снимки GNSS включены | 10 | 1.624 | 4.909 | 49776 | — | — | — | 0.034 | 0.325 | 41383 |
+| Снимки GNSS выключены | 10 | 2.093 | 6.467 | 49737 | — | — | — | 0.030 | — | 41364 |
+| Среднее тележек, до геодезической дуги | 10 | 1.403506 | 4.940951 | 49643 | 0.964917 | 0.963472 | 0.332393 | 0.026695 | 0.289518 | 12117 |
+| Среднее тележек, до геодезической дуги | 1 | 1.372506 | 4.922128 | 49956 | 0.934009 | 0.949411 | 0.331689 | 0.026633 | 0.289518 | 12205 |
+| Геодезическая дуга, до хорды шва | 10 | 1.164891 | 3.692287 | 49972 | 0.889213 | 0.724400 | 0.203755 | 0.024677 | 0.289518 | 38302 |
+| Геодезическая дуга, до хорды шва | 1 | 1.163029 | 3.682215 | 49940 | 0.888103 | 0.722818 | 0.203576 | 0.024695 | 0.289518 | 38388 |
+| После хорды шва | 10 | 1.165573 | 3.692415 | 49914 | 0.889815 | 0.724788 | 0.203648 | 0.024665 | 0.289518 | 38294 |
+| `9a954fd`, после хорды шва | 1 | 1.164429 | 3.684696 | 49943 | 0.889361 | 0.723523 | 0.203581 | 0.024692 | 0.289518 | 38392 |
+| 2026-10-03, поза ещё выходила со штампом ручки | 10 | 1.165815 | — | 50075 | — | — | — | 0.024692 | 0.289518 | 38348 |
+| 2026-10-03, поза со штампом тележки, `play_status=0`, `s0` 10943.893 м | 1 | 1.157702 | 3.674567 | 24376 | 0.887955 | 0.714807 | 0.202139 | 0.024691 | 0.289518 | 38396 |
+| 2026-10-03, поза со штампом тележки, `play_status=0` | 10 | 1.159811 | 3.676738 | 24355 | 0.889699 | 0.716041 | 0.202192 | 0.024686 | 0.289518 | 38306 |
+
+До удержания 20 Гц контейнер без ручки давал 5.216 м и 0.055 м/с при 9.3 Гц. В строке `--rate 10` с 12180 парами это один счётчик на 1.315 м и 0.027 м/с. Проигрыш записанной скорости на `--rate 10` дал 0.025424 м/с и 26124 пары: плеер написал, что очередь чтения опустела. Это не доставка ряда.
+
+| Другой замер | Итог |
 |---|---|
-| Официальный checker, запись `30618_88aea4d9`, положение 3D RMSE | 2.151 м (x 1.530, y 1.474, z 0.336), максимум 5.649 м |
-| Официальный checker, скорость RMSE | 0.051 м/с |
-| Частота `/result/velocity` и `/result/position` | 29.3 Гц; разрыв штампов 0.051 с, у скорости в первую секунду 0.196 с; штамп назад 0 раз |
-| Задержка вход→выход, дерево сдачи | медиана 53 мс, p95 154 мс, максимум 305 мс |
-| Официальный checker, 2026-10-03, `--rate 1`, положение 3D | 1.157702 м (x 0.887955, y 0.714807, z 0.202139), максимум 3.674567 м, 24376 пар |
-| Официальный checker, 2026-10-03, `--rate 1`, скорость | 0.024691 м/с, максимум 0.289518 м/с, 38396 пар |
-| Официальный checker, 2026-10-03, `--rate 10` | положение 1.159811 м (24355 пар), скорость 0.024686 м/с (38306 пар) |
-| Задержка `/result/position`, 2026-10-03, `--rate 1` | медиана 0.20 мс, p95 0.63 мс, p99 1.09 мс, максимум 100.7 мс, 24388 пар; дольше 100 мс — 2 пары; дольше 250 мс — 0 |
-| Частота штампов, 2026-10-03, `--rate 1` | скорость 29.47 Гц; положение 9.31 Гц по уникальным штампам, 18.61 Гц по сообщениям, наибольший разрыв 0.296 с |
-| Память и CPU | 24.1 МБ RSS, 0.89 % одного ядра |
+| Val, 21 рейс, дерево `6af0037` | медиана вдоль пути 1.467 м, p95 5.828 м |
+| Повтор val на той же карте | медиана 1.469 м, p95 5.828 м, скорость 0.032 м/с |
+| Python-двойник, перенос пути через паузу RTK | 1.395 м, максимум 4.910 м, скорость 0.035 м/с |
+| Стенд ядра `tools/v2`, k₀ 1.001234 | 1.009 м, максимум 2.94 м. Это не поза ноды и не checker |
+| Офлайн-среднее тележек, штамп +0.105 с, прежний порт | 0.023698 м/с, максимум 0.289518 м/с, bias +0.003012 м/с, 12206 пар |
+| Записанная скорость ноды, проигрыш в официальный checker, `--rate 1` | 0.024719 м/с, максимум 0.289518 м/с, 38334 пары |
+| Та же запись, Python-синхронизатор Humble, порядок прихода | 0.024713 м/с, максимум 0.289518 м/с, 38658 пар, bias +0.002926 м/с |
+| Та же запись, порядок штампов | 0.024128 м/с, 38658 пар |
 | `scripts/jury.sh acceptance`, учебная запись `30618_e9a34502` | код 0 |
-| Контейнер организатора без `DriverControllerCommand`, с экстраполяцией 20 Гц | положение 5.454 м, скорость 0.044 м/с, 19.4 Гц и 19.5 Гц, штамп назад 0. До экстраполяции: 5.216 м, 0.055 м/с, 9.3 Гц |
-| Python-двойник фильтра, val, 21 рейс | медиана ошибки вдоль пути 1.469 м, p95 5.828 м |
+| Память и CPU, дерево сдачи | 24.1 МБ RSS, 0.89 % одного ядра |
 
-Строка 53 / 154 / 305 мс — смешанный проб дерева сдачи: медиана в пределах 100 мс, хвост выше пика 250 мс у 0.09 % выходов. Проба 2026-10-03 снята после того, как поза перестала выходить со штампом ручки. Порог 0.024 м/с по скорости не закрыт. Строка `9a954fd` (1.164429 м и 0.024692 м/с) остаётся. Методика, сбои и разбор чисел — в [results.md](docs/solution/results.md).
+| Задержка `/result/position`, `--rate 1` | медиана | p95 | p99 | максимум | пар |
+|---|---|---|---|---|---|
+| Смешанный проб сдачи | 53 мс | 154 мс | 203 мс | 305 мс | — |
+| 2026-10-03, поза ещё несла штамп ручки | 52.6 мс | 154.3 мс | 203.4 мс | 305.8 мс | 50563 после 10 разогревных |
+| 2026-10-03, поза со штампом тележки | 0.20 мс | 0.63 мс | 1.09 мс | 100.7 мс | 24388 |
+
+На последней пробе дольше 100 мс две пары, дольше 250 мс ни одной. Уникальные штампы положения — 9.31 Гц, сообщений 18.61 Гц, наибольший разрыв 0.296 с. Штампы скорости — 29.47 Гц. На сдаче частота обоих выходов была 29.3 Гц, разрыв штампов 0.051 с, у скорости в первую секунду 0.196 с, штамп назад 0 раз. Граница вдоль пути — эмпирическая, не protection level. Методика — в [results.md](docs/solution/results.md).
 
 ## Документы
 
