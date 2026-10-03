@@ -69,4 +69,4 @@ assets (ring, stops, notch, meta)   GNSS только старт и редкая
 
 ## Следующий измеряемый шаг после этого
 
-Разрыв скорости разобран в [velocity_gap.md](velocity_gap.md). Задержка разобрана в [latency_split.md](latency_split.md). Каталог уже записанных отказов — в [fault_catalog.md](fault_catalog.md): сетка `rear_scale` на `9ac4667`, медианы val без коммита в файле, дым на одной записи. Инъекции в ROS на checker bag нет. Кольцо не меняется, лаг не подгоняется.
+Разрыв скорости разобран в [velocity_gap.md](velocity_gap.md). Задержка — в [latency_split.md](latency_split.md). Отказы — в [fault_catalog.md](fault_catalog.md). Положение 1.164 м и 1.009 м разобраны в [position_gap.md](position_gap.md): 1.009 м — другой ряд координат стенда, не пара checker. Кольцо не меняется, лаг не подгоняется.
