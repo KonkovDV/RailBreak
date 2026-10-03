@@ -25,7 +25,7 @@ Build against the full `tram_vehicle_msgs` from the dataset. `check-code-with-ba
 
 ## What was measured
 
-Bag `30618_88aea4d9` unless a row says otherwise. Official checker is `hackathon_solution_checker` / `metrics.py` (queue 100, slop 0.05 s). A later row does not replace an earlier one. The submission row is commit `5cd35fa`, 2026-09-27. The node speed on the current tree, 0.024691 m/s, remains above the 0.024 m/s line.
+Bag `30618_88aea4d9` unless a row says otherwise. Official checker is `hackathon_solution_checker` / `metrics.py` (queue 100, slop 0.05 s). A later row does not replace an earlier one. The submission row is commit `5cd35fa`, 2026-09-27. The TZ speed score has no 0.024 m/s line. The 0.024 figure in the val table is end-of-run drift, in percent of distance. The current node, 0.024691 m/s, matches the bogie-mean grid under the same synchronizer.
 
 | Run | Rate | 3D, m | max, m | pairs | x | y | z | speed, m/s | max | pairs |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -58,6 +58,8 @@ Before the 20 Hz hold, the no-command container was 5.216 m and 0.055 m/s at 9.3
 | Python twin, path carried through the RTK pause | 1.395 m, maximum 4.910 m, speed 0.035 m/s |
 | Core harness `tools/v2`, k₀ 1.001234 | 1.009 m, maximum 2.94 m. This is not the node pose and not the checker |
 | Offline bogie mean, stamp +0.105 s, previous port | 0.023698 m/s, maximum 0.289518 m/s, bias +0.003012 m/s, 12206 pairs |
+| Same mean on a 0.04 s grid, Humble synchronizer, stamp order | 0.024105 m/s, maximum 0.303419 m/s, bias +0.002873 m/s, 38680 pairs |
+| Same grid, Humble synchronizer, burst arrival order | 0.024737 m/s, maximum 0.289518 m/s, bias +0.002902 m/s, 38680 pairs |
 | Recorded node velocity, official checker replay, `--rate 1` | 0.024719 m/s, maximum 0.289518 m/s, 38334 pairs |
 | Same recording, Humble Python synchronizer, arrival order | 0.024713 m/s, maximum 0.289518 m/s, 38658 pairs, bias +0.002926 m/s |
 | Same recording, stamp order | 0.024128 m/s, 38658 pairs |
@@ -107,7 +109,7 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 
 ## Итог проверки
 
-Запись `30618_88aea4d9`, если в строке не названа другая. Официальный checker — `hackathon_solution_checker` / `metrics.py`, очередь 100, допуск 0.05 с. Поздняя строка раннюю не заменяет. Сдача — коммит `5cd35fa`, 2026-09-27. На текущем дереве скорость 0.024691 м/с остаётся выше порога 0.024 м/с.
+Запись `30618_88aea4d9`, если в строке не названа другая. Официальный checker — `hackathon_solution_checker` / `metrics.py`, очередь 100, допуск 0.05 с. Поздняя строка раннюю не заменяет. Сдача — коммит `5cd35fa`, 2026-09-27. В ТЗ нет порога скорости 0.024 м/с. Число 0.024 в таблице val — дрейф в конце пути, в процентах. Текущая нода, 0.024691 м/с, совпадает с сеткой среднего тележек на том же синхронизаторе.
 
 | Прогон | Rate | 3D, м | max, м | пар | x | y | z | скорость, м/с | max | пар |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -140,6 +142,8 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 | Python-двойник, перенос пути через паузу RTK | 1.395 м, максимум 4.910 м, скорость 0.035 м/с |
 | Стенд ядра `tools/v2`, k₀ 1.001234 | 1.009 м, максимум 2.94 м. Это не поза ноды и не checker |
 | Офлайн-среднее тележек, штамп +0.105 с, прежний порт | 0.023698 м/с, максимум 0.289518 м/с, bias +0.003012 м/с, 12206 пар |
+| Та же сетка 0.04 с, класс Humble, порядок штампов | 0.024105 м/с, максимум 0.303419 м/с, bias +0.002873 м/с, 38680 пар |
+| Та же сетка, класс Humble, порядок прихода пачки | 0.024737 м/с, максимум 0.289518 м/с, bias +0.002902 м/с, 38680 пар |
 | Записанная скорость ноды, проигрыш в официальный checker, `--rate 1` | 0.024719 м/с, максимум 0.289518 м/с, 38334 пары |
 | Та же запись, Python-синхронизатор Humble, порядок прихода | 0.024713 м/с, максимум 0.289518 м/с, 38658 пар, bias +0.002926 м/с |
 | Та же запись, порядок штампов | 0.024128 м/с, 38658 пар |
