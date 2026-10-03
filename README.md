@@ -6,7 +6,40 @@
   <a href="docs/RailBreak_МТТЕХ_demo.pptx"><img src="https://img.shields.io/badge/%D0%9F%D1%80%D0%B5%D0%B7%D0%B5%D0%BD%D1%82%D0%B0%D1%86%D0%B8%D1%8F-PowerPoint-B7472A?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white" alt="Презентация PowerPoint"></a>
 </p>
 
-<p align="center"><a href="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml"><img src="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml/badge.svg" alt="Тесты CI"></a></p>
+<p align="center"><a href="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml"><img src="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml/badge.svg" alt="CI"></a></p>
+
+# RailBreak
+
+Backup speed and distance for Moscow tram route 10. The submitted package is [`railbreak_backup_odometry`](railbreak_backup_odometry/) on ROS 2 Humble, C++17. Inputs are the two bogie speeds and the driver notch. GNSS places the car in the first 3 s. Rare master-RTK windows stay on by default (`gnss_correction: true`). Published speed is the bogie mean while the bogies agree, resampled every 0.04 s, with the header shifted by +0.105 s. The filter speed is used when the bogies disagree or drop out. Position is the map point at arc `s`, and its header is the bogie stamp. A driver command updates the notch and does not publish a pose under the command header. IMU, lidar and cameras are not used. The research core `tramDR-0.0.11` is not part of this package.
+
+## Run
+
+Docker is required. From the clone root:
+
+```text
+scripts/jury.sh play --bag <rosbag2 directory> --msgs <tram_vehicle_msgs>
+.\scripts\jury.ps1 play -Bag <rosbag2 directory> -Msgs <tram_vehicle_msgs>
+```
+
+Build against the full `tram_vehicle_msgs` from the dataset. `check-code-with-bag.zip` has no `DriverControllerCommand`. Without that type the node runs on the bogies with notch 0. Bags are not in the repository. The route map is.
+
+## What was measured
+
+Submission, commit `5cd35fa`, 2026-09-27, official checker, `--rate 1`, bag `30618_88aea4d9`: position 2.151 m (maximum 5.649 m), speed 0.051 m/s. Mixed input-to-output latency on that tree: median 53 ms, p95 154 ms, maximum 305 ms. Val, 21 rides: along-track median 1.469 m, p95 5.828 m.
+
+Current tree, 2026-10-03, same bag, full driver command, `play_status=0`, start arc `s0` 10943.893 m. These rows do not replace the submission or the `9a954fd` row (1.164429 m and 0.024692 m/s).
+
+| Check | Result |
+|---|---|
+| Official checker, `--rate 1`, position 3D RMSE | 1.157702 m (x 0.887955, y 0.714807, z 0.202139), maximum 3.674567 m, 24376 pairs |
+| Official checker, `--rate 1`, speed RMSE | 0.024691 m/s, maximum 0.289518 m/s, 38396 pairs |
+| Official checker, `--rate 10` | position 1.159811 m (24355 pairs), speed 0.024686 m/s (38306 pairs) |
+| Latency, `/result/position`, `--rate 1` | median 0.20 ms, p95 0.63 ms, p99 1.09 ms, maximum 100.7 ms, 24388 pairs; 2 pairs over 100 ms; none over 250 ms |
+| Stamp rate, `--rate 1` | velocity 29.47 Hz; position unique stamps 9.31 Hz, messages 18.61 Hz, largest gap 0.296 s |
+
+The node speed, 0.024691 m/s, remains above the 0.024 m/s line. The along-track bound is an empirical bound, not certified protection level. Coefficient of adhesion is not observable from two wheel speeds and driver command alone.
+
+The Russian runbook below is the same procedure. Method and the older rows are in [results.md](docs/solution/results.md).
 
 # RailBreak: резервная одометрия для автономного трамвая Москвы
 
@@ -48,13 +81,18 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 | Официальный checker, запись `30618_88aea4d9`, положение 3D RMSE | 2.151 м (x 1.530, y 1.474, z 0.336), максимум 5.649 м |
 | Официальный checker, скорость RMSE | 0.051 м/с |
 | Частота `/result/velocity` и `/result/position` | 29.3 Гц; разрыв штампов 0.051 с, у скорости в первую секунду 0.196 с; штамп назад 0 раз |
-| Задержка вход→выход | медиана 53 мс, p95 154 мс, максимум 305 мс |
+| Задержка вход→выход, дерево сдачи | медиана 53 мс, p95 154 мс, максимум 305 мс |
+| Официальный checker, 2026-10-03, `--rate 1`, положение 3D | 1.157702 м (x 0.887955, y 0.714807, z 0.202139), максимум 3.674567 м, 24376 пар |
+| Официальный checker, 2026-10-03, `--rate 1`, скорость | 0.024691 м/с, максимум 0.289518 м/с, 38396 пар |
+| Официальный checker, 2026-10-03, `--rate 10` | положение 1.159811 м (24355 пар), скорость 0.024686 м/с (38306 пар) |
+| Задержка `/result/position`, 2026-10-03, `--rate 1` | медиана 0.20 мс, p95 0.63 мс, p99 1.09 мс, максимум 100.7 мс, 24388 пар; дольше 100 мс — 2 пары; дольше 250 мс — 0 |
+| Частота штампов, 2026-10-03, `--rate 1` | скорость 29.47 Гц; положение 9.31 Гц по уникальным штампам, 18.61 Гц по сообщениям, наибольший разрыв 0.296 с |
 | Память и CPU | 24.1 МБ RSS, 0.89 % одного ядра |
 | `scripts/jury.sh acceptance`, учебная запись `30618_e9a34502` | код 0 |
 | Контейнер организатора без `DriverControllerCommand`, с экстраполяцией 20 Гц | положение 5.454 м, скорость 0.044 м/с, 19.4 Гц и 19.5 Гц, штамп назад 0. До экстраполяции: 5.216 м, 0.055 м/с, 9.3 Гц |
 | Python-двойник фильтра, val, 21 рейс | медиана ошибки вдоль пути 1.469 м, p95 5.828 м |
 
-Медиана задержки укладывается в 100 мс из ТЗ, хвост выше пика 250 мс у 0.09 % выходов. Методика, сбои и разбор чисел — в [results.md](docs/solution/results.md).
+Строка 53 / 154 / 305 мс — смешанный проб дерева сдачи: медиана в пределах 100 мс, хвост выше пика 250 мс у 0.09 % выходов. Проба 2026-10-03 снята после того, как поза перестала выходить со штампом ручки. Порог 0.024 м/с по скорости не закрыт. Строка `9a954fd` (1.164429 м и 0.024692 м/с) остаётся. Методика, сбои и разбор чисел — в [results.md](docs/solution/results.md).
 
 ## Документы
 
@@ -115,7 +153,7 @@ ros2 run hackathon_solution_checker metrics                   # терминал
 ros2 bag play <каталог rosbag2> --rate 1                      # терминал 3
 ```
 
-Задержка вход→выход: `ros2 bag record` трёх входов и `/result/velocity` при `--rate 1`, затем `python3 tools/organizer/latency_probe.py --bag <запись>`. Скрипт берёт время приёма выхода минус время приёма входа с тем же `header.stamp`. `callback_max_us` в диагностике — время одного колбэка, не эта задержка.
+Задержка вход→выход: `ros2 bag record` трёх входов, `/result/position` и `/result/velocity` при `--rate 1`, затем `python3 tools/organizer/latency_probe.py --bag <запись> --output-topic /result/position`. Скрипт берёт время приёма выхода минус время приёма входа с тем же `header.stamp`. Штамп скорости сдвинут на 0.105 с, поэтому тот же вызов на `/result/velocity` пары почти не находит. `callback_max_us` в диагностике — время одного колбэка, не эта задержка.
 
 ## Контракт
 
@@ -128,14 +166,14 @@ ros2 bag play <каталог rosbag2> --rate 1                      # терм�
 | Выход | Тип | Смысл |
 |---|---|---|
 | `/result/velocity` | `tram_vehicle_msgs/VelocitySensor` | продольная скорость, м/с; с первого сообщения тележки |
-| `/result/position` | `nav_msgs/Odometry` | точка `base_link` в MGRS, скорость в `twist.twist.linear.x`; после окна GNSS — всегда; если целостность запрещает им пользоваться, ковариация σ = 1 км |
+| `/result/position` | `nav_msgs/Odometry` | точка `base_link` в MGRS, скорость в `twist.twist.linear.x`; штамп — штамп тележки. Ручка обновляет рычаг и позу не публикует. Пока обеих тележек нет, новое положение ждёт тележку. Если целостность запрещает им пользоваться, ковариация σ = 1 км |
 | `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` | режим, целостность, доверие, GNSS, порядок входов |
 
 `base_link` — ось вращения первой тележки в точке касания колеса и рельса. Кадр по умолчанию — UTM 37N минус угол квадрата 300000 м на восток и 6100000 м на север: x — восток, y — север. От антенны master точка сдвинута на +9.873 м вдоль пути и на −3 м по высоте; tf: master `(−9.873, 0, 3)`, rover `(2.563, 0, 3)`. Если в окне старта есть только rover, дуга отступает на 12.436 м к master.
 
-Торможение — отрицательная ручка, отдельного топика тормоза нет. `header.stamp` выхода — штамп входа, который его породил: часы ноды и `/clock` не используются. При полном пакете сообщений таймера нет. Если типа ручки нет, между тележками выход дополняется экстраполяцией 20 Гц; такой штамп не двигает отметку последнего входа. Три входных потока стоят в одной очереди: вход выпускается, когда все живые потоки дошли до его штампа. Отставший, но живой поток ждут; замолчавший перестают ждать после 50 чужих входов. Вход — best effort, очередь 500; выход — reliable, очередь 10.
+Торможение — отрицательная ручка, отдельного топика тормоза нет. Штамп положения — штамп тележки, штамп скорости — тот же штамп плюс 0.105 с. Часы ноды и `/clock` не используются. При полном пакете сообщений таймера нет. Если типа ручки нет, между тележками выход дополняется экстраполяцией 20 Гц; такой штамп не двигает отметку последнего входа. Три входных потока стоят в одной очереди: вход выпускается, когда все живые потоки дошли до его штампа. Ручка в этот минимум не входит. Отставший, но живой поток ждут; замолчавший перестают ждать после 50 чужих входов. Вход — best effort, очередь 500; выход — reliable, очередь 10.
 
-Ориентиры ТЗ: задержка 100 мс (пик 250 мс), не ниже 10 Гц, не больше 2 ядер и 0.5 ГБ. Замер — в таблице выше.
+Ориентиры ТЗ: задержка 100 мс (пик 250 мс), не ниже 10 Гц, не больше 2 ядер и 0.5 ГБ. На прогоне 2026-10-03 пик задержки 100.7 мс, уникальные штампы положения 9.31 Гц. Замер — в таблице выше.
 
 ## Без Docker: Ubuntu 22.04 и Humble
 
