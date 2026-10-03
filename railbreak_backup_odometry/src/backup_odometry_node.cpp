@@ -855,8 +855,14 @@ class BackupOdometryNode : public rclcpp::Node {
       }
     }
 
+    // The command header lags the bogies. The notch is already in the filter.
+    // A pose stamped with that header is the current arc labelled as an older
+    // instant, so the checker pairs it with the wrong reference and the
+    // latency probe counts the wait. Velocity above still leaves when the
+    // wheels are not trusted.
     const bool map_loaded = assets_ok_ && !assets_.map.empty();
-    if (initialised_ || (relative_ && railbreak::publish_unanchored_path(map_loaded, frame_.mode))) {
+    if (from_bogie &&
+        (initialised_ || (relative_ && railbreak::publish_unanchored_path(map_loaded, frame_.mode)))) {
       nav_msgs::msg::Odometry o;
       o.header.stamp = stamp;
       o.header.frame_id = frame_id_;

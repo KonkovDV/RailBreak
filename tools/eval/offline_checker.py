@@ -2,9 +2,10 @@
 """Offline copy of the official checker metric.
 
 The live checker pairs /localization/kinematic_state with /result/velocity and
-/result/position through message_filters.ApproximateTimeSynchronizer
-(queue 100, slop 0.05 s, age penalty 0.1). Velocity uses the VelocitySensor
-field ``velocity``. Position uses the pose. The two pairs are independent.
+/result/position through the Humble Python ApproximateTimeSynchronizer
+(queue 100, slop 0.05 s). That class pairs the closest waiting header when
+the gap is strictly inside the slop. Velocity uses the VelocitySensor field
+``velocity``. Position uses the pose. The two pairs are independent.
 
 This module does not start ROS. It reads a rosbag2 sqlite directory with
 tools.eval.rosbag2_io and either a solution CSV or the raw bogie mean.
@@ -22,7 +23,6 @@ import argparse
 import csv
 import math
 import sys
-from collections import deque
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,175 +33,52 @@ from tools.eval.rosbag2_io import decode_message, iter_messages  # noqa: E402
 
 
 class ApproximateTime:
-    """Two-topic port of humble message_filters ApproximateTime.
+    """The Python ApproximateTimeSynchronizer shipped with Humble.
 
-    Arrival order is the order of add(). The policy compares header stamps.
+    metrics.py uses this class, not the C++ pivot policy. On each new header
+    it pairs the closest header already waiting on the other topic when the
+    gap is strictly inside the slop, then deletes both. A full queue drops
+    the oldest header. age_penalty is accepted and ignored: the class has no
+    such argument.
     """
 
     def __init__(self, queue_size: int = 100, slop: float = 0.05, age_penalty: float = 0.1) -> None:
+        del age_penalty
         if queue_size < 1:
             raise ValueError("queue_size must be positive")
         if slop < 0.0:
             raise ValueError("slop must be non-negative")
         self.queue_size = queue_size
-        self.slop = slop
-        self.age_penalty = age_penalty
-        self.deques: list[deque[tuple[float, float]]] = [deque(), deque()]
-        self.past: list[list[tuple[float, float]]] = [[], []]
-        self.num_non_empty = 0
-        self.pivot: int | None = None
-        self.pivot_time = 0.0
-        self.candidate: tuple[tuple[float, float], tuple[float, float]] | None = None
-        self.candidate_start = 0.0
-        self.candidate_end = 0.0
-        self.has_dropped = [False, False]
+        self.slop_ns = int(round(slop * 1e9))
+        self.queues: list[dict[int, tuple[float, float]]] = [{}, {}]
         self.pairs: list[tuple[tuple[float, float], tuple[float, float]]] = []
 
     def add(self, index: int, stamp: float, value: float) -> None:
-        queue = self.deques[index]
-        was_empty = not queue
-        queue.append((stamp, value))
-        if was_empty:
-            self.num_non_empty += 1
-            if self.num_non_empty == 2:
-                self._process()
-        if len(queue) + len(self.past[index]) > self.queue_size:
-            self.num_non_empty = 0
-            self._recover_all(0)
-            self._recover_all(1)
-            queue.popleft()
-            self.has_dropped[index] = True
-            if self.pivot is not None:
-                self.candidate = None
-                self.pivot = None
-                self._process()
-
-    def _recover_all(self, index: int) -> None:
-        queue = self.deques[index]
-        past = self.past[index]
-        while past:
-            queue.appendleft(past.pop())
-        if queue:
-            self.num_non_empty += 1
-
-    def _recover_n(self, index: int, count: int) -> None:
-        queue = self.deques[index]
-        past = self.past[index]
-        for _ in range(count):
-            queue.appendleft(past.pop())
-        if queue:
-            self.num_non_empty += 1
-
-    def _delete_front(self, index: int) -> None:
-        queue = self.deques[index]
-        queue.popleft()
-        if not queue:
-            self.num_non_empty -= 1
-
-    def _move_front_to_past(self, index: int) -> None:
-        queue = self.deques[index]
-        self.past[index].append(queue.popleft())
-        if not queue:
-            self.num_non_empty -= 1
-
-    def _boundary(self, end: bool) -> tuple[int, float]:
-        time = self.deques[0][0][0]
-        index = 0
-        other = self.deques[1][0][0]
-        if (other < time) ^ end:
-            time = other
-            index = 1
-        return index, time
-
-    def _make_candidate(self) -> None:
-        self.candidate = (self.deques[0][0], self.deques[1][0])
-        self.past[0].clear()
-        self.past[1].clear()
-
-    def _publish(self) -> None:
-        if self.candidate is None:
-            raise RuntimeError("publish without a candidate")
-        self.pairs.append(self.candidate)
-        self.candidate = None
-        self.pivot = None
-        self.num_non_empty = 0
-        for index in (0, 1):
-            queue = self.deques[index]
-            past = self.past[index]
-            while past:
-                queue.appendleft(past.pop())
-            queue.popleft()
-            if queue:
-                self.num_non_empty += 1
-
-    def _virtual_time(self, index: int) -> float:
-        """Humble getVirtualTime. The lower bound on the gap is zero here."""
-        queue = self.deques[index]
-        if not queue:
-            if not self.past[index]:
-                return self.pivot_time
-            last = self.past[index][-1][0]
-            if last > self.pivot_time:
-                return last
-            return self.pivot_time
-        return queue[0][0]
-
-    def _process(self) -> None:
-        while self.num_non_empty == 2:
-            end_index, end_time = self._boundary(True)
-            start_index, start_time = self._boundary(False)
-            for index in (0, 1):
-                if index != end_index:
-                    self.has_dropped[index] = False
-            if self.pivot is None:
-                if end_time - start_time > self.slop:
-                    self._delete_front(start_index)
-                    continue
-                if self.has_dropped[end_index]:
-                    self._delete_front(start_index)
-                    continue
-                self._make_candidate()
-                self.candidate_start = start_time
-                self.candidate_end = end_time
-                self.pivot = end_index
-                self.pivot_time = end_time
-                self._move_front_to_past(start_index)
-            else:
-                span = (end_time - self.candidate_end) * (1.0 + self.age_penalty)
-                if span >= (start_time - self.candidate_start):
-                    self._move_front_to_past(start_index)
-                else:
-                    self._make_candidate()
-                    self.candidate_start = start_time
-                    self.candidate_end = end_time
-                    self._move_front_to_past(start_index)
-            if self.pivot is None:
-                continue
-            too_wide = (end_time - self.candidate_end) * (1.0 + self.age_penalty) >= (
-                self.pivot_time - self.candidate_start
-            )
-            if start_index == self.pivot or too_wide:
-                self._publish()
-            elif self.num_non_empty < 2:
-                virtual_moves = [0, 0]
-                while True:
-                    times = [self._virtual_time(0), self._virtual_time(1)]
-                    vend_index, vend_time = (0, times[0]) if times[0] >= times[1] else (1, times[1])
-                    vstart_index, vstart_time = (0, times[0]) if times[0] <= times[1] else (1, times[1])
-                    if (vend_time - self.candidate_end) * (1.0 + self.age_penalty) >= (
-                        self.pivot_time - self.candidate_start
-                    ):
-                        self._publish()
-                        break
-                    if (vend_time - self.candidate_end) * (1.0 + self.age_penalty) < (
-                        vstart_time - self.candidate_start
-                    ):
-                        self.num_non_empty = 0
-                        self._recover_n(0, virtual_moves[0])
-                        self._recover_n(1, virtual_moves[1])
-                        break
-                    self._move_front_to_past(vstart_index)
-                    virtual_moves[vstart_index] += 1
+        if index not in (0, 1):
+            raise ValueError("index must be 0 or 1")
+        stamp_ns = int(round(float(stamp) * 1e9))
+        queue = self.queues[index]
+        queue[stamp_ns] = (float(stamp), float(value))
+        while len(queue) > self.queue_size:
+            del queue[min(queue)]
+        if stamp_ns not in queue:
+            return
+        other = self.queues[1 - index]
+        best_ns = None
+        best_delta = self.slop_ns
+        for other_ns in other:
+            delta = abs(other_ns - stamp_ns)
+            if delta < best_delta:
+                best_delta = delta
+                best_ns = other_ns
+        if best_ns is None:
+            return
+        left = queue.pop(stamp_ns)
+        right = other.pop(best_ns)
+        if index == 0:
+            self.pairs.append((left, right))
+        else:
+            self.pairs.append((right, left))
 
 
 def _rmse(errors: list[float]) -> tuple[float, float, int]:
@@ -224,7 +101,11 @@ def score_pairs(
     slop: float = 0.05,
     queue_size: int = 100,
 ) -> tuple[float, float, int]:
-    """RMSE and max |error| of solution minus reference, official sync."""
+    """RMSE and max |error| of solution minus reference.
+
+    Headers are fed to the Humble Python synchronizer in stamp order.
+    A live checker uses arrival order; that score is score_arrival.
+    """
     events: list[tuple[float, int, float]] = [(stamp, 0, value) for stamp, value in reference]
     events.extend((stamp, 1, value) for stamp, value in solution)
     events.sort(key=lambda item: (item[0], item[1]))
@@ -464,16 +345,14 @@ def self_test() -> None:
     if same[2] != 20 or same[0] != 0.0:
         raise AssertionError(f"identical streams: {same}")
     shifted = [(stamp + 0.04, 1.25) for stamp in stamps]
-    # The last candidate stays unpublished until a later message on the pivot
-    # topic proves it. That is the humble synchronizer, not a dropped pair.
+    # The checker pairs as soon as the other header is already waiting inside
+    # the slop. A 0.04 s shift is inside 0.05 s, so every sample pairs.
     near = score_pairs(reference, shifted)
-    if near[2] != 19 or abs(near[0] - 0.25) > 1e-9:
+    if near[2] != 20 or abs(near[0] - 0.25) > 1e-9:
         raise AssertionError(f"0.04 s shift: {near}")
-    # process() runs when the empty topic receives a message. A later reference
-    # flushes the held pair; another solution on the already-occupied topic does not.
     flushed = score_pairs(reference + [(stamps[-1] + 1.0, 1.0)], shifted)
     if flushed[2] != 20 or abs(flushed[0] - 0.25) > 1e-9:
-        raise AssertionError(f"flushed 0.04 s shift: {flushed}")
+        raise AssertionError(f"extra reference after a full shift: {flushed}")
     # 0.1 s samples alias a 0.2 s shift onto a later sample. A 1 s grid does not.
     coarse = [(i * 1.0, 1.0) for i in range(10)]
     far = [(i * 1.0 + 0.2, 1.0) for i in range(10)]
@@ -492,6 +371,12 @@ def self_test() -> None:
     headers = [round(stamp, 6) for stamp, _ in published]
     if headers != [0.105, 0.145, 0.185, 0.205]:
         raise AssertionError(f"resampled headers: {headers}")
+    full = ApproximateTime(queue_size=2, slop=0.05)
+    full.add(0, 10.0, 1.0)
+    full.add(0, 10.1, 2.0)
+    full.add(0, 9.0, 3.0)
+    if full.pairs or 9_000_000_000 in full.queues[0]:
+        raise AssertionError(f"oldest overflow: {full.pairs} {full.queues[0]}")
     print("offline_checker: sync self-test passed")
 
 
