@@ -1,8 +1,12 @@
 // Host replay of the velocity the node publishes. No ROS and no GNSS.
 //   replay_velocity <assets_dir> <events.csv> <out.csv>
-// events.csv: t,stream,value
+// events.csv: t,stream,value[,bag_ns]
 //   stream 0 front bogie, 1 rear bogie, 2 driver notch
 //   bogie value is the bag field, km/h; the core applies wheel_unit_scale
+// out.csv: t,v,bag_ns,vf
+//   bag_ns is the bag time of the input that published the row.
+//   One input publishes the whole 0.04 s grid, so several rows share bag_ns.
+//   vf is the filter speed at that input. It is not the published value.
 // The command stream does not hold the watermark. Samples behind the last
 // applied input still update the filter and are not published.
 // GNSS snaps and the integrity "velocity NONE" gate are not in this replay.
@@ -25,6 +29,7 @@ struct Sample {
   bool cmd = false;
   bool front = false;
   double value = 0.0;
+  long long bag_ns = 0;
 };
 
 struct Publisher {
@@ -42,20 +47,22 @@ struct Publisher {
   int n_out = 0;
   int n_untrusted = 0;
   int n_partial_fade = 0;
+  long long trigger_ns = 0;
   std::ofstream* out = nullptr;
 
-  void emit(double t_sample, double v) {
+  void emit(double t_sample, double v, double v_filter) {
     const double header = railbreak::velocity_output_stamp(t_sample, offset_s);
     if (!std::isfinite(header) || !std::isfinite(v)) return;
     if (have_header && !(header > last_header)) return;
     last_header = header;
     have_header = true;
     ++n_out;
-    (*out) << header << ',' << v << '\n';
+    (*out) << header << ',' << v << ',' << trigger_ns << ',' << v_filter << '\n';
   }
 
   void on_input(double t_stamp, double wheels, double filter_v, bool trusted, bool from_bogie,
-                bool mates) {
+                bool mates, long long bag_ns) {
+    trigger_ns = bag_ns;
     double dt = 0.0;
     if (have_fade_t) dt = t_stamp - fade_t;
     if (!std::isfinite(dt) || dt < 0.0) dt = 0.0;
@@ -75,7 +82,7 @@ struct Publisher {
     const int n = railbreak::velocity_resample(gap_ok ? pair_t : std::numeric_limits<double>::quiet_NaN(),
                                                gap_ok ? pair_v : std::numeric_limits<double>::quiet_NaN(),
                                                t_stamp, v_out, step_s, ts, vs, 32);
-    for (int i = 0; i < n; ++i) emit(ts[i], vs[i]);
+    for (int i = 0; i < n; ++i) emit(ts[i], vs[i], filter_v);
     if (grid) {
       pair_t = t_stamp;
       pair_v = v_out;
@@ -127,7 +134,7 @@ int main(int argc, char** argv) {
   }
   out.setf(std::ios::fixed);
   out.precision(9);
-  out << "t,v\n";
+  out << "t,v,bag_ns,vf\n";
   Publisher pub;
   pub.out = &out;
 
@@ -142,13 +149,17 @@ int main(int argc, char** argv) {
     std::stringstream ss(line);
     std::string cell;
     double fields[3] = {0, 0, 0};
-    for (int i = 0; i < 3 && std::getline(ss, cell, ','); ++i) fields[i] = std::stod(cell);
+    int nfield = 0;
+    for (; nfield < 3 && std::getline(ss, cell, ','); ++nfield) fields[nfield] = std::stod(cell);
+    long long bag_ns = 0;
+    if (std::getline(ss, cell, ',')) bag_ns = std::stoll(cell);
     const double t = fields[0];
     const int stream = static_cast<int>(fields[1]);
     Sample sample;
     sample.cmd = stream == 2;
     sample.front = stream == 0;
     sample.value = fields[2];
+    sample.bag_ns = bag_ns;
     if (!std::isfinite(t)) continue;
     ++n_in;
     reorder.push(t, sample, stream);
@@ -163,9 +174,10 @@ int main(int argc, char** argv) {
       }
       if (!item.payload.cmd) {
         const bool mates = std::fabs(od.front_t() - od.rear_t()) < 1e-3;
-        pub.on_input(item.t, od.wheels_mean_mps(), od.v(), od.wheels_trusted(), true, mates);
+        pub.on_input(item.t, od.wheels_mean_mps(), od.v(), od.wheels_trusted(), true, mates,
+                     item.payload.bag_ns);
       } else if (!od.wheels_trusted()) {
-        pub.on_input(item.t, od.wheels_mean_mps(), od.v(), false, false, false);
+        pub.on_input(item.t, od.wheels_mean_mps(), od.v(), false, false, false, item.payload.bag_ns);
       }
       t_out = item.t;
       have_out = true;
@@ -173,6 +185,7 @@ int main(int argc, char** argv) {
   }
   std::cerr << "events " << n_in << " behind " << n_behind << " published " << pub.n_out
             << " untrusted_inputs " << pub.n_untrusted << " partial_fade " << pub.n_partial_fade
-            << "\n";
+            << " k " << od.k() << " k_front " << od.k_front() << " k_rear " << od.k_rear()
+            << " b_front " << od.b_front() << " b_rear " << od.b_rear() << "\n";
   return 0;
 }
