@@ -308,14 +308,119 @@ def wheel_mean_solution(
     offset_s: float,
 ) -> list[tuple[float, float]]:
     """Mean of bogies that share a header stamp, published at stamp + offset."""
+    pairs = matched_bogie_means(front, rear)
+    return [(stamp + offset_s, value) for stamp, value in pairs]
+
+
+def matched_bogie_means(
+    front: list[tuple[float, float]],
+    rear: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Mean at the shared header stamp. Stamps are rounded to 1 µs, as the node mates them."""
     rear_at = {round(stamp, 6): value for stamp, value in rear}
     out: list[tuple[float, float]] = []
     for stamp, value in front:
         other = rear_at.get(round(stamp, 6))
         if other is None:
             continue
-        out.append((stamp + offset_s, 0.5 * (value + other)))
+        out.append((stamp, 0.5 * (value + other)))
+    out.sort(key=lambda item: item[0])
     return out
+
+
+def velocity_resample(
+    t0: float,
+    v0: float,
+    t1: float,
+    v1: float,
+    step: float,
+    cap: int = 32,
+) -> list[tuple[float, float]]:
+    """Python twin of railbreak::velocity_resample. Samples on (t0, t1]."""
+    if cap <= 0 or not math.isfinite(t1) or not math.isfinite(v1):
+        return []
+    grid = (
+        math.isfinite(t0)
+        and math.isfinite(v0)
+        and math.isfinite(step)
+        and step > 0.0
+        and t1 > t0
+    )
+    if not grid:
+        return [(t1, v1)]
+    out: list[tuple[float, float]] = []
+    span = t1 - t0
+    t = t0 + step
+    while len(out) < cap and t <= t1 + 1e-9:
+        alpha = min(1.0, max(0.0, (t - t0) / span))
+        ts = t1 if t > t1 else t
+        vs = v0 + alpha * (v1 - v0)
+        if out and not (ts > out[-1][0]):
+            break
+        out.append((ts, vs))
+        if out[-1][0] >= t1 - 1e-12:
+            break
+        t += step
+    if (not out or out[-1][0] < t1 - 1e-6) and len(out) < cap:
+        out.append((t1, v1))
+    return out
+
+
+def resampled_wheel_mean(
+    front: list[tuple[float, float]],
+    rear: list[tuple[float, float]],
+    offset_s: float,
+    step_s: float = 0.04,
+    gap_max_s: float = 0.35,
+) -> list[tuple[float, float]]:
+    """Node publish rule while both bogies share a stamp: linear grid, then stamp offset.
+
+    This is not the filter. A pair the node would replace with filter speed stays the raw mean.
+    publish_one_velocity drops a stamp that is not strictly newer than the previous header.
+    """
+    pairs = matched_bogie_means(front, rear)
+    published: list[tuple[float, float]] = []
+    prev_t = math.nan
+    prev_v = math.nan
+    last_header = math.nan
+    for stamp, value in pairs:
+        gap = stamp - prev_t if math.isfinite(prev_t) else math.nan
+        gap_ok = math.isfinite(gap) and 0.0 < gap <= gap_max_s
+        samples = velocity_resample(
+            prev_t if gap_ok else math.nan,
+            prev_v if gap_ok else math.nan,
+            stamp,
+            value,
+            step_s,
+        )
+        for sample_t, sample_v in samples:
+            header = sample_t + offset_s
+            if math.isfinite(last_header) and not (header > last_header):
+                continue
+            last_header = header
+            published.append((header, sample_v))
+        prev_t = stamp
+        prev_v = value
+    return published
+
+
+def raw_disagreements(
+    front: list[tuple[float, float]],
+    rear: list[tuple[float, float]],
+    floor_m_s: float = 0.3,
+) -> tuple[int, int]:
+    """Pairs whose raw |front − rear| exceeds the floor. The node gate can be wider."""
+    rear_at = {round(stamp, 6): value for stamp, value in rear}
+    matched = 0
+    wide = 0
+    for stamp, value in front:
+        other = rear_at.get(round(stamp, 6))
+        if other is None:
+            continue
+        matched += 1
+        if abs(value - other) > floor_m_s:
+            wide += 1
+    return matched, wide
 
 
 def load_solution_csv(path: Path) -> tuple[list[tuple[float, float]], list[tuple[float, tuple[float, float, float]]]]:
@@ -374,6 +479,13 @@ def self_test() -> None:
     mixed = score_pairs(dense, sparse)
     if mixed[2] < 18 or abs(mixed[0] - 0.5) > 1e-9:
         raise AssertionError(f"50 Hz vs 10 Hz: {mixed}")
+    grid = velocity_resample(0.0, 0.0, 0.1, 1.0, 0.04)
+    if [round(v, 6) for _, v in grid] != [0.4, 0.8, 1.0]:
+        raise AssertionError(f"resample grid: {grid}")
+    published = resampled_wheel_mean([(0.0, 0.0), (0.1, 2.0)], [(0.0, 0.0), (0.1, 2.0)], 0.105, 0.04)
+    headers = [round(stamp, 6) for stamp, _ in published]
+    if headers != [0.105, 0.145, 0.185, 0.205]:
+        raise AssertionError(f"resampled headers: {headers}")
     print("offline_checker: sync self-test passed")
 
 
@@ -383,6 +495,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bag", type=Path)
     parser.add_argument("--solution", type=Path, help="CSV of the node output")
     parser.add_argument("--wheels", action="store_true", help="score the raw bogie mean")
+    parser.add_argument(
+        "--resample",
+        type=float,
+        default=0.0,
+        help="also score the node grid of the raw mean; 0.04 matches output_velocity_resample_s",
+    )
     parser.add_argument("--offset", type=float, default=0.105)
     parser.add_argument("--slop", type=float, default=0.05)
     args = parser.parse_args(argv)
@@ -396,6 +514,11 @@ def main(argv: list[str] | None = None) -> int:
         front, rear = load_bogies(args.bag)
         sol_v = wheel_mean_solution(front, rear, args.offset)
         sol_p: list[tuple[float, tuple[float, float, float]]] = []
+        if args.resample > 0.0:
+            matched, wide = raw_disagreements(front, rear)
+            resampled = resampled_wheel_mean(front, rear, args.offset, args.resample)
+            print(f"matched bogie stamps={matched}, raw |front-rear|>0.3 m/s: {wide}")
+            print(f"resampled messages={len(resampled)}")
     elif args.solution is not None:
         sol_v, sol_p = load_solution_csv(args.solution)
     else:
@@ -404,6 +527,10 @@ def main(argv: list[str] | None = None) -> int:
     rmse, maximum, count, bias = score_pairs(ref_v, sol_v, slop=args.slop)
     print(_format("velocity", (rmse, maximum, count), "m/s"))
     print(f"velocity bias={bias:+.6f} m/s")
+    if args.wheels and args.resample > 0.0:
+        r_rmse, r_max, r_count, r_bias = score_pairs(ref_v, resampled, slop=args.slop)
+        print(_format("velocity resampled raw mean", (r_rmse, r_max, r_count), "m/s"))
+        print(f"velocity resampled bias={r_bias:+.6f} m/s")
     if sol_p:
         pos = score_position(ref_p, sol_p, slop=args.slop)
         for name in ("x", "y", "z", "distance"):
