@@ -282,15 +282,30 @@ int main() {
   }
   {
     double c[36];
-    railbreak::TrackOdometer::fill_pose_covariance(4.0, c);
-    check(c[0] == 4.0 && c[7] == 4.0 && c[14] == 4.0, "Pss is on x, y and z");
-    check(c[1] == 0.0 && c[2] == 0.0 && c[6] == 0.0 && c[8] == 0.0 && c[12] == 0.0 && c[13] == 0.0,
-          "position off-diagonals stay zero");
+    double tx = 0.0, ty = 0.0, tz = 0.0;
+    railbreak::TrackOdometer::tangent_from_chord(0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 4.0, tx, ty, tz);
+    check(tx == 1.0 && ty == 0.0 && tz == 0.0, "an east chord is a unit along-track tangent");
+    railbreak::TrackOdometer::fill_pose_covariance(4.0, tx, ty, tz, c, true);
+    check(c[0] == 4.0 && c[7] == 0.0 && c[14] == 0.0, "east track variance sits on x");
+    check(c[1] == 0.0 && c[2] == 0.0 && c[6] == 0.0, "an axis-aligned track has no xy covariance");
+    const double h = std::sqrt(0.5);
+    railbreak::TrackOdometer::fill_pose_covariance(4.0, h, h, 0.0, c, true);
+    check(std::fabs(c[0] - 2.0) < 1e-12 && std::fabs(c[7] - 2.0) < 1e-12, "a 45 degree track splits P");
+    check(std::fabs(c[1] - 2.0) < 1e-12 && std::fabs(c[6] - 2.0) < 1e-12, "the xy term is symmetric");
+    check(c[14] == 0.0, "a level track does not put arc variance on z");
+    railbreak::TrackOdometer::fill_pose_covariance(4.0, 0.0, 0.0, 0.0, c, true);
+    check(c[0] == 4.0 && c[7] == 4.0 && c[14] == 4.0, "a vanished tangent does not claim zero cross-track");
+    railbreak::TrackOdometer::fill_pose_covariance(1.0e6, 1.0, 0.0, 0.0, c, false);
+    check(c[0] == 1.0e6 && c[7] == 1.0e6 && c[14] == 1.0e6, "a refused pose stays isotropic");
     check(c[7] != railbreak::TrackOdometer::kCrossTrackSigmaM * railbreak::TrackOdometer::kCrossTrackSigmaM,
           "the cross-track floor is not the y variance");
     check(c[14] != railbreak::TrackOdometer::kMapHeightSigmaM * railbreak::TrackOdometer::kMapHeightSigmaM,
           "the height floor is not the z variance");
     check(c[21] == 1e6 && c[28] == 1e6 && c[35] == 1e6, "orientation stays uninformative");
+    railbreak::TrackOdometer od_cov(&assets, p);
+    od_cov.init(0.0, 2.0);
+    check(std::fabs(od_cov.arc_variance(0.0) - 4.0) < 1e-12, "zero velocity coupling keeps Pss");
+    check(od_cov.arc_variance(-0.05) > 4.0, "a position lag adds the velocity variance");
   }
   {
     railbreak::TrackOdometer od(&assets, p);

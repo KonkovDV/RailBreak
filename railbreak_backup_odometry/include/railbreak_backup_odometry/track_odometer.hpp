@@ -705,6 +705,16 @@ class TrackOdometer {
   double noise_sd() const { return std::sqrt(r_); }
   double sigma_s() const { return std::sqrt(std::max(P_[IS][IS], 0.0)); }
   double sigma_v() const { return std::sqrt(std::max(P_[IV][IV], 0.0)); }
+  // Variance of the published arc s + v·ds_dv. ds_dv is delay_pos − pos_lag
+  // on the live output, and that lag plus the extrapolation lead on a repeat.
+  // The pose Jacobian is applied later, in the output frame.
+  double arc_variance(double ds_dv) const {
+    if (!std::isfinite(ds_dv)) ds_dv = 0.0;
+    const double pss = P_[IS][IS];
+    const double psv = 0.5 * (P_[IS][IV] + P_[IV][IS]);
+    const double pvv = P_[IV][IV];
+    return std::max(0.0, pss + 2.0 * ds_dv * psv + ds_dv * ds_dv * pvv);
+  }
   double sigma_k() const { return std::sqrt(std::max(P_[IK][IK], 0.0)); }
   // Path length since the last trusted anchor. The shortest arc on the ring
   // folds back toward zero after almost one lap, so it is not this budget.
@@ -722,13 +732,41 @@ class TrackOdometer {
   static constexpr double kCrossTrackSigmaM = 0.53;
   static constexpr double kMapHeightSigmaM = 1.10;
 
-  // Pose covariance, row-major 6x6. The output contract is one P_ss on x, y
-  // and z. Off-diagonal position terms stay 0. Orientation stays uninformative.
-  // Tangent, grade and the map floors do not enter this array.
-  static void fill_pose_covariance(double p_ss, double* c) {
+  // Pose covariance, row-major 6x6, in the frame of the published point.
+  // t = (p(s+ds) − p(s−ds)) / (2 ds) is the Jacobian of that point w.r.t. arc.
+  // Σ_xyz = p_arc · t tᵀ. Orientation stays uninformative. Map floors
+  // (0.53 m cross-track, 1.10 m height) stay out of this array: they are not P_ss.
+  // along_track false, or a vanished tangent, writes p_arc on x, y and z.
+  // A zero cross-track variance with no direction would claim a false precision.
+  static void fill_pose_covariance(double p_arc, double tx, double ty, double tz, double* c,
+                                   bool along_track) {
     for (int i = 0; i < 36; ++i) c[i] = 0.0;
-    c[0] = c[7] = c[14] = p_ss;
     c[21] = c[28] = c[35] = 1e6;
+    const double n2 = tx * tx + ty * ty + tz * tz;
+    const double p = std::isfinite(p_arc) && p_arc > 0.0 ? p_arc : 0.0;
+    if (!along_track || !std::isfinite(n2) || n2 < 1e-8) {
+      c[0] = c[7] = c[14] = p;
+      return;
+    }
+    c[0] = tx * tx * p;
+    c[1] = c[6] = tx * ty * p;
+    c[2] = c[12] = tx * tz * p;
+    c[7] = ty * ty * p;
+    c[8] = c[13] = ty * tz * p;
+    c[14] = tz * tz * p;
+  }
+
+  // t = (p1 − p0) / ds. ds is the arc between the two output-frame samples.
+  static void tangent_from_chord(double x0, double y0, double z0, double x1, double y1, double z1,
+                                 double ds, double& tx, double& ty, double& tz) {
+    if (!(ds > 0.0) || !std::isfinite(ds) || !std::isfinite(x0) || !std::isfinite(y0) ||
+        !std::isfinite(z0) || !std::isfinite(x1) || !std::isfinite(y1) || !std::isfinite(z1)) {
+      tx = ty = tz = 0.0;
+      return;
+    }
+    tx = (x1 - x0) / ds;
+    ty = (y1 - y0) / ds;
+    tz = (z1 - z0) / ds;
   }
   bool slip() const { return slip_; }
   // Last callback only. The other bogie keeps its own flag until it speaks.

@@ -754,12 +754,14 @@ class BackupOdometryNode : public rclcpp::Node {
       o.child_frame_id = child_frame_id_;
       const double s = s_arc + (initialised_ ? off_along_ : 0.0);
       double yaw = 0.0;
+      double tx = 1.0, ty = 0.0, tz = 0.0;
       if (initialised_) {
-        double x0, y0, x1, y1, zz;
+        double x0, y0, z0, x1, y1, z1;
         out_point(s, o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z);
-        out_point(s - 2.0, x0, y0, zz);
-        out_point(s + 2.0, x1, y1, zz);
+        out_point(s - 2.0, x0, y0, z0);
+        out_point(s + 2.0, x1, y1, z1);
         yaw = std::atan2(y1 - y0, x1 - x0);
+        railbreak::TrackOdometer::tangent_from_chord(x0, y0, z0, x1, y1, z1, 4.0, tx, ty, tz);
       } else {
         double d = s - s_rel_origin_;
         if (assets_.map.ring_len > 0.0 && d < 0.0) d += assets_.map.ring_len;
@@ -767,8 +769,9 @@ class BackupOdometryNode : public rclcpp::Node {
       }
       o.pose.pose.orientation.z = std::sin(0.5 * yaw);
       o.pose.pose.orientation.w = std::cos(0.5 * yaw);
-      const double vs = pose_ok ? od_->sigma_s() * od_->sigma_s() : kRefusedPoseVariance;
-      railbreak::TrackOdometer::fill_pose_covariance(vs, o.pose.covariance.data());
+      const double vs = pose_ok ? od_->arc_variance(ahead) : kRefusedPoseVariance;
+      railbreak::TrackOdometer::fill_pose_covariance(vs, tx, ty, tz, o.pose.covariance.data(),
+                                                     pose_ok);
       o.twist.twist.linear.x = wheels_out_ ? last_v_pub_ : od_->v();
       o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
       for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;
@@ -860,12 +863,14 @@ class BackupOdometryNode : public rclcpp::Node {
       o.child_frame_id = child_frame_id_;
       const double s = s_filt + (initialised_ ? off_along_ : 0.0);
       double yaw = 0.0;
+      double tx = 1.0, ty = 0.0, tz = 0.0;
       if (initialised_) {
-        double x0, y0, x1, y1, zz;
+        double x0, y0, z0, x1, y1, z1;
         out_point(s, o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z);
-        out_point(s - 2.0, x0, y0, zz);
-        out_point(s + 2.0, x1, y1, zz);
+        out_point(s - 2.0, x0, y0, z0);
+        out_point(s + 2.0, x1, y1, z1);
         yaw = std::atan2(y1 - y0, x1 - x0);
+        railbreak::TrackOdometer::tangent_from_chord(x0, y0, z0, x1, y1, z1, 4.0, tx, ty, tz);
       } else {
         double d = s - s_rel_origin_;
         if (assets_.map.ring_len > 0.0 && d < 0.0) d += assets_.map.ring_len;
@@ -873,8 +878,10 @@ class BackupOdometryNode : public rclcpp::Node {
       }
       o.pose.pose.orientation.z = std::sin(0.5 * yaw);
       o.pose.pose.orientation.w = std::cos(0.5 * yaw);
-      const double vs = pose_ok ? od_->sigma_s() * od_->sigma_s() : kRefusedPoseVariance;
-      railbreak::TrackOdometer::fill_pose_covariance(vs, o.pose.covariance.data());
+      const double ds_dv = delay_pos_s_ - pos_lag_s_;
+      const double vs = pose_ok ? od_->arc_variance(ds_dv) : kRefusedPoseVariance;
+      railbreak::TrackOdometer::fill_pose_covariance(vs, tx, ty, tz, o.pose.covariance.data(),
+                                                     pose_ok);
       o.twist.twist.linear.x = v_out;
       o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
       for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;

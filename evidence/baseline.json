@@ -1,0 +1,113 @@
+{
+  "audit_date": "2026-10-03",
+  "remeasured": false,
+  "replay_status": "not_run",
+  "head": "03994c719a9d67d3132fdb25e1989085a998a30c",
+  "head_time_msk": "2026-10-02T23:23:46+03:00",
+  "submission_commit": "543a4a56993e5ba222c669c685cb6f9d5ea9cf3a",
+  "submission_tag": "submission-2026-09-27",
+  "submission_time_msk": "2026-09-27T23:39:23+03:00",
+  "deadline_msk": "2026-09-27T23:59:00+03:00",
+  "github_created_at": "2026-09-01T18:52:12Z",
+  "initial_commit": "c155520",
+  "post_deadline_commit_count": 20,
+  "bag": {
+    "name": "30618_88aea4d9",
+    "local_path": "local/official_checker/bag",
+    "present_locally": true,
+    "sha256": null,
+    "sha256_status": "not_computed_organizer_bag_not_published"
+  },
+  "metric_families_not_interchangeable": [
+    "checker_3d_rmse",
+    "along_track_val_median",
+    "offline_bogie_mean_velocity",
+    "v2_harness_position"
+  ],
+  "rows": [
+    {
+      "family": "checker_3d_rmse",
+      "role": "submission",
+      "commit": "5cd35fa",
+      "config": "full DriverControllerCommand, rate 1",
+      "position_rmse_m": 2.151,
+      "position_max_m": 5.649,
+      "velocity_rmse_m_s": 0.051,
+      "source": "docs/solution/results.md"
+    },
+    {
+      "family": "checker_3d_rmse",
+      "role": "post_deadline",
+      "commit": "9a954fd",
+      "recorded_in": "03994c7",
+      "config": "full DriverControllerCommand, rate 1, after seam interpolation",
+      "position_rmse_m": 1.164429,
+      "position_max_m": 3.684696,
+      "position_n": 49943,
+      "velocity_rmse_m_s": 0.024692,
+      "velocity_max_m_s": 0.289518,
+      "velocity_n": 38392,
+      "source": "docs/solution/tz-audit.md"
+    },
+    {
+      "family": "offline_bogie_mean_velocity",
+      "role": "post_deadline_reference",
+      "config": "raw bogie mean, stamp +0.105 s, not the node",
+      "velocity_rmse_m_s": 0.023698,
+      "velocity_max_m_s": 0.289518,
+      "velocity_n": 12206,
+      "bias_m_s": 0.003012,
+      "source": "docs/solution/results.md"
+    },
+    {
+      "family": "checker_3d_rmse",
+      "role": "historical_no_command",
+      "commit": "e863195",
+      "config": "no DriverControllerCommand, extrapolate 20 Hz",
+      "position_rmse_m": 5.454,
+      "velocity_rmse_m_s": 0.044,
+      "rate_hz": [19.4, 19.5],
+      "source": "docs/solution/results.md"
+    },
+    {
+      "family": "checker_3d_rmse",
+      "role": "historical_no_command_before_extrapolation",
+      "position_rmse_m": 5.216,
+      "velocity_rmse_m_s": 0.055,
+      "rate_hz": 9.3,
+      "source": "docs/solution/results.md"
+    },
+    {
+      "family": "checker_3d_rmse",
+      "role": "post_deadline_no_command",
+      "config": "current tree, rate 1, no command type",
+      "position_rmse_m": 1.325,
+      "velocity_rmse_m_s": 0.027,
+      "does_not_replace": "5.454 m on e863195",
+      "source": "docs/solution/results.md"
+    },
+    {
+      "family": "latency_input_to_output",
+      "role": "submission_era_three_stream_watermark",
+      "median_ms": 53,
+      "p95_ms": 154,
+      "max_ms": 305,
+      "remeasured_after_watermark_change": false,
+      "source": "docs/solution/tz-audit.md"
+    },
+    {
+      "family": "along_track_val_median",
+      "role": "ablation_not_checker",
+      "config": "val, 21 runs, station anchors off",
+      "median_m": 12.59,
+      "source": "docs/solution/results.md"
+    },
+    {
+      "family": "v2_harness_position",
+      "role": "not_official_checker",
+      "position_rmse_m": 1.009,
+      "k0": 1.001234,
+      "source": "docs/solution/results.md"
+    }
+  ]
+}
