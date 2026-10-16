@@ -69,4 +69,47 @@ inline int velocity_resample(double t0, double v0, double t1, double v1, double 
   return n;
 }
 
+// Stamps strictly inside (t0, t1). The caller publishes t1. A non-positive
+// step or a span longer than 1 s adds nothing: the hole stays visible to the
+// 0.25 s acceptance gap. The arc at these stamps is the stored arc, not the
+// arc at t1.
+inline int position_stamp_grid(double t0, double t1, double step, double* ts, int cap) {
+  if (!ts || cap <= 0 || !std::isfinite(t0) || !std::isfinite(t1) || !(t1 > t0)) return 0;
+  if (!std::isfinite(step) || !(step > 0.0) || (t1 - t0) > 1.0) return 0;
+  int n = 0;
+  for (double t = t0 + step; n < cap && t < t1 - 1e-9; t += step) ts[n++] = t;
+  return n;
+}
+
+inline double wrap_arc(double s, double ring_len) {
+  if (!(ring_len > 0.0) || !std::isfinite(s)) return s;
+  s = std::fmod(s, ring_len);
+  if (s < 0.0) s += ring_len;
+  return s;
+}
+
+// Arc published at tq, between two stored samples. net_lag_s is
+// output_pos_lag_s − output_delay_pos_s. A jump above 8 m is a snap, not
+// motion, and is not spread across the gap.
+inline bool published_arc_between(double tq, double t0, double s0, double v0, double t1, double s1,
+                                  double v1, double net_lag_s, double ring_len, double& s_out,
+                                  double& v_out) {
+  if (!std::isfinite(tq) || !std::isfinite(t0) || !std::isfinite(t1) || !(t1 > t0)) return false;
+  if (tq < t0 - 1e-12 || tq > t1 + 1e-12) return false;
+  const double a = std::min(1.0, std::max(0.0, (tq - t0) / (t1 - t0)));
+  double ds = s1 - s0;
+  if (ring_len > 0.0) {
+    ds = std::fmod(ds + 0.5 * ring_len, ring_len);
+    if (ds < 0.0) ds += ring_len;
+    ds -= 0.5 * ring_len;
+  }
+  if (!std::isfinite(ds) || std::fabs(ds) > 8.0) return false;
+  const double v = (std::isfinite(v0) && std::isfinite(v1)) ? v0 + a * (v1 - v0) : v1;
+  double s = s0 + a * ds;
+  if (std::isfinite(net_lag_s) && std::isfinite(v)) s -= v * net_lag_s;
+  s_out = wrap_arc(s, ring_len);
+  v_out = v;
+  return std::isfinite(s_out) && std::isfinite(v_out);
+}
+
 }  // namespace railbreak

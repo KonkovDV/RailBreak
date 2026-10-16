@@ -2165,6 +2165,56 @@ int main() {
     check(railbreak::velocity_resample(0.2, 1.0, 0.1, 3.0, 0.04, rt, rv, 8) == 1 &&
               std::fabs(rt[0] - 0.1) < 1e-9,
           "a backwards pair publishes the current sample only");
+    double gt[32];
+    const int ng = railbreak::position_stamp_grid(0.0, 0.107, 0.04, gt, 32);
+    check(ng == 2 && std::fabs(gt[0] - 0.04) < 1e-9 && std::fabs(gt[1] - 0.08) < 1e-9,
+          "position grid sits strictly between bogie stamps");
+    check(railbreak::position_stamp_grid(0.0, 1.2, 0.04, gt, 32) == 0,
+          "a position hole longer than 1 s is not filled");
+    const int hole = railbreak::position_stamp_grid(0.0, 0.296, 0.04, gt, 32);
+    check(hole >= 6 && gt[hole - 1] < 0.296 && (0.296 - gt[hole - 1]) <= 0.04 + 1e-9,
+          "a 0.296 s bogie hole is split under 0.04 s");
+    double s_mid = 0.0, v_mid = 0.0;
+    check(railbreak::published_arc_between(0.05, 0.0, 100.0, 10.0, 0.10, 101.0, 10.0, 0.05, 1000.0,
+                                           s_mid, v_mid) &&
+              std::fabs(s_mid - 100.0) < 1e-9 && std::fabs(v_mid - 10.0) < 1e-9,
+          "an interior pose is the stored arc minus the lag, not the later arc");
+    check(!railbreak::published_arc_between(0.05, 0.0, 0.0, 1.0, 0.10, 20.0, 1.0, 0.0, 1000.0, s_mid,
+                                            v_mid),
+          "a snap above 8 m is not spread across the gap");
+    {
+      double t_bogie = 0.0;
+      double prev = 0.0;
+      bool have_prev = false;
+      int n_pose = 0;
+      int regressed = 0;
+      double max_gap = 0.0;
+      double t_first = 0.0;
+      double t_last = 0.0;
+      while (t_bogie < 200.0) {
+        const double next = (t_bogie > 50.0 && t_bogie < 50.2) ? t_bogie + 0.296 : t_bogie + 0.1075;
+        double grid[32];
+        const int n = railbreak::position_stamp_grid(t_bogie, next, 0.04, grid, 32);
+        for (int i = 0; i <= n; ++i) {
+          const double stamp = i < n ? grid[i] : next;
+          if (!have_prev) {
+            t_first = stamp;
+            have_prev = true;
+          } else {
+            const double d = stamp - prev;
+            if (!(d > 0.0)) ++regressed;
+            if (d > max_gap) max_gap = d;
+          }
+          prev = stamp;
+          t_last = stamp;
+          ++n_pose;
+        }
+        t_bogie = next;
+      }
+      const double rate = static_cast<double>(n_pose - 1) / (t_last - t_first);
+      check(regressed == 0 && rate >= 10.0 && max_gap <= 0.25,
+            "bogie-rate poses on the 0.04 s grid clear 10 Hz and 0.25 s");
+    }
     {
       auto line = flat_ring(100.0);
       double lat = 0.0, lon = 0.0;

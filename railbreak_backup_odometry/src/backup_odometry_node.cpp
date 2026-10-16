@@ -11,8 +11,10 @@
 //                      bogie mean while the bogies agree; the filter is the
 //                      fallback. The velocity header is the input stamp plus
 //                      output_stamp_offset_s. /result/position (Odometry,
-//                      MGRS metres of base_link, see output_frame),
-//                      /result/diagnostics.
+//                      MGRS metres of base_link, see output_frame) uses the
+//                      bogie stamp. Between bogie stamps the stored arc is
+//                      published on output_position_resample_s. The command
+//                      header does not publish a pose. /result/diagnostics.
 //
 // Each input callback enqueues the sample. The output is published from that
 // same callback, but only for samples at or under the stream watermark, in
@@ -137,6 +139,7 @@ class BackupOdometryNode : public rclcpp::Node {
     stamp_offset_s_ = declare_parameter("output_stamp_offset_s", 0.105);
     vel_fade_s_ = declare_parameter("output_velocity_fade_s", 0.5);
     vel_resample_s_ = declare_parameter("output_velocity_resample_s", 0.04);
+    pos_resample_s_ = declare_parameter("output_position_resample_s", 0.04);
     gnss_init_dual_ = declare_parameter("gnss_init_dual_antenna", true);
     wheels_out_ = railbreak::velocity_source_is_wheels(
         declare_parameter("output_velocity_source", std::string("wheels_mean")));
@@ -784,6 +787,56 @@ class BackupOdometryNode : public rclcpp::Node {
   }
 #endif
 
+  // Stored arc at tq, with the same lag the bogie pose applies. A snap larger
+  // than 8 m is refused so it is not smeared across the gap.
+  bool stored_arc(double tq, double& s, double& v) const {
+    if (state_hist_.size() < 2) return false;
+    std::size_t hi = 0;
+    while (hi < state_hist_.size() && state_hist_[hi][0] < tq) ++hi;
+    if (hi == 0 || hi >= state_hist_.size()) return false;
+    const std::size_t lo = hi - 1;
+    return railbreak::published_arc_between(
+        tq, state_hist_[lo][0], state_hist_[lo][1], state_hist_[lo][2], state_hist_[hi][0],
+        state_hist_[hi][1], state_hist_[hi][2], pos_lag_s_ - delay_pos_s_, assets_.map.ring_len, s,
+        v);
+  }
+
+  void emit_pose(double t_pose, double s_arc, double v_twist, bool pose_ok, bool allow_equal) {
+    if (!std::isfinite(t_pose) || !std::isfinite(s_arc)) return;
+    if (have_pos_hdr_ && t_pose < pos_hdr_last_ - 1e-12) return;
+    if (have_pos_hdr_ && !allow_equal && !(t_pose > pos_hdr_last_ + 1e-12)) return;
+    nav_msgs::msg::Odometry o;
+    o.header.stamp = time_from_s(t_pose);
+    o.header.frame_id = frame_id_;
+    o.child_frame_id = child_frame_id_;
+    const double s = s_arc + (initialised_ ? off_along_ : 0.0);
+    double yaw = 0.0;
+    double tx = 1.0, ty = 0.0, tz = 0.0;
+    if (initialised_) {
+      double x0, y0, z0, x1, y1, z1;
+      out_point(s, o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z);
+      out_point(s - 2.0, x0, y0, z0);
+      out_point(s + 2.0, x1, y1, z1);
+      yaw = std::atan2(y1 - y0, x1 - x0);
+      railbreak::TrackOdometer::tangent_from_chord(x0, y0, z0, x1, y1, z1, 4.0, tx, ty, tz);
+    } else {
+      double d = s - s_rel_origin_;
+      if (assets_.map.ring_len > 0.0 && d < 0.0) d += assets_.map.ring_len;
+      o.pose.pose.position.x = d;
+    }
+    o.pose.pose.orientation.z = std::sin(0.5 * yaw);
+    o.pose.pose.orientation.w = std::cos(0.5 * yaw);
+    const double ds_dv = delay_pos_s_ - pos_lag_s_;
+    const double vs = pose_ok ? od_->arc_variance(ds_dv) : kRefusedPoseVariance;
+    railbreak::TrackOdometer::fill_pose_covariance(vs, tx, ty, tz, o.pose.covariance.data(), pose_ok);
+    o.twist.twist.linear.x = v_twist;
+    o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
+    for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;
+    pub_p_->publish(o);
+    pos_hdr_last_ = t_pose;
+    have_pos_hdr_ = true;
+  }
+
   void publish_one_velocity(double t_sample, double v) {
     const double t_vel = railbreak::velocity_output_stamp(t_sample, stamp_offset_s_);
     if (!std::isfinite(t_vel) || !std::isfinite(v)) return;
@@ -863,35 +916,20 @@ class BackupOdometryNode : public rclcpp::Node {
     const bool map_loaded = assets_ok_ && !assets_.map.empty();
     if (from_bogie &&
         (initialised_ || (relative_ && railbreak::publish_unanchored_path(map_loaded, frame_.mode)))) {
-      nav_msgs::msg::Odometry o;
-      o.header.stamp = stamp;
-      o.header.frame_id = frame_id_;
-      o.child_frame_id = child_frame_id_;
-      const double s = s_filt + (initialised_ ? off_along_ : 0.0);
-      double yaw = 0.0;
-      double tx = 1.0, ty = 0.0, tz = 0.0;
-      if (initialised_) {
-        double x0, y0, z0, x1, y1, z1;
-        out_point(s, o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z);
-        out_point(s - 2.0, x0, y0, z0);
-        out_point(s + 2.0, x1, y1, z1);
-        yaw = std::atan2(y1 - y0, x1 - x0);
-        railbreak::TrackOdometer::tangent_from_chord(x0, y0, z0, x1, y1, z1, 4.0, tx, ty, tz);
-      } else {
-        double d = s - s_rel_origin_;
-        if (assets_.map.ring_len > 0.0 && d < 0.0) d += assets_.map.ring_len;
-        o.pose.pose.position.x = d;
+      // The bogie stamp still carries the live arc. Stamps between bogies
+      // carry the arc that was stored then. The command header does not
+      // reach this block.
+      if (pos_resample_s_ > 0.0 && have_pos_hdr_ && t_stamp > pos_hdr_last_) {
+        double grid[128];
+        const int ngrid = railbreak::position_stamp_grid(pos_hdr_last_, t_stamp, pos_resample_s_,
+                                                         grid, 128);
+        for (int i = 0; i < ngrid; ++i) {
+          double s_then = 0.0, v_then = 0.0;
+          if (!stored_arc(grid[i], s_then, v_then)) continue;
+          emit_pose(grid[i], s_then, v_then, pose_ok, false);
+        }
       }
-      o.pose.pose.orientation.z = std::sin(0.5 * yaw);
-      o.pose.pose.orientation.w = std::cos(0.5 * yaw);
-      const double ds_dv = delay_pos_s_ - pos_lag_s_;
-      const double vs = pose_ok ? od_->arc_variance(ds_dv) : kRefusedPoseVariance;
-      railbreak::TrackOdometer::fill_pose_covariance(vs, tx, ty, tz, o.pose.covariance.data(),
-                                                     pose_ok);
-      o.twist.twist.linear.x = v_out;
-      o.twist.covariance[0] = od_->sigma_v() * od_->sigma_v();
-      for (int i = 7; i < 36; i += 7) o.twist.covariance[static_cast<std::size_t>(i)] = 1e6;
-      pub_p_->publish(o);
+      emit_pose(t_stamp, s_filt, v_out, pose_ok, true);
     }
 
 #if !RAILBREAK_HAS_DRIVER_CMD
@@ -1292,6 +1330,9 @@ class BackupOdometryNode : public rclcpp::Node {
   double pos_lag_s_ = 0.05;
   double stamp_offset_s_ = 0.0;
   double vel_resample_s_ = 0.04;
+  double pos_resample_s_ = 0.04;
+  bool have_pos_hdr_ = false;
+  double pos_hdr_last_ = 0.0;
   bool gnss_init_dual_ = true;
   bool have_pair_v_ = false;
   double pair_t_ = 0.0;

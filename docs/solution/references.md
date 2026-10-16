@@ -83,6 +83,18 @@ D. Kumar, S. Tayebati, F. Migliarba, R. Krishnan, A. R. Trivedi. Learnable Confo
 
 Общий вывод. К дедлайну сильнее не нейросеть, а интерпретируемый оцениватель по модели, явные гипотезы отказа, консервативная машина состояний целостности, явное объявление ненаблюдаемости и воспроизводимый прогон.
 
+## Чужие решения хакатона и работы 2026 года
+
+Числа ниже — текст авторов или аннотация статьи. Это не повтор RailBreak и не балл `hackathon_solution_checker` этого репозитория.
+
+На записи `30618_88aea4d9` их тексты дают скорость выше нашего прогона 0.024691 м/с: `67-time-to-win-hack` 0.026 м/с и 3D 0.60 м, `ekimlichenko-mt` 0.0324 м/с и 1.111 м, VECTRA 0.042 м/с и 1.43 м, `FunnyRepo` `2afdb9f` 0.033 м/с и 5.13 м, `tram-backup-odometry` 0.051 м/с и 1.209 м, `dub-otrezkov` 0.055 м/с и 1.053 м. Положение 0.60 м у `67-time-to-win-hack` ниже нашего 1.157702 м. Их GPB на пяти гипотезах, подпись `log(v_front/v_rear)`, масштаб по шагу квантования и тупик в карте в ноду не перенесены. Эхо-сеть и Калман `[v, b]` из `tram-backup-odometry` тоже. Сетка 0.04 с между штампами тележек публикует сохранённую дугу этой ноды.
+
+1D INS/ODO для железной дороги без GNSS. *Proceedings of the 39th International Technical Meeting of the Satellite Division of The Institute of Navigation (ION GNSS+ 2026)*, 14–18 Sep 2026, pp. 631–645. [ION 20777](https://www.ion.org/publications/abstract.cfm?articleID=20777). Их полевой прогон Цинхай—Тибет, 30 км, даёт mileage RMSE 1.335 м и скорость 0.0132 м/с у одномерного EKF с одометром и IMU. В этой ноде IMU нет, и эти числа не являются числами RailBreak.
+
+An LSTM-Kalman Fusion-Based Hybrid Observation Method for Wheel-Rail Adhesion Coefficient Estimation. *ETAE 2026*. DOI [10.1109/etae69474.2026.11495772](https://doi.org/10.1109/etae69474.2026.11495772). Их наблюдатель оценивает μ по окружной скорости колеса и LSTM-приору. Здесь этих входов нет. `mu_estimate` остаётся null.
+
+> coefficient of adhesion is not observable from two wheel speeds and driver command alone.
+
 ## ГКИНП (ОНТА)-01-268-02
 
 Основные положения по созданию и обновлению опорной геодезической сети г. Москвы. Введены приказом Москомархитектуры от 20 января 2003 г. № 13. Опубликованы в «Вестнике Мэра и Правительства Москвы», № 18, март 2004, приложение 2 к постановлению Правительства Москвы от 2 марта 2004 г. № 115-ПП. DOI нет. Публично читаемая копия этой публикации: [ГАРАНТ](https://base.garant.ru/4093150/).

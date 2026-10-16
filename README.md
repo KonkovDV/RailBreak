@@ -10,7 +10,7 @@
 
 # RailBreak
 
-Backup speed and distance for Moscow tram route 10. The submitted package is [`railbreak_backup_odometry`](railbreak_backup_odometry/) on ROS 2 Humble, C++17. Inputs are the two bogie speeds and the driver notch. GNSS places the car in the first 3 s. Rare master-RTK windows stay on by default (`gnss_correction: true`). Published speed is the bogie mean while the bogies agree, resampled every 0.04 s, with the header shifted by +0.105 s. The filter speed is used when the bogies disagree or drop out. Position is the map point at arc `s`, and its header is the bogie stamp. A driver command updates the notch and does not publish a pose under the command header. IMU, lidar and cameras are not used. The research core `tramDR-0.0.11` is not part of this package.
+Backup speed and distance for Moscow tram route 10. The submitted package is [`railbreak_backup_odometry`](railbreak_backup_odometry/) on ROS 2 Humble, C++17. Inputs are the two bogie speeds and the driver notch. GNSS places the car in the first 3 s. Rare master-RTK windows stay on by default (`gnss_correction: true`). Published speed is the bogie mean while the bogies agree, resampled every 0.04 s, with the header shifted by +0.105 s. The filter speed is used when the bogies disagree or drop out. Position is the map point at arc `s`. Its header is the bogie stamp, and between bogie stamps the stored arc is published every 0.04 s. A driver command updates the notch and does not publish a pose under the command header. A gap longer than 1 s is not filled. IMU, lidar and cameras are not used. The research core `tramDR-0.0.11` is not part of this package.
 
 ## Run
 
@@ -90,13 +90,28 @@ Moving that pose's header, with the node unchanged, gives nearest-stamp 3D of 1.
 | 2026-10-03, pose still carried the command stamp | 52.6 ms | 154.3 ms | 203.4 ms | 305.8 ms | 50563 after 10 warmup pairs |
 | 2026-10-03, pose uses the bogie stamp | 0.20 ms | 0.63 ms | 1.09 ms | 100.7 ms | 24388 |
 
-On the last probe, 2 pairs exceed 100 ms and none exceed 250 ms. Unique position stamps are 9.31 Hz (18.61 Hz by message count, largest gap 0.296 s). Velocity stamps are 29.47 Hz. The along-track bound is an empirical bound, not certified protection level. Coefficient of adhesion is not observable from two wheel speeds and driver command alone.
+On the last probe, 2 pairs exceed 100 ms and none exceed 250 ms. Unique position stamps are 9.31 Hz (18.61 Hz by message count, largest gap 0.296 s). Velocity stamps are 29.47 Hz. That 9.31 Hz is the run which published one pose per bogie stamp. The tree now also publishes the stored arc on a 0.04 s grid strictly between those stamps; the command header still does not publish a pose, and a gap longer than 1 s is left open. On the bogie headers of that same recording the grid is 38743 unique stamps, 29.493 Hz, maximum gap 0.040 s, no regression. That count is not a new ROS run and does not replace 1.157702 m. Acceptance already rejects unique position stamps below 10 Hz, a gap above 0.25 s, or a stamp that goes backwards. The along-track bound is an empirical bound, not certified protection level. Coefficient of adhesion is not observable from two wheel speeds and driver command alone.
+
+## Other solutions
+
+These rows are the other authors' text on bag `30618_88aea4d9`. They are not a replay of their nodes on our checker. Our `--rate 1` row stays 1.157702 m and 0.024691 m/s.
+
+| Their text | Speed, m/s | 3D, m | What stayed out of this node |
+|---|---:|---:|---|
+| `67-time-to-win-hack`, their `metrics.py` beside the node | 0.026 | 0.60 | five-hypothesis GPB, path signature, wheel scale from the speed quantum, western stub built into their map |
+| `ekimlichenko-mt`, their ROS checker | 0.0324 | 1.111, max 14.02 | GNSS aiding along the ride; without it their text says 7.16 m |
+| VECTRA | 0.042 | 1.43 | 0.08 s speed delay fitted on this bag; without it their text says 0.059 m/s |
+| `tram-backup-odometry`, ×1 | 0.051 | 1.209, max 11.50 | residual echo-state network and a Kalman state `[v, b]` |
+| `FunnyRepo`, commit `2afdb9f` | 0.033 | 5.13, max 49.6 | stub taken from the checker ride |
+| `dub-otrezkov` | 0.055 | 1.053, max 13.17 | their 3D is lower and their maximum is larger |
+
+The 0.04 s position grid is the same kind of output schedule as a stamp grid between inputs. The value on that grid is this node's stored arc, not those filters. IMU fusion and an LSTM adhesion observer are not inputs here. `mu_estimate` stays null. Sources are in [references.md](docs/solution/references.md).
 
 The Russian runbook below is the same procedure. The long write-up is [results.md](docs/solution/results.md).
 
 # RailBreak: резервная одометрия для автономного трамвая Москвы
 
-Резервный канал скорости и пути для маршрута 10. Сдаётся пакет [`railbreak_backup_odometry`](railbreak_backup_odometry/) на ROS 2 Humble: две тележки, ручка, старт по GNSS за 3 с. По умолчанию редкие окна master RTK остаются (`gnss_correction: true`): организаторы 27 сентября в 13:14 ответили, что за такую поправку оценка не снижается. `gnss_correction: false` снимает подписки после старта. Скорость на выходе — среднее тележек, пока они согласны; между парами оно линейно интерполируется с шагом 0.04 с. Фильтр подставляет скорость, когда тележки расходятся или пропадают. IMU, лидар и камеры не используются. Исследовательское ядро `tramDR-0.0.11` в этот пакет не входит.
+Резервный канал скорости и пути для маршрута 10. Сдаётся пакет [`railbreak_backup_odometry`](railbreak_backup_odometry/) на ROS 2 Humble: две тележки, ручка, старт по GNSS за 3 с. По умолчанию редкие окна master RTK остаются (`gnss_correction: true`): организаторы 27 сентября в 13:14 ответили, что за такую поправку оценка не снижается. `gnss_correction: false` снимает подписки после старта. Скорость на выходе — среднее тележек, пока они согласны; между парами оно линейно интерполируется с шагом 0.04 с. Фильтр подставляет скорость, когда тележки расходятся или пропадают. Положение — точка карты на дуге `s`. Штамп — штамп тележки, а между штампами тележек сохранённая дуга выходит с тем же шагом 0.04 с. Ручка обновляет рычаг и позу со своим штампом не публикует. Разрыв длиннее 1 с не заполняется. IMU, лидар и камеры не используются. Исследовательское ядро `tramDR-0.0.11` в этот пакет не входит.
 
 ## Запуск для жюри
 
@@ -192,7 +207,22 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 | 2026-10-03, поза ещё несла штамп ручки | 52.6 мс | 154.3 мс | 203.4 мс | 305.8 мс | 50563 после 10 разогревных |
 | 2026-10-03, поза со штампом тележки | 0.20 мс | 0.63 мс | 1.09 мс | 100.7 мс | 24388 |
 
-На последней пробе дольше 100 мс две пары, дольше 250 мс ни одной. Уникальные штампы положения — 9.31 Гц, сообщений 18.61 Гц, наибольший разрыв 0.296 с. Штампы скорости — 29.47 Гц. На сдаче частота обоих выходов была 29.3 Гц, разрыв штампов 0.051 с, у скорости в первую секунду 0.196 с, штамп назад 0 раз. Граница вдоль пути — эмпирическая, не protection level. Методика — в [results.md](docs/solution/results.md).
+На последней пробе дольше 100 мс две пары, дольше 250 мс ни одной. Уникальные штампы положения — 9.31 Гц, сообщений 18.61 Гц, наибольший разрыв 0.296 с. Штампы скорости — 29.47 Гц. Эти 9.31 Гц — прогон, где поза выходила один раз на штамп тележки. Теперь между штампами тележек публикуется сохранённая дуга с шагом 0.04 с; штамп ручки позу по-прежнему не публикует, разрыв длиннее 1 с не заполняется. На штампах тележек той же записи сетка даёт 38743 уникальных штампа, 29.493 Гц, наибольший разрыв 0.040 с, штамп назад 0. Это не новый прогон ROS и строку 1.157702 м не заменяет. Приёмка уже отклоняет уникальные штампы положения ниже 10 Гц, разрыв больше 0.25 с и штамп назад. На сдаче частота обоих выходов была 29.3 Гц, разрыв штампов 0.051 с, у скорости в первую секунду 0.196 с, штамп назад 0 раз. Граница вдоль пути — эмпирическая, не protection level. Методика — в [results.md](docs/solution/results.md).
+
+## Чужие решения
+
+Строки ниже — текст авторов на записи `30618_88aea4d9`. Это не наш повтор их нод. Наш `--rate 1` остаётся 1.157702 м и 0.024691 м/с.
+
+| Их текст | Скорость, м/с | 3D, м | В ноду не входило |
+|---|---:|---:|---|
+| `67-time-to-win-hack`, их `metrics.py` рядом с нодой | 0.026 | 0.60 | пять гипотез GPB, подпись пути, масштаб по шагу квантования скорости, тупик в их карте |
+| `ekimlichenko-mt`, их ROS checker | 0.0324 | 1.111, максимум 14.02 | GNSS по ходу рейса; без него у них в тексте 7.16 м |
+| VECTRA | 0.042 | 1.43 | сдвиг скорости 0.08 с, подобранный на этой записи; без него у них 0.059 м/с |
+| `tram-backup-odometry`, ×1 | 0.051 | 1.209, максимум 11.50 | остаточная эхо-сеть и Калман `[v, b]` |
+| `FunnyRepo`, коммит `2afdb9f` | 0.033 | 5.13, максимум 49.6 | тупик, снятый с проверочного проезда |
+| `dub-otrezkov` | 0.055 | 1.053, максимум 13.17 | их 3D ниже, максимум больше |
+
+Сетка положения 0.04 с — тот же вид расписания, что публикация между штампами входа. Значение на сетке — сохранённая дуга этой ноды, не их фильтры. Слияние с IMU и LSTM-наблюдатель сцепления сюда не входят. `mu_estimate` остаётся null. Источники — в [references.md](docs/solution/references.md).
 
 ## Документы
 
@@ -273,7 +303,7 @@ ros2 bag play <каталог rosbag2> --rate 1                      # терм�
 
 Торможение — отрицательная ручка, отдельного топика тормоза нет. Штамп положения — штамп тележки, штамп скорости — тот же штамп плюс 0.105 с. Часы ноды и `/clock` не используются. При полном пакете сообщений таймера нет. Если типа ручки нет, между тележками выход дополняется экстраполяцией 20 Гц; такой штамп не двигает отметку последнего входа. Три входных потока стоят в одной очереди: вход выпускается, когда все живые потоки дошли до его штампа. Ручка в этот минимум не входит. Отставший, но живой поток ждут; замолчавший перестают ждать после 50 чужих входов. Вход — best effort, очередь 500; выход — reliable, очередь 10.
 
-Ориентиры ТЗ: задержка 100 мс (пик 250 мс), не ниже 10 Гц, не больше 2 ядер и 0.5 ГБ. На прогоне 2026-10-03 пик задержки 100.7 мс, уникальные штампы положения 9.31 Гц. Замер — в таблице выше.
+Ориентиры ТЗ: задержка 100 мс (пик 250 мс), не ниже 10 Гц, не больше 2 ядер и 0.5 ГБ. На прогоне 2026-10-03 пик задержки 100.7 мс, уникальные штампы положения 9.31 Гц. Сетка 0.04 с на штампах тележек той же записи — 29.493 Гц; это не новый прогон ROS. Замер — в таблице выше.
 
 ## Без Docker: Ubuntu 22.04 и Humble
 

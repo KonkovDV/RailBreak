@@ -41,6 +41,10 @@ backup_odometry:
     output_velocity_source: wheels_mean
     output_velocity_fade_s: 0.5
     output_velocity_resample_s: 0.04
+    # Position headers between bogie stamps. The value is the arc stored at
+    # that time, not the arc at the later bogie and not the command header.
+    # 0 publishes one pose per bogie stamp. A gap longer than 1 s is not filled.
+    output_position_resample_s: 0.04
     # Start arc is the mean of both antennas, each reduced to the master, when
     # they agree within 5 m. false keeps the master median and the rover heading.
     gnss_init_dual_antenna: true
