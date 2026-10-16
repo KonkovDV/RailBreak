@@ -2165,6 +2165,16 @@ int main() {
     check(railbreak::velocity_resample(0.2, 1.0, 0.1, 3.0, 0.04, rt, rv, 8) == 1 &&
               std::fabs(rt[0] - 0.1) < 1e-9,
           "a backwards pair publishes the current sample only");
+    check(std::strcmp(railbreak::advisory_class(true, true, true, true), "input_quality") == 0,
+          "a bad input is not labelled as a wheel event");
+    check(std::strcmp(railbreak::advisory_class(false, true, true, false), "common_mode") == 0,
+          "common mode is not renamed into one bogie");
+    check(std::strcmp(railbreak::advisory_class(false, false, true, false), "one_bogie_residual") == 0,
+          "one bogie off the model stays a single-channel residual");
+    check(std::strcmp(railbreak::advisory_class(false, false, true, true), "both_residual") == 0,
+          "both residuals are not a single-channel fault");
+    check(std::strcmp(railbreak::advisory_class(false, false, false, false), "nominal") == 0,
+          "no residual is nominal");
     double gt[32];
     const int ng = railbreak::position_stamp_grid(0.0, 0.107, 0.04, gt, 32);
     check(ng == 2 && std::fabs(gt[0] - 0.04) < 1e-9 && std::fabs(gt[1] - 0.08) < 1e-9,

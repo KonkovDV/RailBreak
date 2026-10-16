@@ -107,6 +107,8 @@ These rows are the other authors' text on bag `30618_88aea4d9`. They are not a r
 
 The 0.04 s position grid is the same kind of output schedule as a stamp grid between inputs. The value on that grid is this node's stored arc, not those filters. IMU fusion and an LSTM adhesion observer are not inputs here. `mu_estimate` stays null. Sources are in [references.md](docs/solution/references.md).
 
+From the other KonkovDV repositories only the card was taken. [wellguard-os](https://github.com/KonkovDV/wellguard-os), [open-integrity-twin](https://github.com/KonkovDV/open-integrity-twin) and [drillguard-os](https://github.com/KonkovDV/drillguard-os) separate a bad input, a single-channel residual and a common residual, and the label is not a probability. The diagnostic field is `advisory_class`. Their synthetic recall and false-alarm counts are not RailBreak numbers. The SynAPS schedulers, the AeroBIM and Kontur checkers, and the Mandat contract are not in the estimator.
+
 The Russian runbook below is the same procedure. The long write-up is [results.md](docs/solution/results.md).
 
 # RailBreak: резервная одометрия для автономного трамвая Москвы
@@ -223,6 +225,8 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 | `dub-otrezkov` | 0.055 | 1.053, максимум 13.17 | их 3D ниже, максимум больше |
 
 Сетка положения 0.04 с — тот же вид расписания, что публикация между штампами входа. Значение на сетке — сохранённая дуга этой ноды, не их фильтры. Слияние с IMU и LSTM-наблюдатель сцепления сюда не входят. `mu_estimate` остаётся null. Источники — в [references.md](docs/solution/references.md).
+
+Из других репозиториев KonkovDV взята только карточка. [wellguard-os](https://github.com/KonkovDV/wellguard-os), [open-integrity-twin](https://github.com/KonkovDV/open-integrity-twin) и [drillguard-os](https://github.com/KonkovDV/drillguard-os) отделяют плохой вход, отказ одного канала и общую невязку и не называют метку вероятностью. В диагностике это поле `advisory_class`. Их синтетические полнота и ложные тревоги не являются числами RailBreak. Планировщики SynAPS, проверка AeroBIM и Kontur и контракт Mandat в оцениватель не входят.
 
 ## Документы
 

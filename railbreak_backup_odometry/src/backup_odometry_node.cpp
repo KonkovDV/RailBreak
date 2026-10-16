@@ -1056,6 +1056,11 @@ class BackupOdometryNode : public rclcpp::Node {
     };
     kv("mode", railbreak::mode_name(od_->mode()));
     kv("common_unobservable", od_->common_unobservable() ? "true" : "false");
+    const bool velocity_none = std::strcmp(have_integrity_ ? last_integrity_.velocity_confidence : "HIGH",
+                                           "NONE") == 0;
+    const bool order_bad = order_reason_ != nullptr && std::strcmp(order_reason_, "ORDER_NOT_RESTORED") == 0;
+    kv("advisory_class", railbreak::advisory_class(velocity_none || order_bad, od_->common_unobservable(),
+                                                   od_->slip_front(), od_->slip_rear()));
     kv("common_mode_exit", common_exit_.exit);
     kv("slip", od_->slip() ? "true" : "false");
     kv("slip_front", od_->slip_front() ? "true" : "false");

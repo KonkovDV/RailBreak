@@ -95,6 +95,12 @@ An LSTM-Kalman Fusion-Based Hybrid Observation Method for Wheel-Rail Adhesion Co
 
 > coefficient of adhesion is not observable from two wheel speeds and driver command alone.
 
+## Другие репозитории KonkovDV
+
+В оцениватель не переносились планировщики SynAPS, сверка AeroBIM и Kontur и контракт Mandat.
+
+Из [wellguard-os](https://github.com/KonkovDV/wellguard-os), [open-integrity-twin](https://github.com/KonkovDV/open-integrity-twin) и [drillguard-os](https://github.com/KonkovDV/drillguard-os) взято одно правило карточки. Плохой вход, невязка одной тележки и общая невязка — разные метки. Метка не является вероятностью и не пишет фильтр. В диагностике это `advisory_class`. Их синтетические полнота и ложные тревоги, включая 0,973 и 0 ложных утечек в час у open-integrity-twin, не являются числами RailBreak. `heuristic_score` оттуда не публикуется.
+
 ## ГКИНП (ОНТА)-01-268-02
 
 Основные положения по созданию и обновлению опорной геодезической сети г. Москвы. Введены приказом Москомархитектуры от 20 января 2003 г. № 13. Опубликованы в «Вестнике Мэра и Правительства Москвы», № 18, март 2004, приложение 2 к постановлению Правительства Москвы от 2 марта 2004 г. № 115-ПП. DOI нет. Публично читаемая копия этой публикации: [ГАРАНТ](https://base.garant.ru/4093150/).

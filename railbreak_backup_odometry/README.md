@@ -124,6 +124,7 @@ ros2 topic echo /result/diagnostics --field status[0].values
 | `integrity_status` | `NOMINAL`, одна из деградаций, `POSITION_UNTRUSTED` или `LOST` |
 | `velocity_confidence`, `position_confidence` | `HIGH`, `LOW` или `NONE`, раздельно для скорости и положения |
 | `slip`, `slip_front`, `slip_rear` | невязка колеса к модели выше порога. Это не доказанный юз: то же дают ошибка таблицы, уклон или сбой штампа |
+| `advisory_class` | метка карточки, не вероятность: `input_quality`, `common_mode`, `one_bogie_residual`, `both_residual`, `nominal`. Плохой вход не называется отказом колеса. Общая мода не называется отказом одной тележки. В фильтр не пишется |
 | `time_to_lost`, `distance_since_last_trusted_anchor`, `common_mode_exit` | остаток слепого бюджета в общей моде; `common_mode_exit` = `anchor` только после принятой станции |
 | `n_anchor`, `sigma_s` | число принятых якорей станций и шкала неопределённости пути |
 | `order_reason`, `n_behind_out` | порядок входов и число штампов, пришедших позади уже опубликованного выхода |

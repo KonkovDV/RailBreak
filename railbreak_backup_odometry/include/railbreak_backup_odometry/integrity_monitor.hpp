@@ -374,4 +374,16 @@ inline void note_common_mode_exit(CommonModeExit& state, bool common, int n_anch
   }
 }
 
+// Diagnostic card only. It does not write the filter and it is not a probability.
+// input_quality wins: a bad input is not labelled as a wheel event.
+// common_mode wins over a residual on one bogie: both wheels can be wrong together.
+inline const char* advisory_class(bool input_quality, bool common_unobservable, bool front_residual,
+                                  bool rear_residual) {
+  if (input_quality) return "input_quality";
+  if (common_unobservable) return "common_mode";
+  if (front_residual != rear_residual) return "one_bogie_residual";
+  if (front_residual && rear_residual) return "both_residual";
+  return "nominal";
+}
+
 }  // namespace railbreak
