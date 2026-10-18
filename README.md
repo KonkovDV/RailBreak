@@ -10,12 +10,12 @@
 
 # RailBreak
 
-**Model-informed backup odometry for Moscow autonomous tram route 10 (`railbreak_backup_odometry`, ROS 2 Humble, C++17).**
+**Model-informed backup odometry for the driverless tram on Moscow route 10 (`railbreak_backup_odometry`, ROS 2 Humble, C++17).**
 
 When a tram enters an urban canyon or loses satellite reception, it still has two bogie speed channels, the driver's controller handle, and the geometry of the rail line it runs on. [`railbreak_backup_odometry`](railbreak_backup_odometry/) turns those minimal onboard signals into continuous longitudinal speed (`/result/velocity`), 3D position in MGRS 37U CB (`/result/position`, `map` → `base_link`), and a structured integrity card (`/result/diagnostics`).
 
 The repository contains two distinct layers:
-- **[`railbreak_backup_odometry/`](railbreak_backup_odometry/)** — the standalone ROS 2 Humble C++17 package evaluated by the jury. It has zero external dependencies beyond standard ROS 2 Humble packages and builds offline.
+- **[`railbreak_backup_odometry/`](railbreak_backup_odometry/)** — the standalone ROS 2 Humble C++17 package evaluated by the jury. After Humble and the organizer package `tram_vehicle_msgs` are already installed, the package builds without network access. `tram_vehicle_msgs` is not a stock Humble package.
 - **`tramDR-0.0.11`** (`tram_dr_localization/`, `standalone/`) — an earlier synthetic UKF research sandbox kept in the repository for reference; the ROS 2 submission node does not import or link against it.
 
 ---
@@ -180,7 +180,7 @@ Full build, native Ubuntu 22.04 + ROS 2 Humble instructions, and topic verificat
 
 ---
 
-# RailBreak: резервная одометрия для автономного трамвая Москвы
+# RailBreak: резервная одометрия беспилотного трамвая маршрута № 10
 
 **Автономный пакет [`railbreak_backup_odometry`](railbreak_backup_odometry/) (ROS 2 Humble, C++17) для расчёта продольной скорости, 3D-положения и диагностики достоверности беспилотного трамвая маршрута № 10 в Москве.**
 
