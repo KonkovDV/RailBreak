@@ -3,7 +3,7 @@
 <package format="3">
   <name>railbreak_backup_odometry</name>
   <version>0.1.0</version>
-  <description>Backup tram odometry from two bogie speeds and the driver controller, along a track map. GNSS is read only in the start window.</description>
+  <description>Backup tram odometry from two bogie speeds and the driver controller along a geodesic track map, with a 3 s GNSS start window and optional rare on-axis master RTK arc corrections.</description>
   <maintainer email="KonkovDV@users.noreply.github.com">KonkovDV</maintainer>
   <license>Provided to the organisers</license>
 

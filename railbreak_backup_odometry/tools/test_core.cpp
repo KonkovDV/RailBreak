@@ -2335,6 +2335,49 @@ int main() {
     check(std::fabs(od.k() - k_before) < 1e-12, "a GNSS snap does not move k");
     check(od.n_gnss_anchor() == 2, "a GNSS snap counts one anchor");
   }
+  {
+    auto line = flat_ring(2000.0);
+    for (double& a : line.table.a[15 - 8]) a = -1.5;
+    for (double& a : line.table.a[15 + 8]) a = 1.5;
+    railbreak::TrackOdometer brake(&line, p);
+    brake.init(0.0, 1.0);
+    drive(brake, 0.0, 3.0, 36.0);
+    check(!brake.notch_fault(), "a coasting notch is not a fault");
+    double v_kmh = 36.0;
+    for (double t = 3.0; t < 5.0 - 1e-9; t += 0.1) {
+      v_kmh += 0.18;
+      brake.on_bogie(t, true, v_kmh);
+      brake.on_bogie(t + 0.05, false, v_kmh);
+      brake.on_cmd(t + 0.025, -8);
+    }
+    check(brake.notch_fault() && brake.a_model_now() > -0.2,
+          "speeding up under a brake notch coasts the model");
+    railbreak::TrackOdometer real_brake(&line, p);
+    real_brake.init(0.0, 1.0);
+    drive(real_brake, 0.0, 3.0, 36.0);
+    v_kmh = 36.0;
+    for (double t = 3.0; t < 5.0 - 1e-9; t += 0.1) {
+      v_kmh -= 0.36;
+      real_brake.on_bogie(t, true, v_kmh);
+      real_brake.on_bogie(t + 0.05, false, v_kmh);
+      real_brake.on_cmd(t + 0.025, -8);
+    }
+    check(!real_brake.notch_fault() && real_brake.a_model_now() < -1.0,
+          "slowing under a brake notch keeps the brake model");
+    railbreak::TrackOdometer held(&line, p);
+    held.init(0.0, 1.0);
+    drive(held, 0.0, 8.0, 36.0);
+    drive(held, 8.0, 14.0, -36.0);
+    check(held.common_unobservable(), "agreed reverse latches common mode");
+    v_kmh = 36.0;
+    for (double t = 14.0; t < 16.0 - 1e-9; t += 0.1) {
+      v_kmh += 0.18;
+      held.on_bogie(t, true, v_kmh);
+      held.on_bogie(t + 0.05, false, v_kmh);
+      held.on_cmd(t + 0.025, -8);
+    }
+    check(held.common_unobservable(), "a contradictory notch does not clear common mode");
+  }
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;
 }

@@ -28,6 +28,9 @@
 // cannot separate v from k, only station anchors move k.
 //
 //   predict  s += v dt,  v += (a_tab(n, v) - g i(s) + ba) dt
+//            n is the notch, unless both bogies are moving and their
+//            acceleration has the wrong sign for that notch: then n = 0.
+//            A latched common mode is not cleared by this.
 //   update   u_bogie = v / k + e
 //   ZUPT     both bogies still for zupt_hold_s  ->  v = 0
 //   anchor   once per dwell, unique station within the gate:  s = s_stop + e
@@ -515,6 +518,11 @@ class TrackOdometer {
     bank_ready_ = false;
     bank_t_ = 0.0;
     notch_hist_n_ = 0;
+    notch_fault_ = false;
+    notch_ref_have_ = false;
+    notch_ref_t_ = 0.0;
+    notch_ref_u_ = 0.0;
+    notch_bad_since_ = -1.0;
     anchor_log_.clear();
     s_anchor_ref_ = 0.0;
     path_since_anchor_ = 0.0;
@@ -649,6 +657,7 @@ class TrackOdometer {
       wheel_consensus_resid_ = std::fabs(u - uo);
       wheel_consensus_have_ = true;
       if (!agree && std::fabs(u - pred) > std::fabs(uo - pred)) slip = true;
+      if (agree && t >= other.t) note_notch_fault(t, 0.5 * (u_raw + other.u));
       const double uf = is_front ? u_raw : other.u;
       const double ur = is_front ? other.u : u_raw;
       // Two equally wrong bogies must not train the scale or the bias.
@@ -784,6 +793,8 @@ class TrackOdometer {
   double slip_rear_age_s() const { return slip_rear_ ? age_since(slip_rear_since_) : 0.0; }
   Mode mode() const { return mode_; }
   int notch() const { return notch_; }
+  // The commanded notch is left out of the prediction. Common mode stays latched.
+  bool notch_fault() const { return notch_fault_; }
   int n_anchor() const { return n_anchor_; }
   int n_gnss_anchor() const { return n_gnss_anchor_; }
   // Absolute arc from a fix already accepted as on-axis. Same s update as a station.
@@ -929,7 +940,46 @@ class TrackOdometer {
     return (u - bi) / denom;
   }
 
-  double a_model(double v, double s) const { return a_for(notch_, v, s); }
+  double a_model(double v, double s) const { return a_for(notch_fault_ ? 0 : notch_, v, s); }
+
+  // Both bogies agree and are moving. A brake notch cannot speed them up, and a
+  // traction notch cannot slow them by a metre per second squared. The margins
+  // are the sign of the command, not a fit on the check ride. Once common mode
+  // is latched this does not clear it and does not restore the wheel update.
+  void note_notch_fault(double t, double u_mps) {
+    if (common_unobservable_) return;
+    if (!(u_mps > 1.0) || (notch_ > -4 && notch_ < 4)) {
+      notch_bad_since_ = -1.0;
+      notch_fault_ = false;
+      notch_ref_have_ = false;
+      return;
+    }
+    if (!notch_ref_have_) {
+      notch_ref_have_ = true;
+      notch_ref_t_ = t;
+      notch_ref_u_ = u_mps;
+      return;
+    }
+    const double dt = t - notch_ref_t_;
+    if (dt < 0.25) return;
+    if (dt > 0.6) {
+      notch_ref_t_ = t;
+      notch_ref_u_ = u_mps;
+      notch_bad_since_ = -1.0;
+      return;
+    }
+    const double a = (u_mps - notch_ref_u_) / dt;
+    notch_ref_t_ = t;
+    notch_ref_u_ = u_mps;
+    const bool impossible = notch_ <= -4 ? a > 0.25 : a < -1.0;
+    if (impossible) {
+      if (notch_bad_since_ < 0.0) notch_bad_since_ = t;
+      if (t - notch_bad_since_ >= 0.5) notch_fault_ = true;
+    } else {
+      notch_bad_since_ = -1.0;
+      notch_fault_ = false;
+    }
+  }
 
   double a_for(int notch, double v, double s) const {
     const double q = std::max(v, 0.0);
@@ -1131,8 +1181,9 @@ class TrackOdometer {
     const double notch_age = notch_changed_t_ < 0.0 ? 1.0e9 : std::max(0.0, t - notch_changed_t_);
     const bool start = mode_ == Mode::kZupt || x_[IV] < p_.excite_v_start;
     const bool notch_edge = notch_changed_t_ >= 0.0 && notch_age <= p_.excite_notch_s;
-    const bool brake = notch_ < 0;
-    const bool coast = notch_ == 0;
+    const int n_model = notch_fault_ ? 0 : notch_;
+    const bool brake = n_model < 0;
+    const bool coast = n_model == 0;
     const bool grade_on = std::fabs(grade) >= p_.excite_grade;
     const bool accel = uniform_since_ >= 0.0 && std::fabs(x_[IV] - v_uniform_) >= p_.excite_dv;
     if (start || brake || coast || notch_edge || grade_on || accel) {
@@ -1305,6 +1356,11 @@ class TrackOdometer {
   double t_ = 0.0;
   bool have_t_ = false;
   int notch_ = 0;
+  bool notch_fault_ = false;
+  bool notch_ref_have_ = false;
+  double notch_ref_t_ = 0.0;
+  double notch_ref_u_ = 0.0;
+  double notch_bad_since_ = -1.0;
   Bogie front_, rear_;
   double r_ = 0.0, log_rho_ = 0.0, d_bias_ = 0.0;
   double still_since_ = -1.0;

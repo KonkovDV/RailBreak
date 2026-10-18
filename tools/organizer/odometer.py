@@ -138,6 +138,9 @@ class Odometer:
                           0.02 ** 2, 0.02 ** 2, 0.05 ** 2, 0.05 ** 2])
         self.t = None
         self.notch = 0
+        self.notch_fault = False
+        self.notch_ref = None
+        self.notch_bad_since = None
         self.last = {"front": (None, math.nan), "rear": (None, math.nan)}
         self.r = self.p.r0
         self.log_rho = 0.0
@@ -235,7 +238,8 @@ class Odometer:
         return (u - bi) / denom
 
     def a_model(self, v: float, s: float) -> float:
-        i = int(np.clip(self.notch, -15, 15)) + 15
+        n = 0 if self.notch_fault else self.notch
+        i = int(np.clip(n, -15, 15)) + 15
         q = max(v, 0.0)
         a = float(np.interp(q, self.v_edges + 0.5, self.table[i]))
         gr = float(np.interp(self.wrap(s), self.branch_s, self.grade))
@@ -341,8 +345,9 @@ class Odometer:
         notch_age = 1.0e9 if self.notch_changed_t is None else max(0.0, t - self.notch_changed_t)
         start = self.mode == "ZUPT" or self.x[IV] < self.p.excite_v_start
         notch_edge = self.notch_changed_t is not None and notch_age <= self.p.excite_notch_s
-        brake = self.notch < 0
-        coast = self.notch == 0
+        n_model = 0 if self.notch_fault else self.notch
+        brake = n_model < 0
+        coast = n_model == 0
         grade_on = abs(grade) >= self.p.excite_grade
         accel = self.uniform_since is not None and abs(self.x[IV] - self.v_uniform) >= self.p.excite_dv
         if start or brake or coast or notch_edge or grade_on or accel:
@@ -392,6 +397,37 @@ class Odometer:
                 self.x[IKF] = math.exp(-0.5 * self.log_rho) - 1.0
                 self.x[IKR] = math.exp(0.5 * self.log_rho) - 1.0
 
+    def _note_notch_fault(self, t: float, u_mps: float) -> None:
+        # Same sign rule as TrackOdometer::note_notch_fault. Does not clear common mode.
+        if self.common_unobservable:
+            return
+        if not (u_mps > 1.0) or -4 < self.notch < 4:
+            self.notch_bad_since = None
+            self.notch_fault = False
+            self.notch_ref = None
+            return
+        if self.notch_ref is None:
+            self.notch_ref = (t, u_mps)
+            return
+        dt = t - self.notch_ref[0]
+        if dt < 0.25:
+            return
+        if dt > 0.6:
+            self.notch_ref = (t, u_mps)
+            self.notch_bad_since = None
+            return
+        a = (u_mps - self.notch_ref[1]) / dt
+        self.notch_ref = (t, u_mps)
+        impossible = a > 0.25 if self.notch <= -4 else a < -1.0
+        if impossible:
+            if self.notch_bad_since is None:
+                self.notch_bad_since = t
+            if t - self.notch_bad_since >= 0.5:
+                self.notch_fault = True
+        else:
+            self.notch_bad_since = None
+            self.notch_fault = False
+
     def on_bogie(self, t: float, which: str, raw: float) -> None:
         if not self._stamp_ok(t):
             return
@@ -429,6 +465,8 @@ class Odometer:
             self.wheel_consensus = abs(u - uo)
             if not agree and abs(u - pred) > abs(uo - pred):
                 slip = True
+            if agree and t >= other[0]:
+                self._note_notch_fault(t, 0.5 * (u_raw + other[1]))
             uf, ur = (u_raw, other[1]) if which == "front" else (other[1], u_raw)
             if not self.common_unobservable:
                 self._learn_pair(uf, ur)
