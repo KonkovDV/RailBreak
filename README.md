@@ -1,14 +1,22 @@
-<p align="center"><img src="Logo.png" alt="RailBreak" width="280"></p>
-
 <p align="center">
-  <a href="docs/RailBreak_МТТЕХ_demo.pdf"><img src="https://img.shields.io/badge/%D0%9F%D1%80%D0%B5%D0%B7%D0%B5%D0%BD%D1%82%D0%B0%D1%86%D0%B8%D1%8F-PDF-D32F2F?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="Презентация PDF"></a>
+  <img src="Logo.png" alt="RailBreak" width="320">
+  <br><br>
+  <a href="docs/RailBreak_МТТЕХ_demo.pdf"><img src="https://img.shields.io/badge/PDF-demo-B30B00?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="PDF"></a>
   &nbsp;
-  <a href="docs/RailBreak_МТТЕХ_demo.pptx"><img src="https://img.shields.io/badge/%D0%9F%D1%80%D0%B5%D0%B7%D0%B5%D0%BD%D1%82%D0%B0%D1%86%D0%B8%D1%8F-PowerPoint-B7472A?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white" alt="Презентация PowerPoint"></a>
+  <a href="docs/RailBreak_МТТЕХ_demo.pptx"><img src="https://img.shields.io/badge/PowerPoint-demo-D24726?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white" alt="PowerPoint"></a>
 </p>
 
-<p align="center"><a href="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml"><img src="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml/badge.svg" alt="CI"></a></p>
+<p align="center">
+  <a href="https://github.com/KonkovDV/RailBreak/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/KonkovDV/RailBreak/ci.yml?branch=main&label=CI" alt="CI"></a>
+  &nbsp;
+  <img src="https://img.shields.io/badge/ROS%202-Humble-22314E" alt="ROS 2 Humble">
+  &nbsp;
+  <img src="https://img.shields.io/badge/C%2B%2B-17-00599C" alt="C++17">
+</p>
 
 # RailBreak
+
+[Русская часть](#ru)
 
 **Model-informed backup odometry for the driverless tram on Moscow route 10 (`railbreak_backup_odometry`, ROS 2 Humble, C++17).**
 
@@ -18,44 +26,62 @@ The repository contains two distinct layers:
 - **[`railbreak_backup_odometry/`](railbreak_backup_odometry/)** — the standalone ROS 2 Humble C++17 package evaluated by the jury. After Humble and the organizer package `tram_vehicle_msgs` are already installed, the package builds without network access. `tram_vehicle_msgs` is not a stock Humble package.
 - **`tramDR-0.0.11`** (`tram_dr_localization/`, `standalone/`) — an earlier synthetic UKF research sandbox kept in the repository for reference; the ROS 2 submission node does not import or link against it.
 
+## Contents
+
+- [Run](#quick-start)
+- [Architecture](#architecture)
+- [How the estimator works](#how-the-estimator-works)
+- [Capabilities and hard boundaries](#capabilities-and-hard-boundaries)
+- [Measured results](#measured-results)
+- [Lessons and 2026 literature](#lessons-from-the-track-and-2026-state-of-the-art)
+- [Русская часть](#ru)
+- [Запуск для жюри](#запуск-для-жюри)
+- [Официальный checker и замер задержки](#официальный-checker-и-замер-задержки)
+
 ---
 
 ## Architecture
 
+The picture is the data path. Topic names, units and the published numbers are in the sections below, so the diagram stays inside the page width.
+
 ```mermaid
-flowchart LR
-  subgraph Inputs["Onboard Topics"]
-    BF["/vehicle/front_bogie_velocity<br/>VelocitySensor · km/h · ~10 Hz"]
-    BR["/vehicle/rear_bogie_velocity<br/>VelocitySensor · km/h · ~10 Hz"]
-    CMD["/vehicle/driver_position_cmd<br/>DriverControllerCommand · -15..+15 · ~20 Hz"]
-    GNSS["/sensing/gnss/{master,rover}/fix<br/>NavSatFix · 3 s start + rare on-axis RTK"]
+flowchart TB
+  subgraph inputs [Inputs]
+    direction LR
+    bf[Front bogie speed]
+    br[Rear bogie speed]
+    cmd[Driver notch]
+    gnss[GNSS start and rare RTK]
   end
-
-  subgraph Core["C++17 Core (track_odometer.hpp)"]
-    Q["Watermark Queue<br/>(input_reorder.hpp)"]
-    NF["Notch Sign Guard<br/>(notch_fault → coast)"]
-    EKF["1D Schmidt–Kalman Filter<br/>x = [s, v, k, b_a]<br/>K_k = 0 on wheels · Joseph P"]
-    MAP["Route 10 Ring (10,945.61 m)<br/>ring.csv · stops.csv · notch.csv"]
-    INT["Integrity & Advisory Layer<br/>COMMON_MODE_UNOBSERVABLE → LOST"]
+  subgraph core [Track filter]
+    direction LR
+    q[Stamp queue]
+    nf[Notch sign guard]
+    ekf[Schmidt-Kalman along the track]
+    ring[Route 10 ring]
   end
-
-  subgraph Outputs["Published Topics"]
-    VEL["/result/velocity<br/>0.04 s bogie-mean grid · +0.105 s stamp"]
-    POS["/result/position<br/>MGRS 37U CB base_link · 0.04 s arc grid<br/>Σ_xyz = Var(s_pub) · t tᵀ"]
-    DIAG["/result/diagnostics<br/>mode · confidence · advisory_class<br/>notch_fault · empirical bound"]
+  subgraph published [Published]
+    direction LR
+    vel[Velocity]
+    pos[Position]
+    diag[Diagnostics]
   end
-
-  BF & BR --> Q
-  CMD --> Q
-  Q --> NF --> EKF
-  MAP --> EKF
-  GNSS --> EKF
-  EKF --> INT
-  EKF --> VEL
-  EKF --> POS
-  INT --> POS
-  INT --> DIAG
+  bf --> q
+  br --> q
+  cmd --> q
+  q --> nf --> ekf
+  ring --> ekf
+  gnss --> ekf
+  ekf --> vel
+  ekf --> pos
+  ekf --> diag
 ```
+
+| Stage | What enters | What leaves |
+|---|---|---|
+| Inputs | `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` in km/h, about 10 Hz; `/vehicle/driver_position_cmd` from −15 to +15; `/sensing/gnss/master/fix` and `/sensing/gnss/rover/fix` | A 3 s start fix, then rare on-axis master RTK if `gnss_correction` is on |
+| Track filter | Stamp queue, notch sign guard, four states `s, v, k, b_a`, ring `10,945.6099 m` | `K_k = 0` on wheel updates. A contradictory notch coasts the model and does not clear `COMMON_MODE_UNOBSERVABLE` |
+| Published | Bogie-mean speed on a 0.04 s grid, pose on the bogie stamp and the stored arc, integrity card | `/result/velocity`, `/result/position`, `/result/diagnostics` |
 
 ### How the estimator works
 
@@ -179,6 +205,8 @@ scripts/jury.sh core
 Full build, native Ubuntu 22.04 + ROS 2 Humble instructions, and topic verification commands are in the Russian section below and in [`railbreak_backup_odometry/README.md`](railbreak_backup_odometry/README.md).
 
 ---
+
+<a id="ru"></a>
 
 # RailBreak: резервная одометрия беспилотного трамвая маршрута № 10
 
