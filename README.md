@@ -38,43 +38,41 @@ The repository contains two distinct layers:
 - [Запуск для жюри](#запуск-для-жюри)
 - [Официальный checker и замер задержки](#официальный-checker-и-замер-задержки)
 
+## Quick Start
+
+```text
+# Play a rosbag2 directory in Docker (Linux / macOS / Git Bash)
+scripts/jury.sh play --bag <rosbag2 directory> --msgs <tram_vehicle_msgs>
+
+# Play a rosbag2 directory in Docker (Windows PowerShell)
+.\scripts\jury.ps1 play -Bag <rosbag2 directory> -Msgs <tram_vehicle_msgs>
+
+# Fail-closed acceptance check (records output, runs score_ros.py, verifies >=10 Hz and 0 regressions)
+scripts/jury.sh acceptance --bag <rosbag2 directory> --msgs <tram_vehicle_msgs>
+
+# Host C++17 core unit tests (no Docker, no ROS, no bag required)
+scripts/jury.sh core
+.\scripts\jury.ps1 core
+```
+
+Full build, native Ubuntu 22.04 + ROS 2 Humble instructions, and topic verification commands are in the Russian section below and in [`railbreak_backup_odometry/README.md`](railbreak_backup_odometry/README.md).
+
 ---
 
 ## Architecture
 
-The picture is the data path. Topic names, units and the published numbers are in the sections below, so the diagram stays inside the page width.
+The picture is the data path. Topic names, units and the published numbers are in the table under it, so each box stays on one line.
 
 ```mermaid
 flowchart TB
-  subgraph inputs [Inputs]
-    direction LR
-    bf[Front bogie speed]
-    br[Rear bogie speed]
-    cmd[Driver notch]
-    gnss[GNSS start and rare RTK]
-  end
-  subgraph core [Track filter]
-    direction LR
-    q[Stamp queue]
-    nf[Notch sign guard]
-    ekf[Schmidt-Kalman along the track]
-    ring[Route 10 ring]
-  end
-  subgraph published [Published]
-    direction LR
-    vel[Velocity]
-    pos[Position]
-    diag[Diagnostics]
-  end
-  bf --> q
-  br --> q
-  cmd --> q
-  q --> nf --> ekf
-  ring --> ekf
-  gnss --> ekf
-  ekf --> vel
-  ekf --> pos
-  ekf --> diag
+  bf[Front bogie] --> q[Stamp queue]
+  br[Rear bogie] --> q
+  cmd[Driver notch] --> q
+  q --> nf[Notch guard]
+  nf --> ekf[Schmidt-Kalman]
+  ring[Route 10 ring] --> ekf
+  gnss[GNSS] --> ekf
+  ekf --> out[Speed, pose, diagnostics]
 ```
 
 | Stage | What enters | What leaves |
@@ -185,27 +183,6 @@ The rows below are the other authors' texts on bag `30618_88aea4d9`, as already 
 
 ---
 
-## Quick Start
-
-```text
-# Play a rosbag2 directory in Docker (Linux / macOS / Git Bash)
-scripts/jury.sh play --bag <rosbag2 directory> --msgs <tram_vehicle_msgs>
-
-# Play a rosbag2 directory in Docker (Windows PowerShell)
-.\scripts\jury.ps1 play -Bag <rosbag2 directory> -Msgs <tram_vehicle_msgs>
-
-# Fail-closed acceptance check (records output, runs score_ros.py, verifies >=10 Hz and 0 regressions)
-scripts/jury.sh acceptance --bag <rosbag2 directory> --msgs <tram_vehicle_msgs>
-
-# Host C++17 core unit tests (no Docker, no ROS, no bag required)
-scripts/jury.sh core
-.\scripts\jury.ps1 core
-```
-
-Full build, native Ubuntu 22.04 + ROS 2 Humble instructions, and topic verification commands are in the Russian section below and in [`railbreak_backup_odometry/README.md`](railbreak_backup_odometry/README.md).
-
----
-
 <a id="ru"></a>
 
 # RailBreak: резервная одометрия беспилотного трамвая маршрута № 10
@@ -213,6 +190,19 @@ Full build, native Ubuntu 22.04 + ROS 2 Humble instructions, and topic verificat
 **Автономный пакет [`railbreak_backup_odometry`](railbreak_backup_odometry/) (ROS 2 Humble, C++17) для расчёта продольной скорости, 3D-положения и диагностики достоверности беспилотного трамвая маршрута № 10 в Москве.**
 
 Когда в плотной городской застройке пропадает или начинает прыгать спутниковая навигация, у трамвая остаются три доступных источника: скорости двух тележек, положение ручки контроллера водителя и известная геометрия рельсового пути. `railbreak_backup_odometry` объединяет их в одномерном фильтре Шмидта — Калмана вдоль пути, удерживает траекторию на рельсах при сбоях одной или обеих тележек и явно сообщает, когда данные перестают быть физически наблюдаемыми. IMU, лидар и камеры не используются. Исследовательский стенд `tramDR-0.0.11` в сдаваемый пакет не входит.
+
+## Содержание
+
+- [Запуск для жюри](#запуск-для-жюри)
+- [О решении и архитектуре](#о-решении-и-архитектуре)
+- [Итог проверки и метрики](#итог-проверки-и-метрики)
+- [Сравнение с решениями трека](#сравнение-с-решениями-трека-и-работами-2026-года)
+- [Документация решения](#документация-решения)
+- [Сценарии запуска](#scenarios)
+- [Официальный checker и замер задержки](#официальный-checker-и-замер-задержки)
+- [Контракт топиков](#контракт-топиков-ros-2)
+- [Сборка без Docker](#native)
+- [CI и права](#публичный-ci-архивный-пакет-и-передача-прав)
 
 ---
 
@@ -357,6 +347,8 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 
 ---
 
+<a id="scenarios"></a>
+
 ## Сценарии запуска (`jury.sh` / `jury.ps1`)
 
 ```text
@@ -411,6 +403,8 @@ python3 tools/organizer/latency_probe.py --bag <записанный_bag> --outp
 | **Выход** | `/result/diagnostics` | `diagnostic_msgs/DiagnosticArray` (`diagnostic_msgs/msg/DiagnosticArray`) | Режим, целостность, раздельное доверие каналов, `advisory_class`, `notch_fault`, GNSS, очередь штампов |
 
 ---
+
+<a id="native"></a>
 
 ## Без Docker: пошаговый запуск на Ubuntu 22.04 и ROS 2 Humble
 

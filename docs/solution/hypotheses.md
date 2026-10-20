@@ -9,13 +9,15 @@ Default-фильтр по-прежнему один: x_state=[s,v,k,bₐ] на �
 ## Схема
 
 ```mermaid
-flowchart LR
-  wheels["тележки и ручка"] --> ring["одно кольцо маршрута 10"]
-  ring --> pose["публикуемая поза"]
-  meas["синтетическое измерение xy"] --> bank["банк H_j"]
-  bank --> weights["веса w_j"]
-  bank -.->|"не входит в default"| pose
+flowchart TB
+  wheels[Bogies and notch] --> ring[Route 10 ring]
+  ring --> pose[Published pose]
+  meas[Synthetic xy] --> bank[Branch bank]
+  bank --> weights[Weights]
+  bank -.-> pose
 ```
+
+Пунктир значит, что банк в публикуемую позу не входит: default-фильтр его не вызывает.
 
 На стрелке, общей конечной и соседнем пути одной координаты s мало: одна и та же точка на плоскости лежит на двух ветках. Гипотеза
 
