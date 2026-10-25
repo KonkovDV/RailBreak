@@ -2,6 +2,18 @@
 
 # Документация
 
+## С чего начать
+
+| Файл | Содержание |
+|---|---|
+| [README](../README.md) · [English](../README.en.md) | Проблема, решение, запуск для жюри, официальный checker |
+| [`CLAIMS_REGISTRY.md`](../CLAIMS_REGISTRY.md) | Каждое число и сильное утверждение — с источником, командой воспроизведения и границей (C-, M-, L-) |
+| [`LIMITS.md`](../LIMITS.md) | Границы утверждений: что делает нода сейчас и что снимает каждую границу |
+| [`MODEL_CARD.md`](../MODEL_CARD.md) | Карточка оценщика: входы, выходы, данные калибровки, метрики, назначение |
+| [`AUDIT-2026-10-25.md`](AUDIT-2026-10-25.md) | Аудит кода и документации: находки A-01–A-07, исправления, регрессионные тесты |
+| [`PORTING.md`](PORTING.md) | Практики, перенесённые из соседних репозиториев автора |
+| [`AGENTS.md`](../AGENTS.md) | Правила для людей и coding-агентов: проверки перед PR, запреты |
+
 ## Решение — `docs/solution/`
 
 | Файл | Содержание |
@@ -28,7 +40,7 @@
 | Файл | Содержание |
 |---|---|
 | [`POSTMORTEM.md`](../POSTMORTEM.md) | Изменения после отбора: что вошло в ноду, что проверено и отклонено |
-| [`improvement/`](improvement/) | Разборы 2026-10-03: исходная точка, задержка, разрыв скорости и положения, каталог отказов, ADR |
+| [`improvement/`](improvement/) | Разборы 2026-10-03: [baseline](improvement/audit_baseline.md), [ADR](improvement/architecture_plan.md), [задержка](improvement/latency_split.md), [скорость](improvement/velocity_gap.md), [положение](improvement/position_gap.md), [отказы](improvement/fault_catalog.md) |
 | [`evidence/`](evidence/) | Аудит архива checker организатора (2026-10-02) |
 | [`external-audit/`](external-audit/) | Внешний аудит исходного дерева и план воспроизведения |
 

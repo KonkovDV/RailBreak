@@ -16,12 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
           # test_provenance.py reads blobs from older commits (8add7ae).
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: python dependencies
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: cmake standalone core
@@ -108,7 +108,7 @@ jobs:
             -DCMAKE_CXX_FLAGS="-Wall -Wextra"
           cmake --build build/rbo --parallel
           ctest --test-dir build/rbo --output-on-failure
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: synth e2e (generate -> replay_ukf -> envelope -> score)
@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       # Discover the same registered tests as Release. An explicit executable
@@ -156,7 +156,7 @@ jobs:
     container:
       image: ros:humble-ros-base
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: workspace
@@ -217,7 +217,7 @@ jobs:
     container:
       image: ros:humble-ros-base
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: workspace
@@ -276,7 +276,7 @@ jobs:
     container:
       image: ros:humble-ros-base
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: workspace

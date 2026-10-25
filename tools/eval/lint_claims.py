@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote
 
-SKIP_FILES = {"CLAIMS_REGISTRY.md", "BANNED_CLAIMS.txt", "lint_claims.py"}
+SKIP_FILES = {"CLAIMS_REGISTRY.md", "BANNED_CLAIMS.txt", "lint_claims.py", "test_lint_claims.py"}
 SKIP_PREFIXES = ("docs/external-audit/", ".git/")
 SUFFIXES = {".md", ".py", ".cpp", ".hpp", ".txt", ".yaml", ".yml", ".sh", ".ps1"}
 HEADLINE = ("1.157702", "0.024691")
