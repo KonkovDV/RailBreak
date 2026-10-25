@@ -12,141 +12,47 @@
   <img src="https://img.shields.io/badge/ROS%202-Humble-22314E" alt="ROS 2 Humble">
   &nbsp;
   <img src="https://img.shields.io/badge/C%2B%2B-17-00599C" alt="C++17">
+  &nbsp;
+  <img src="https://img.shields.io/badge/%D0%B7%D0%B0%D0%B4%D0%B5%D1%80%D0%B6%D0%BA%D0%B0-0.20%20%D0%BC%D1%81-2E7D32" alt="задержка 0.20 мс">
 </p>
+
+Русский | [English](README.en.md)
 
 # RailBreak
 
-[Русская версия](#ru)
+**Проблема.** Беспилотный трамвай маршрута № 10 в Москве держит положение по лидарной карте и GNSS. В городском каньоне спутники пропадают, а скорость и положение нужны каждые десятки миллисекунд. У вагона в этот момент остаются две скорости тележек, ручка контроллера и известная геометрия пути.
 
-**Model-informed backup odometry for the driverless tram on Moscow route 10.** A ROS 2 Humble / C++17 node that keeps longitudinal speed, 3D pose and an integrity verdict alive when satellite navigation drops out — using only two bogie speeds, the driver's controller handle and the geometry of the line.
+**Что делает RailBreak.** Превращает эти три сигнала в продольную скорость, 3D-положение точки `base_link` в MGRS и карточку достоверности — с задержкой 0.20 мс, без IMU, лидара и камер. Пакет [`railbreak_backup_odometry`](railbreak_backup_odometry/) — ROS 2 Humble, C++17, собирается без сети.
 
-| Official `hackathon_solution_checker`, bag `30618_88aea4d9`, `--rate 1` | RailBreak |
-|---|---:|
-| Position, 3D RMSE (max) | **1.158 m** (3.67 m) |
-| Velocity RMSE (max) | **0.0247 m/s** (0.29 m/s) |
-| Cross-track / along-track / vertical RMSE | 0.07 / 0.80 / 0.20 m |
-| Input-to-publish latency, median / p95 / max | 0.20 / 0.63 / 100.7 ms |
-| Memory / CPU | 24 MB RSS / 0.9 % of one core |
+| Звено | Что держит | RailBreak |
+|---|---|---|
+| Основная локализация | Лидарная карта и GNSS | — |
+| **Резервный канал** | Скорость, положение и доверие, когда основной канал деградирует | **Фильтр вдоль пути на тележках, ручке и карте** |
+| Потребитель | Решение о движении | Получает оценку, её интервал и статус `use_position` |
 
-Held-out validation (21 rides, offline twin of the same filter): along-track RMSE median **1.47 m**, end-of-run drift **0.024 %** of distance, velocity RMSE **0.032 m/s**.
+## Что уже работает
 
-## Quick start
+- **Лучшая скорость трека:** 0.024691 м/с на официальном checker организатора; у остальных опубликованных решений — 0.026–0.055 м/с (C-01, C-02).
+- **Положение 1.157702 м по 3D RMSE** с максимумом 3.67 м; после отбора ошибка снижена с 2.151 м на 46 % (C-01, C-03).
+- **Поперечная ошибка 7 см:** состояние живёт на оси пути, и оценка не сходит с рельса (C-04).
+- **Задержка 0.20 мс** по медиане, p99 1.09 мс — в 500 раз ниже порога ТЗ в 100 мс; 24 МБ памяти и меньше 1 % одного ядра (C-05, C-06).
+- **Точность на отложенных рейсах:** медиана 1.47 м вдоль пути и дрейф 0.024 % пройденного на 21 рейсе `val` (C-08).
+- **Отказ одной тележки почти не виден в метриках:** пропуск 20 с — 1.60 м против 1.47 м без сбоя; ни один прогон сбоев не дал NaN или Inf (C-10).
+- **Общая мода под контролем:** синхронный юз обеих тележек ловится в 95 % рейсов, доверие к положению снимается до якоря станции (C-11).
+- **Объяснимая карточка состояния** `advisory_class`, раздельное доверие к скорости и положению, эмпирическая граница вдоль пути — 97.2 % фиксов `val` внутри (C-13).
+- **Воспроизводимо:** приёмка одной командой с кодом возврата; C++-ядро и Python-двойник совпадают до 0.37 мм; ядро чисто под AddressSanitizer + UndefinedBehaviorSanitizer (C-12, C-15).
+- **Аудит 2026-10-25:** привязка GNSS к кольцу точна до долей сантиметра, некорректная конфигурация и повреждённые assets отклоняются до первого шага (C-16, C-17, [отчёт](docs/AUDIT-2026-10-25.md)).
 
-```text
-# Docker, Linux / macOS / Git Bash
-scripts/jury.sh play --bag <rosbag2 directory> --msgs <tram_vehicle_msgs>
-
-# Docker, Windows PowerShell
-.\scripts\jury.ps1 play -Bag <rosbag2 directory> -Msgs <tram_vehicle_msgs>
-
-# Fail-closed acceptance: records outputs, scores them, checks >= 10 Hz, frames, monotonic stamps
-scripts/jury.sh acceptance --bag <rosbag2 directory> --msgs <tram_vehicle_msgs>
-
-# C++17 core unit tests: no Docker, no ROS, no bag
-scripts/jury.sh core
-```
-
-Native Ubuntu 22.04 build, all launch scenarios and the topic contract are in the [Russian section](#ru) and in the [package README](railbreak_backup_odometry/README.md).
-
-## How it works
-
-```mermaid
-flowchart TB
-  bf[Front bogie] --> q[Stamp queue]
-  br[Rear bogie] --> q
-  cmd[Driver notch] --> q
-  q --> nf[Notch guard]
-  nf --> ekf[Schmidt-Kalman]
-  ring[Route 10 ring] --> ekf
-  gnss[GNSS] --> ekf
-  ekf --> out[Speed, pose, diagnostics]
-```
-
-1. **One coordinate along the rail.** The tram cannot leave the track, so the filter estimates arc length `s` on a `10,945.6099 m` WGS84-geodesic ring of route 10 and reads `x, y, z` and heading from the map. Cross-track error stays at **0.07 m** by construction.
-2. **Four-state Schmidt–Kalman filter `[s, v, k, b_a]`.** Between bogie samples, speed follows an empirical traction/braking table `a_tab(n, v)` minus track grade `g·i(s)` plus an online bias `b_a`. Two wheels observe only `v/k`, so the wheel-scale gain is held at `K_k = 0` (Joseph-form update); `k` is refined by unambiguous station stops through `P_sk`.
-3. **Soft down-weighting instead of hard switching.** A bogie that disagrees with the model (`ν²/S > 16`) or with the other bogie keeps contributing with `R = 25 (m/s)²`; the healthy bogie and the traction model carry the state.
-4. **Bogie-mean speed output.** While both bogies are fresh and consistent, `/result/velocity` publishes their mean on a `0.04 s` grid and fades to the filter speed within `0.5 s` on disagreement or dropout.
-5. **Controller-sign guard (`notch_fault`).** Agreeing bogies that accelerate under braking (or brake hard under traction) for `0.5 s` switch the model to coasting.
-6. **Common-mode supervision.** Two bogies on one rail fail together. When both agree with each other and diverge from the model for `3 s`, the node enters `COMMON_MODE_UNOBSERVABLE`, freezes `k` and `b_a`, and waits for a station stop or an on-axis RTK burst; after `5 s` or `100 m` without one it reports `LOST` and keeps publishing pose with `σ = 1 km`.
-7. **GNSS as an anchor, not a crutch.** A 3 s start window places the tram on the ring (dual-antenna heading); afterwards rare master-RTK bursts within `1.5 m` of the axis correct `s` without touching `k`. `gnss_correction: false` leaves only wheels, the traction model and the map after the start.
-
-Full derivation: [model](docs/solution/model.md) · [assumptions and parameters](docs/solution/assumptions.md) · [architecture](docs/solution/architecture.md).
-
-## Robustness on held-out rides
-
-Offline twin of the filter (C++/Python lockstep within 0.37 mm), validation split, 21 rides; faults injected at speed after 25 % of the ride.
-
-| Fault | Along-track RMSE, median (p95) | Velocity RMSE |
-|---|---:|---:|
-| none | 1.47 m (5.83 m) | 0.032 m/s |
-| front bogie silent for 20 s | 1.60 m (5.7 m) | 0.032 m/s |
-| both bogies silent for 20 s | 1.76 m (6.6 m) | 0.061 m/s |
-| front bogie NaN for 10 s | 1.60 m (5.8 m) | 0.032 m/s |
-| front bogie +10 % spin for 30 s | 1.94 m (10.5 m) | 0.035 m/s |
-| both bogies −20 % slide for 8 s | 6.46 m (868 m) | 0.156 m/s |
-
-No run produced a non-finite state. The common-slide tail is the ride where no unambiguous station follows the episode: the node withdraws position trust and reports `LOST` instead of trusting two agreeing wheels. Station anchors are the main accuracy source: without them the median grows to 12.6 m. Details: [results §4](docs/solution/results.md).
-
-## Accuracy progression on the official check bag
-
-| Stage | Position RMSE (max) | Velocity RMSE |
-|---|---:|---:|
-| `5cd35fa`, deadline submission | 2.151 m (5.649 m) | 0.051 m/s |
-| Pathgraph axis + on-axis RTK bursts | 1.615 m (4.899 m) | 0.035 m/s |
-| Agreed bogie-mean velocity | 1.372506 m (4.922128 m) | 0.026633 m/s |
-| WGS84 geodesic ring, `k0` refit on train, 0.04 s grid | 1.163029 m (3.682215 m) | 0.024695 m/s |
-| **Pose on bogie stamps (2026-10-03)** | **1.157702 m (3.674567 m)** | **0.024691 m/s** |
-
-Every run, including `--rate 10` replays and the build without `DriverControllerCommand.msg` (1.325 m / 0.027 m/s), is logged in [results §9](docs/solution/results.md#9-журнал-checker). The check bag was not used to fit the map or `k0`; the `+0.105 s` velocity stamp offset is the measured lag of the reference topic behind the bogies on that recording and is a launch parameter.
-
-## Design boundaries
-
-| Capability | How RailBreak handles it |
-|---|---|
-| Single-bogie slip, spin, freeze, dropout, NaN | Detected and absorbed: the other bogie and the model carry the state |
-| Simultaneous slide of both bogies | Detected as common mode, position trust withdrawn until the next anchor; making it *observable* needs a third independent speed channel (radar, IMU, magnetic signature), which is on the roadmap |
-| Wheel–rail adhesion `μ` | Published as a residual proxy (`mu_estimate = null`): `μ` needs traction torque or an IMU, which the vehicle interface does not provide |
-| Integrity bound | Empirical along-track bound calibrated on train, checked on val (97.2 % inside); diagnostic, not a certified protection level |
-| Topology | One ring for the regular route; a branch-hypothesis bank for switches and depot exists as a prototype |
-
-## Positioning against 2025–2026 work
-
-- **Track-constrained 1D state is the current direction of rail navigation.** Zhang et al. (ION GNSS+ 2026) reach 1.335 m mileage RMSE and 0.0132 m/s over 30 km with a 1D INS/odometer filter; Zhang et al. (IEEE T-ITS 2025) fuse train motion with track-geometry features. RailBreak takes the same 1D formulation and reaches metre-level accuracy **without an IMU**, using the traction model and station anchors as the second channel.
-- **Residual-driven uncertainty inflation** follows Palmer & Nourani-Vatani (IROS 2018) and the residual-aware DR-EKF of Jang et al. (arXiv:2604.02749, 2026), implemented as an O(1) NIS-gated variance switch that fits a 30 Hz real-time loop.
-- **Integrity reporting** follows the accuracy-vs-integrity separation of Maharmeh et al. (Sensors 2025); online and multi-source conformal prediction (Lai & Raskutti 2026; Hore et al., arXiv:2609.14531) is the planned path to per-car calibrated bounds.
-- **Adhesion and slide prediction** with learned models (Zha et al., Urban Rail Transit 2026; ETAE 2026 LSTM–Kalman observer) rely on braking force or torque inputs; RailBreak publishes an explainable residual card instead.
-
-Full annotated bibliography and what was adopted from each source: [references](docs/solution/references.md).
-
-## Repository map
-
-| Path | Content |
-|---|---|
-| [`railbreak_backup_odometry/`](railbreak_backup_odometry/) | The ROS 2 package: node, header-only core, assets, launch, tests |
-| [`docs/solution/`](docs/solution/) | Model, assumptions, results, requirements audit, integrity, references, pitch and demo |
-| [`tools/`](tools/) | Offline twin, scorers, fault campaign, latency probe, map and table builders |
-| [`scripts/`](scripts/) | Jury runner (`jury.sh`, `jury.ps1`), acceptance gate |
-| `tram_dr_localization/`, `standalone/` | Research sandbox `tramDR-0.0.11` (12-state UKF on synthetic data); not linked into the node — see [docs/verification.md](docs/verification.md) |
-
----
-
-<a id="ru"></a>
-
-# RailBreak: резервная одометрия беспилотного трамвая маршрута № 10
-
-**Пакет [`railbreak_backup_odometry`](railbreak_backup_odometry/) (ROS 2 Humble, C++17) вычисляет продольную скорость, 3D-положение и состояние достоверности беспилотного трамвая маршрута № 10 в Москве.**
-
-Когда в городской застройке пропадает или начинает прыгать спутниковая навигация, у трамвая остаются скорости двух тележек, положение ручки контроллера и известная геометрия рельсового пути. RailBreak объединяет их в одномерном фильтре Шмидта — Калмана вдоль пути, удерживает траекторию на рельсах при сбоях одной или обеих тележек и в каждый момент сообщает потребителю, насколько можно доверять скорости и положению. IMU, лидар и камеры не используются.
+Каждое число — в [реестре утверждений](CLAIMS_REGISTRY.md) с командой воспроизведения; границы — в [LIMITS.md](LIMITS.md).
 
 ## Содержание
 
-- [Ключевые результаты](#ключевые-результаты)
 - [Запуск для жюри](#запуск-для-жюри)
 - [Как работает решение](#как-работает-решение)
 - [Устойчивость к сбоям](#устойчивость-к-сбоям)
 - [Эволюция точности](#эволюция-точности-на-проверочной-записи)
-- [Сравнение с решениями трека и работами 2025–2026](#сравнение-с-решениями-трека-и-работами-20252026)
-- [Границы применимости и план развития](#границы-применимости-и-план-развития)
+- [Сравнение с треком и литературой 2025–2026](#сравнение-с-треком-и-литературой-20252026)
+- [Границы и план](#границы-и-план)
 - [Документация](#документация)
 - [Сценарии запуска](#scenarios)
 - [Официальный checker и замер задержки](#официальный-checker-и-замер-задержки)
@@ -154,36 +60,20 @@ Full annotated bibliography and what was adopted from each source: [references](
 - [Сборка без Docker](#native)
 - [CI и права](#ci-и-права)
 
-## Ключевые результаты
-
-Официальный `hackathon_solution_checker` организатора (`metrics.py`, `ApproximateTimeSynchronizer`, очередь `100`, допуск `0.05 с`), проверочная запись `30618_88aea4d9`, прогон 2026-10-03, `ros2 bag play --rate 1`:
-
-| Метрика | Значение |
-|---|---:|
-| RMSE положения 3D (максимум) | **1.157702 м** (3.674567 м) |
-| RMSE по осям x / y / z | 0.888 / 0.715 / 0.202 м |
-| RMSE скорости (максимум) | **0.024691 м/с** (0.289518 м/с) |
-| Поперёк / вдоль пути | 0.072 / 0.799 м |
-| Задержка вход → публикация: медиана / p95 / p99 / максимум | 0.20 / 0.63 / 1.09 / 100.7 мс |
-| Память / CPU | 24.1 МБ RSS / 0.89 % одного ядра |
-| Частота `/result/velocity` | 29.47 Гц уникальных штампов |
-
-На отложенной выборке `val` (21 рейс, Python-двойник того же фильтра) медиана RMSE вдоль пути **1.47 м** (p95 5.83 м), RMSE скорости **0.032 м/с**, дрейф в конце рейса **0.024 %** пути. Тот же бинарник при `--rate 10` даёт 1.159811 м и 0.024686 м/с — результат не зависит от скорости воспроизведения.
-
 ## Запуск для жюри
 
-Требуется Docker (Docker Desktop на Windows и macOS, Docker Engine с Compose на Linux). Из корня клона:
+Нужен Docker (Docker Desktop на Windows и macOS, Docker Engine с Compose на Linux). Из корня клона:
 
 ```text
 scripts/jury.sh play --bag <каталог rosbag2> --msgs <tram_vehicle_msgs>
 .\scripts\jury.ps1 play -Bag <каталог rosbag2> -Msgs <tram_vehicle_msgs>
 ```
 
-Контейнер собирает пакет вместе с пакетом сообщений организатора и проигрывает запись; после загрузки базового образа Humble сеть не нужна. Записи `rosbag2` и `tram_vehicle_msgs` в репозиторий не входят, карта маршрута (`assets/`) встроена в пакет.
+Контейнер собирает пакет вместе с пакетом сообщений организатора и проигрывает запись; после загрузки базового образа Humble сеть не нужна. Записи `rosbag2` и `tram_vehicle_msgs` приходят с датасетом, карта маршрута (`assets/`) встроена в пакет.
 
-**Используйте полный `tram_vehicle_msgs` из датасета.** В архиве `check-code-with-bag.zip` нет `DriverControllerCommand.msg`; с таким пакетом нода автоматически собирается в режиме двух тележек при нулевой ручке (`notch_input = type_absent`) и даёт 1.325 м / 0.027 м/с на той же записи.
+**Используйте полный `tram_vehicle_msgs` из датасета.** В архиве `check-code-with-bag.zip` нет `DriverControllerCommand.msg`; с таким пакетом нода сама собирается в режиме двух тележек при нулевой ручке (`notch_input = type_absent`) и даёт 1.325 м и 0.027 м/с на той же записи (C-14).
 
-Что появляется на выходе:
+На выходе:
 
 - `/result/velocity` (`tram_vehicle_msgs/VelocitySensor`) — с первого сообщения тележки, продольная скорость в м/с;
 - `/result/position` (`nav_msgs/Odometry`) — после 3-секундного стартового окна GNSS: `frame_id = map`, `child_frame_id = base_link`, `x` в квадрате MGRS 37U CB около `99–103 км`;
@@ -200,25 +90,31 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 
 ## Как работает решение
 
-| Этап | Вход | Выход |
-|---|---|---|
-| Входы | `/vehicle/front_bogie_velocity`, `/vehicle/rear_bogie_velocity` (км/ч, ~10 Гц); `/vehicle/driver_position_cmd` (−15…+15); `/sensing/gnss/master/fix`, `/sensing/gnss/rover/fix` | Стартовое окно 3 с, затем редкие пачки master RTK на оси пути |
-| Фильтр вдоль пути | Очередь штампов, защита знака ручки, состояние `[s, v, k, b_a]`, кольцо `10 945.6099 м` | `K_k = 0` на колёсном шаге; масштаб `k` уточняют якоря станций |
-| Публикация | Среднее тележек на сетке `0.04 с`, поза на штампе тележки и сохранённая дуга между штампами, карточка достоверности | `/result/velocity`, `/result/position`, `/result/diagnostics` |
+```mermaid
+flowchart TB
+  bf[Front bogie] --> q[Stamp queue]
+  br[Rear bogie] --> q
+  cmd[Driver notch] --> q
+  q --> nf[Notch guard]
+  nf --> ekf[Schmidt-Kalman]
+  ring[Route 10 ring] --> ekf
+  gnss[GNSS] --> ekf
+  ekf --> out[Speed, pose, diagnostics]
+```
 
-1. **Одна координата вдоль рельсов.** Трамвай связан колеёй, поэтому фильтр оценивает дугу `s` вдоль геодезического кольца маршрута № 10 (`assets/ring.csv`, `10 945.6099 м` в WGS84), а `x, y, z` и ориентацию берёт из карты с пересчётом от антенны master к `base_link` (`+9.873 м` вдоль пути, `−3.0 м` по высоте). Ковариация положения проецируется касательной `t = (p(s+2) − p(s−2)) / 4`: `Σ_xyz = Var(s_pub) · t tᵀ`. Поперечная ошибка на проверочной записи — **0.072 м**.
-2. **Фильтр Шмидта — Калмана `[s, v, k, b_a]`.** Между отсчётами тележек скорость интегрируется по таблице тяги и торможения `a_tab(n, v)` (`assets/notch.csv`, снята с train) за вычетом уклона `g · i(s)` со смещением `b_a`. По двум колёсам наблюдаемо только отношение `v / k`, поэтому на колёсном шаге усиление по масштабу обнулено (`K_k = 0`, обновление в форме Джозефа): погрешность таблицы тяги не утекает в радиус колеса. Масштаб `k` уточняется на однозначных стоянках у станций (`assets/stops.csv`, разброс `≤ 3 м`, ворота `3σ`, `ZUPT`) через ковариацию `P_sk`.
+1. **Одна координата вдоль рельсов.** Трамвай связан колеёй, поэтому фильтр оценивает дугу `s` вдоль геодезического кольца маршрута № 10 (`assets/ring.csv`, `10 945.6099 м` в WGS84), а `x, y, z` и курс берёт из карты с пересчётом от антенны master к `base_link` (`+9.873 м` вдоль пути, `−3.0 м` по высоте). Ковариация положения проецируется касательной `t = (p(s+2) − p(s−2)) / 4`: `Σ_xyz = Var(s_pub) · t tᵀ`.
+2. **Фильтр Шмидта — Калмана `[s, v, k, b_a]`.** Между отсчётами тележек скорость интегрируется по таблице тяги и торможения `a_tab(n, v)` (`assets/notch.csv`, снята с `train`) за вычетом уклона `g · i(s)` со смещением `b_a`. По двум колёсам наблюдаемо только отношение `v / k`, поэтому на колёсном шаге усиление по масштабу обнулено (`K_k = 0`, форма Джозефа): погрешность таблицы тяги не утекает в радиус колеса. Масштаб `k` уточняют однозначные стоянки у станций (`assets/stops.csv`, разброс `≤ 3 м`, ворота `3σ`, `ZUPT`) через ковариацию `P_sk`.
 3. **Мягкое снижение веса вместо отключения датчика.** Тележка, разошедшаяся с моделью (`ν² / S > 16`) или с соседней, остаётся в фильтре с `R = 25 (м/с)²`; траекторию ведут здоровая тележка и модель тяги.
-4. **Защита знака ручки (`notch_fault`).** Если согласованные тележки быстрее `1 м/с` дольше `0.5 с` ускоряются (`a > 0.25 м/с²`) при тормозной ручке (`notch ≤ −4`) или замедляются сильнее `1.0 м/с²` при ходовой (`notch ≥ +4`), модель переходит на выбег (`notch = 0`).
-5. **Выход на сетке `0.04 с`.** Пока обе тележки свежие и согласны, `/result/velocity` публикует их среднее на сетке `0.04 с` со сдвигом штампа `output_stamp_offset_s = +0.105 с` (измеренный лаг эталона `/localization/kinematic_state` относительно тележек; параметр конфигурации). При расхождении или обрыве выход за `0.5 с` переходит на скорость фильтра. Положение выходит со штампом тележки и строго между штампами — по сохранённой дуге с шагом `0.04 с` (разрывы длиннее `1 с` и скачки дуги больше `8 м` не заполняются).
-6. **Контроль общей моды и карточка `advisory_class`.** Две тележки на одном рельсе не независимы: при синхронном юзе они согласны друг с другом и расходятся с моделью. Через `3 с` такого расхождения фильтр переходит в `COMMON_MODE_UNOBSERVABLE`, замораживает `k` и `b_a` и ждёт станцию или пачку RTK на оси. Через `5 с` или `100 м` без якоря — статус `LOST`: положение продолжает публиковаться с `σ = 1 км` и `integrity_use_position = false`. Карточка `advisory_class` (`input_quality`, `common_mode`, `one_bogie_residual`, `both_residual`, `nominal`) отделяет плохой вход от физической невязки.
-7. **GNSS — якорь, а не костыль.** Окно `3 с` ставит вагон на кольцо (среднее дуг двух антенн и азимут master→rover). Затем при `gnss_correction: true` каждое непрерывное окно master RTK (`status = 2`) не дальше `1.5 м` от оси один раз корректирует `s`, не трогая `k`. `gnss_correction: false` отписывает GNSS после старта — чистая одометрия по тележкам и модели.
+4. **Защита знака ручки (`notch_fault`).** Если согласованные тележки быстрее `1 м/с` дольше `0.5 с` ускоряются при тормозной ручке (`notch ≤ −4`) или замедляются сильнее `1.0 м/с²` при ходовой (`notch ≥ +4`), модель переходит на выбег.
+5. **Выход на сетке `0.04 с`.** Пока обе тележки свежие и согласны, `/result/velocity` публикует их среднее на сетке `0.04 с` со сдвигом штампа `output_stamp_offset_s = +0.105 с` (измеренный лаг эталона `/localization/kinematic_state` относительно тележек; параметр). При расхождении или обрыве выход за `0.5 с` переходит на скорость фильтра. Положение выходит со штампом тележки и между штампами — по сохранённой дуге с шагом `0.04 с`.
+6. **Контроль общей моды.** Две тележки на одном рельсе ошибаются вместе: при синхронном юзе они согласны друг с другом и расходятся с моделью. Через `3 с` фильтр переходит в `COMMON_MODE_UNOBSERVABLE`, замораживает `k` и `b_a` и ждёт станцию или пачку RTK на оси; через `5 с` или `100 м` без якоря — `LOST`, положение публикуется с `σ = 1 км` и `integrity_use_position = false`. Карточка `advisory_class` (`input_quality`, `common_mode`, `one_bogie_residual`, `both_residual`, `nominal`) отделяет плохой вход от физической невязки.
+7. **GNSS — якорь, а не костыль.** Окно `3 с` ставит вагон на кольцо (среднее дуг двух антенн и азимут master→rover). Затем при `gnss_correction: true` каждое окно master RTK не дальше `1.5 м` от оси один раз корректирует `s`, не трогая `k`. `gnss_correction: false` оставляет после старта колёса, модель тяги и карту.
 
-Подробно: [модель](docs/solution/model.md), [допущения и параметры](docs/solution/assumptions.md), [архитектура](docs/solution/architecture.md), [граница целостности](docs/solution/integrity.md).
+Подробно: [модель](docs/solution/model.md), [допущения и параметры](docs/solution/assumptions.md), [архитектура](docs/solution/architecture.md), [граница целостности](docs/solution/integrity.md), [карточка модели](MODEL_CARD.md).
 
 ## Устойчивость к сбоям
 
-Отложенная выборка `val`, 21 рейс, сбой накладывается на ходу (скорость > 20 км/ч, после 25 % рейса). Python-двойник совпадает с C++-ядром до 0.37 мм по пути (`tools/organizer/lockstep.py`).
+Отложенная выборка `val`, 21 рейс; сбой накладывается на ходу (скорость > 20 км/ч, после 25 % рейса).
 
 | Сбой | RMSE вдоль пути, медиана (p95) | RMSE скорости | Поведение |
 |---|---:|---:|---|
@@ -227,76 +123,76 @@ scripts/jury.sh acceptance --bag <каталог rosbag2> --msgs <tram_vehicle_m
 | Обе тележки молчат 20 с | 1.76 м (6.6) | 0.061 м/с | Путь ведёт модель тяги по ручке и уклону |
 | Передняя тележка NaN 10 с | 1.60 м (5.8) | 0.032 м/с | Отсев на входе |
 | Передняя +10 % на 30 с (боксование) | 1.94 м (10.5) | 0.035 м/с | Флаг в 95 % рейсов, `R = 25 (м/с)²` |
-| Обе −20 % на 8 с (юз) | 6.46 м (868.5) | 0.156 м/с | Флаг в 95 % рейсов, `COMMON_MODE_UNOBSERVABLE` до якоря; хвост p95 — рейсы без однозначной станции до конца, там `LOST` |
+| Обе −20 % на 8 с (юз) | 6.46 м (868.5) | 0.156 м/с | Флаг в 95 % рейсов; хвост p95 — рейсы без однозначной станции до конца, там `LOST` |
 
-Ни в одном прогоне состояние не стало NaN или Inf. Главный вклад в точность дают якоря станций: без них медиана вдоль пути 12.6 м. Полная матрица, включая постоянный масштаб одной тележки и пятикратный шум, — в [results.md §4](docs/solution/results.md).
+Якоря станций — главный источник точности: без них медиана 12.6 м (C-09). Полная матрица — в [results.md §4](docs/solution/results.md).
 
 ## Эволюция точности на проверочной записи
 
-| Этап | Что изменилось | Положение, м (макс.) | Скорость, м/с | Пары (поз. / скор.) |
-|---|---|---:|---:|---:|
-| `5cd35fa`, сдача к дедлайну | Выход на каждый вход, сферическая дуга, скорость фильтра | 2.151 (5.649) | 0.051 | 50 168 / 50 481 |
-| Pathgraph и окна RTK | Ось pathgraph в кольце, медиана каждой пачки master RTK на оси | 1.615 (4.899) | 0.035 | 49 768 / 50 006 |
-| Среднее согласных тележек | `wheels_mean`, штамп `+0.105 с`, ручка вне водяного знака | 1.372506 (4.922128) | 0.026633 | 49 956 / 12 205 |
-| Геодезическое кольцо WGS84 | Точная длина `ring.csv`, `k0 = 1.001378` по train, сетка скорости `0.04 с` | 1.163029 (3.682215) | 0.024695 | 49 940 / 38 388 |
-| `9a954fd`, хорда шва | Интерполяция 4.25-метрового замыкания кольца | 1.164429 (3.684696) | 0.024692 | 49 943 / 38 392 |
-| **2026-10-03, поза на штампе тележки** | **Ручка больше не публикует позу** | **1.157702 (3.674567)** | **0.024691** | **24 376 / 38 396** |
+Официальный `hackathon_solution_checker` (`metrics.py`, `ApproximateTimeSynchronizer`, очередь `100`, допуск `0.05 с`), запись `30618_88aea4d9`, `--rate 1`:
 
-Полный журнал из 18 прогонов, разложение по 120-секундным окнам и прогоны `--rate 10` — в [results.md §9](docs/solution/results.md#9-журнал-checker). Карта и `k0` строились только по `train`; проверочная запись в их подгонке не участвовала. Сетка положения `0.04 с` включена после прогона 2026-10-03: на штампах тележек той же записи она даёт 38 743 уникальных штампа (29.493 Гц, максимальный разрыв 0.040 с, 0 шагов назад).
+| Этап | Что изменилось | Положение, м (макс.) | Скорость, м/с |
+|---|---|---:|---:|
+| `5cd35fa`, сдача к дедлайну | Выход на каждый вход, сферическая дуга, скорость фильтра | 2.151 (5.649) | 0.051 |
+| Pathgraph и окна RTK | Ось pathgraph в кольце, медиана каждой пачки master RTK на оси | 1.615 (4.899) | 0.035 |
+| Среднее согласных тележек | `wheels_mean`, штамп `+0.105 с`, ручка вне водяного знака | 1.372506 (4.922128) | 0.026633 |
+| Геодезическое кольцо WGS84 | Точная длина `ring.csv`, `k0 = 1.001378` по train, сетка скорости `0.04 с` | 1.163029 (3.682215) | 0.024695 |
+| **2026-10-03, поза на штампе тележки** | **Ручка больше не публикует позу** | **1.157702 (3.674567)** | **0.024691** |
 
-## Сравнение с решениями трека и работами 2025–2026
+Тот же бинарник при `--rate 10` — 1.159811 м и 0.024686 м/с. Полный журнал из 18 прогонов и разложение по 120-секундным окнам — в [results.md §9](docs/solution/results.md#9-журнал-checker). Карта и `k0` строились только по `train`.
 
-Числа других команд на записи `30618_88aea4d9` — из их README и отчётов (собраны в [references.md](docs/solution/references.md)); в нашем Docker их узлы не перезапускались.
+## Сравнение с треком и литературой 2025–2026
+
+Числа других команд на записи `30618_88aea4d9` — из их README и отчётов ([references.md](docs/solution/references.md)).
 
 | Решение | Подход | Скорость, м/с | Положение 3D, м |
 |---|---|---:|---:|
 | **RailBreak** | **Шмидт — Калман `[s, v, k, b_a]`, геодезическое кольцо, среднее тележек, `notch_fault`, монитор целостности** | **0.024691** | **1.157702** (макс. 3.67) |
-| `67-time-to-win-hack` (`tbo_core`) | GPB1 на пяти режимах, CUSUM, масштаб по кванту скорости, западный тупик в карте | 0.026 | 0.60 |
+| `67-time-to-win-hack` | GPB1 на пяти режимах, CUSUM, западный тупик в карте | 0.026 | 0.60 |
 | `ekimlichenko-mt` | Одномерный оцениватель с GNSS по ходу рейса | 0.0324 | 1.111 (макс. 14.02) |
-| `VECTRA` | UKF `[s, v, d, k_т, k_б]`, сопротивление Дэвиса, сдвиг скорости 0.08 с | 0.042 | 1.43 |
+| `VECTRA` | UKF `[s, v, d, k_т, k_б]`, сопротивление Дэвиса | 0.042 | 1.43 |
 | `tram-backup-odometry` | Эхо-сеть и Калман `[v, b]` | 0.051 | 1.209 |
 | `dub-otrezkov` | Проекция на путь | 0.055 | 1.053 (макс. 13.17) |
 | `FunnyRepo` | Таблица 31×16, задержка тяги 0.4 с | 0.033 | 5.13 |
 
-RailBreak даёт лучшую скорость среди опубликованных результатов трека; максимум ошибки положения 3.67 м против 13–14 м у решений, опубликовавших максимум.
+RailBreak — первый по скорости и с наименьшим максимумом ошибки положения среди решений, опубликовавших максимум (3.67 м против 13–14 м). Лучшее опубликованное среднее положение — 0.60 м у `67-time-to-win-hack` (M-03); резерв RailBreak виден в разложении ошибки: 0.07 м поперёк и 0.80 м вдоль пути между якорями.
 
-**Место в литературе 2025–2026.**
+**Место в литературе.**
 
-1. **Одномерное состояние вдоль пути — магистральное направление рельсовой навигации.** Zhang и др. (ION GNSS+ 2026) получают RMSE пробега 1.335 м и скорости 0.0132 м/с на 30 км одномерным фильтром INS/одометр; Zhang и др. (IEEE T-ITS 2025) уточняют положение метропоезда сопоставлением движения с геометрией пути. RailBreak использует ту же постановку и выходит на метровую точность **без IMU**: второй канал — модель тяги и якоря станций.
-2. **Раздувание дисперсии по невязке** следует Palmer, Nourani-Vatani (IROS 2018) и residual-aware DR-EKF Jang и др. (arXiv:2604.02749, 2026) в виде O(1)-правила по NIS, которое укладывается в цикл 30 Гц без онлайн-решения SDP.
-3. **Отчёт о целостности** построен на разделении точности и целостности (Maharmeh и др., Sensors 2025). Онлайн- и многоисточниковое конформное предсказание (Lai, Raskutti, 2026; Hore и др., arXiv:2609.14531) — следующий шаг к калиброванной по вагону границе.
-4. **Сцепление и прогноз юза.** Обученные детекторы (Zha и др., Urban Rail Transit 2026; LSTM–Калман, ETAE 2026) опираются на тормозное усилие или момент. В интерфейсе вагона их нет, поэтому RailBreak публикует объяснимую карточку невязок с `mu_estimate = null`.
+1. **Одномерное состояние вдоль пути — магистральное направление рельсовой навигации.** Одномерный фильтр INS/одометр ION GNSS+ 2026 получает 1.335 м пробега и 0.0132 м/с на 30 км — с IMU (M-01); метропоезд в IEEE T-ITS 2025 уточняет положение по геометрии пути. RailBreak выходит на метровую точность **без IMU**: второй канал — модель тяги и якоря станций.
+2. **Раздувание дисперсии по невязке** следует Palmer, Nourani-Vatani (IROS 2018) и residual-aware DR-EKF (arXiv:2604.02749, 2026) в виде O(1)-правила по NIS для цикла 30 Гц.
+3. **Целостность.** Точность и целостность разделены, как в обзоре Sensors 2025; следующий шаг — онлайн- и многоисточниковая конформная калибровка (2026).
+4. **Сцепление.** Обученные предикторы юза (Urban Rail Transit 2026, M-04) и наблюдатели μ (ETAE 2026) опираются на тормозное усилие или момент; RailBreak публикует объяснимую карточку невязок.
 
-Из соседних репозиториев ([wellguard-os](https://github.com/KonkovDV/wellguard-os), [open-integrity-twin](https://github.com/KonkovDV/open-integrity-twin), [drillguard-os](https://github.com/KonkovDV/drillguard-os)) перенесена детерминированная карточка `advisory_class`.
+Практики, перенесённые из соседних репозиториев автора, — [docs/PORTING.md](docs/PORTING.md).
 
-## Границы применимости и план развития
+## Границы и план
 
-| Область | Текущее решение | Следующий шаг |
+| Область | Сейчас | Следующий шаг |
 |---|---|---|
-| Юз одной тележки, боксование, обрыв, NaN | Обнаружение и компенсация второй тележкой и моделью | — |
-| Синхронный юз обеих тележек | Обнаружение, снятие доверия к положению до якоря, `LOST` по слепому бюджету | Третий независимый канал скорости: радар, IMU или магнитная подпись пути (Dieckow и др., 2025) |
-| Коэффициент сцепления `μ` | Прокси невязок, `mu_estimate = null` | Нужен момент тяги/торможения или IMU |
-| Граница вдоль пути | Эмпирическая граница по train, на val внутри 97.2 % фиксов | Онлайн-конформная калибровка по вагонам |
-| Масштаб вагона | `k0` вагона 30618; вагон 30639 на той же карте отличается на ~1.2 % | Калибровка `k0` по вагону, многоисточниковая калибровка |
-| Топология | Одно кольцо регулярного маршрута | Банк гипотез пути на стрелках и в депо ([прототип](docs/solution/hypotheses.md)) |
-| Задержка привода | Таблица установившегося ускорения | Состояние задержки, проверенное в теневом банке моделей |
+| Синхронный юз обеих тележек (L-01) | Обнаружение, снятие доверия к положению до якоря, `LOST` по слепому бюджету | Третий канал скорости: радар, IMU или магнитная подпись пути (M-02) |
+| Коэффициент сцепления (L-02) | Карточка невязок, `mu_estimate = null` | Момент тяги или IMU во входном контракте |
+| Граница целостности (L-03) | Эмпирическая по `train`, 97.2 % `val` внутри | Онлайн-конформная калибровка по вагонам |
+| Топология (L-04) | Одно кольцо регулярного маршрута | Банк гипотез пути ([прототип](docs/solution/hypotheses.md)) |
+| Масштаб вагона (L-05) | `k0` вагона 30618 | Калибровка по вагону |
 
-Сводный план по порядку пользы — [tz-audit.md](docs/solution/tz-audit.md#план-развития).
+Первый пункт плана — повтор официального checker на текущем дереве с сеткой положения 0.04 с и исправленной привязкой GNSS. Сводный план — [tz-audit.md](docs/solution/tz-audit.md#план-развития).
 
 ## Документация
 
 | Документ | Содержание |
 |---|---|
 | [Пакет `railbreak_backup_odometry`](railbreak_backup_odometry/README.md) | Входы и выходы, сборка без интернета, параметры, диагностика, поведение при сбоях |
-| [Математическая модель](docs/solution/model.md) | Состояние `[s, v, k, b_a]`, таблица тяги, фильтр Шмидта — Калмана, наблюдаемость, якоря |
+| [Математическая модель](docs/solution/model.md) | Состояние `[s, v, k, b_a]`, таблица тяги, фильтр, наблюдаемость, якоря |
 | [Допущения и параметры](docs/solution/assumptions.md) | Единицы, геометрия `base_link`, MGRS 37U CB, полная таблица параметров |
 | [Методика и результаты](docs/solution/results.md) | Официальный checker, `val`, абляции, сбои, реальное время, журнал прогонов |
 | [Соответствие ТЗ и план](docs/solution/tz-audit.md) | Построчная сверка с кейсом и план развития |
-| [Архитектура](docs/solution/architecture.md), [целостность](docs/solution/integrity.md), [сцепление](docs/solution/adhesion.md) | Слои вокруг фильтра |
+| [Реестр утверждений](CLAIMS_REGISTRY.md), [границы](LIMITS.md), [карточка модели](MODEL_CARD.md) | Каждое число с источником; границы и что их снимает |
+| [Аудит 2026-10-25](docs/AUDIT-2026-10-25.md) | Находки в коде и документах, исправления, регрессионные тесты |
 | [Источники](docs/solution/references.md) | Литература 2012–2026 и что взято из каждой работы |
 | [Инженерный журнал](POSTMORTEM.md) | Изменения после отбора: что вошло, что проверено и отклонено |
 | [Демо](docs/solution/demo.md) и [питч](docs/solution/pitch.md) | Три акта живой демонстрации и пятиминутный доклад |
-| [Карта документации](docs/README.md) | Все документы, включая исследовательский стенд и внешний аудит |
+| [Карта документации](docs/README.md), [правила для участников](AGENTS.md) | Все документы; проверки перед PR |
 
 ---
 
@@ -378,7 +274,7 @@ ros2 pkg executables railbreak_backup_odometry   # backup_odometry_node, replay_
 
 ### 2. Штатный прогон записи
 
-Запускайте ноду **до** проигрывателя, чтобы не пропустить стартовое окно GNSS (если окно всё же пропущено, нода захватит абсолютную дугу на первой пачке master RTK на оси):
+Запускайте ноду **до** проигрывателя, чтобы не пропустить стартовое окно GNSS (если окно пропущено, нода захватит абсолютную дугу на первой пачке master RTK на оси):
 
 ```bash
 # Терминал 1
@@ -430,6 +326,6 @@ ctest --test-dir build/rbo -C Release --output-on-failure
 
 ## CI и права
 
-- **Публичный CI (`.github/workflows/ci.yml`):** собирает ядро сдаваемого пакета и исследовательский стенд, прогоняет их под `AddressSanitizer` + `UndefinedBehaviorSanitizer`, запускает Python-тесты двойника, скореров, монитора целостности, кампании сбоев и документации, собирает `railbreak_backup_odometry` в контейнере ROS 2 Humble с полным стабом [ci/tram_vehicle_msgs](ci/tram_vehicle_msgs/) и без `DriverControllerCommand.msg`.
-- **Исследовательский стенд `tramDR-0.0.11`:** каталоги `tram_dr_localization` и `standalone` — ранний 12-мерный UKF на синтетике ([docs/verification.md](docs/verification.md)); нода сдачи их не использует.
-- **Права:** код передаётся организаторам по условиям хакатона; сторонние компоненты и данные — [NOTICE](NOTICE) и [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Происхождение модулей — [PROVENANCE.md](PROVENANCE.md).
+- **Публичный CI (`.github/workflows/ci.yml`):** ядро пакета и исследовательский стенд в Release и под `AddressSanitizer` + `UndefinedBehaviorSanitizer`; Python-тесты двойника, скореров, монитора целостности, кампании сбоев, документации и реестра утверждений (`lint_claims.py`); сборка и `colcon test` пакета `railbreak_backup_odometry` в контейнере ROS 2 Humble с полным стабом [ci/tram_vehicle_msgs](ci/tram_vehicle_msgs/) и без `DriverControllerCommand.msg`.
+- **Исследовательский стенд `tramDR-0.0.11`:** каталоги `tram_dr_localization` и `standalone` — 12-мерный UKF на синтетике ([docs/verification.md](docs/verification.md)); нода сдачи их не использует.
+- **Права:** код передаётся организаторам по условиям хакатона; сторонние компоненты и данные — [NOTICE](NOTICE) и [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); происхождение модулей — [PROVENANCE.md](PROVENANCE.md); как цитировать — [CITATION.cff](CITATION.cff).

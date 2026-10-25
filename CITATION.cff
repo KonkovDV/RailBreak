@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "Если используете RailBreak, сошлитесь на него так."
+title: "RailBreak: model-informed backup odometry for the driverless tram on Moscow route 10"
+version: 0.1.0
+date-released: 2026-10-25
+authors:
+  - family-names: Konkov
+    given-names: Dmitrij
+repository-code: "https://github.com/KonkovDV/RailBreak"
+keywords:
+  - backup odometry
+  - railway localization
+  - Schmidt-Kalman filter
+  - wheel slip
+  - integrity monitoring
+  - ROS 2

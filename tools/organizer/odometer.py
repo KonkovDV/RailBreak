@@ -119,6 +119,20 @@ def _require_config(p: Params) -> None:
         raise ValueError("excite_uniform_s must be > 0")
     if not math.isfinite(p.excite_dv) or not p.excite_dv > 0.0:
         raise ValueError("excite_dv must be > 0")
+    # Same gates as validate_params in track_odometer.hpp. dt_max <= 0 would
+    # never shorten the remaining interval in predict().
+    for name in ("dt_max", "max_gap_s", "v_max", "wheel_stale_s", "nis_gate", "fr_sigma_gate",
+                 "stop_gate"):
+        value = getattr(p, name)
+        if not math.isfinite(value) or not value > 0.0:
+            raise ValueError(f"{name} must be > 0")
+    for name in ("fr_floor", "zupt_hold_s", "stop_sd_max", "recover_s", "load_factor",
+                 "excite_v_start", "excite_notch_s", "excite_grade"):
+        value = getattr(p, name)
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError(f"{name} must be >= 0")
+    if not all(math.isfinite(getattr(p, name)) for name in ("davis_a", "davis_b", "davis_c")):
+        raise ValueError("davis coefficients must be finite")
 
 
 @dataclass

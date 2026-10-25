@@ -1,7 +1,12 @@
 // Core contracts on a synthetic straight ring. No ROS, no organiser data.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <random>
+#include <vector>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -51,6 +56,50 @@ bool rejected(F&& fn, const char* fragment) {
     return false;
   }
   return false;
+}
+
+// Any exception whose text contains the fragment. Asset loading throws runtime_error.
+template <class F>
+bool fails_with(F&& fn, const char* fragment) {
+  try {
+    std::forward<F>(fn)();
+  } catch (const std::exception& e) {
+    return std::string(e.what()).find(fragment) != std::string::npos;
+  }
+  return false;
+}
+
+// Ring sampled every 1 m along a straight line at heading_deg, plus a seam of seam_m.
+railbreak::Assets line_ring(int n, double heading_deg, double seam_m) {
+  railbreak::Assets a;
+  const double h = heading_deg * 3.14159265358979323846 / 180.0;
+  for (int i = 0; i < n; ++i) {
+    a.map.s.push_back(i);
+    a.map.x.push_back(i * std::cos(h));
+    a.map.y.push_back(i * std::sin(h));
+    a.map.h.push_back(0.0);
+    a.map.grade.push_back(0.0);
+  }
+  a.map.ring_len = (n - 1) + seam_m;
+  a.map.lat0 = 55.8;
+  a.map.lon0 = 37.4;
+  for (int j = 0; j < 18; ++j) a.table.v_centre.push_back(j + 0.5);
+  for (auto& row : a.table.a) row.assign(18, 0.0);
+  a.k0 = 1.0;
+  return a;
+}
+
+// Closed circle of circumference n - 1 + seam_m: vertices every 1 m, then one seam chord.
+railbreak::Assets circle_ring(int n, double seam_m) {
+  railbreak::Assets a = line_ring(n, 0.0, seam_m);
+  const double L = a.map.ring_len;
+  const double R = L / (2.0 * 3.14159265358979323846);
+  for (int i = 0; i < n; ++i) {
+    const double phi = 2.0 * 3.14159265358979323846 * i / L;
+    a.map.x[static_cast<std::size_t>(i)] = R * std::cos(phi);
+    a.map.y[static_cast<std::size_t>(i)] = R * std::sin(phi);
+  }
+  return a;
 }
 
 railbreak::Assets flat_ring(double length_m) {
@@ -2378,6 +2427,146 @@ int main() {
     }
     check(held.common_unobservable(), "a contradictory notch does not clear common mode");
   }
+  {
+    // A fix between two vertices projects onto the segment, also when the
+    // segment is not east-west. The y term of the projection reads the
+    // northing; with the easting there it clamps to a vertex.
+    for (double heading : {0.0, 30.0, 90.0, 135.0, 250.0}) {
+      const auto line = line_ring(400, heading, 1.0);
+      const double h = heading * 3.14159265358979323846 / 180.0;
+      const double s_true = 123.37, off = 0.4;
+      const double px = s_true * std::cos(h) - std::sin(h) * off;
+      const double py = s_true * std::sin(h) + std::cos(h) * off;
+      double lat = 0.0, lon = 0.0;
+      line.map.latlon(px, py, lat, lon);
+      const auto r = railbreak::init_on_ring(line.map, lat, lon, false, 0.0, 0.0);
+      char what[160];
+      std::snprintf(what, sizeof what,
+                    "heading %.0f deg: a fix between vertices projects onto the segment (s err %.4f m)",
+                    heading, r.s0 - s_true);
+      check(r.ok && std::fabs(r.s0 - s_true) < 1e-3 && std::fabs(r.d0 - off) < 1e-3, what);
+    }
+    // The 4 m seam that closes the ring is a segment too.
+    const auto ring = circle_ring(300, 4.0);
+    const double L = ring.map.ring_len;
+    const double s_mid = L - 2.0;
+    double lat = 0.0, lon = 0.0;
+    ring.map.latlon(ring.map.at(ring.map.x, s_mid), ring.map.at(ring.map.y, s_mid), lat, lon);
+    const auto seam = railbreak::init_on_ring(ring.map, lat, lon, false, 0.0, 0.0);
+    check(seam.ok && std::fabs(seam.s0 - s_mid) < 0.05,
+          "a fix inside the closing seam projects onto the seam, not onto its end vertex");
+  }
+  {
+    // Every gate the node exposes is checked before the first step.
+    const auto line = flat_ring(100.0);
+    auto bad = [&](auto edit, const char* fragment) {
+      railbreak::Params p;
+      edit(p);
+      return rejected([&] { railbreak::TrackOdometer od(&line, p); }, fragment);
+    };
+    check(bad([](railbreak::Params& p) { p.dt_max = 0.0; }, "dt_max"),
+          "dt_max 0 is rejected: predict would not shorten the interval");
+    check(bad([](railbreak::Params& p) { p.max_gap_s = -1.0; }, "max_gap_s"), "negative max_gap_s is rejected");
+    check(bad([](railbreak::Params& p) { p.v_max = 0.0; }, "v_max"), "v_max 0 is rejected");
+    check(bad([](railbreak::Params& p) { p.wheel_stale_s = 0.0; }, "wheel_stale_s"), "wheel_stale_s 0 is rejected");
+    check(bad([](railbreak::Params& p) { p.nis_gate = -16.0; }, "nis_gate"), "negative nis_gate is rejected");
+    check(bad([](railbreak::Params& p) { p.fr_sigma_gate = 0.0; }, "fr_sigma_gate"), "fr_sigma_gate 0 is rejected");
+    check(bad([](railbreak::Params& p) { p.fr_floor = -0.1; }, "fr_floor"), "negative fr_floor is rejected");
+    check(bad([](railbreak::Params& p) { p.zupt_hold_s = -1.0; }, "zupt_hold_s"), "negative zupt_hold_s is rejected");
+    check(bad([](railbreak::Params& p) { p.stop_gate = 0.0; }, "stop_gate"), "stop_gate 0 is rejected");
+    check(bad([](railbreak::Params& p) { p.recover_s = -1.0; }, "recover_s"), "negative recover_s is rejected");
+    check(bad([](railbreak::Params& p) { p.load_factor = std::nan(""); }, "load_factor"),
+          "a NaN load_factor is rejected instead of freezing every step");
+    check(bad([](railbreak::Params& p) { p.davis_b = std::numeric_limits<double>::infinity(); }, "davis"),
+          "a non-finite Davis coefficient is rejected");
+    railbreak::Params ok;
+    check(!rejected([&] { railbreak::TrackOdometer od(&line, ok); }, ""), "the default parameters pass");
+  }
+#ifdef RAILBREAK_ASSETS_DIR
+  {
+    namespace fs = std::filesystem;
+    const fs::path src = RAILBREAK_ASSETS_DIR;
+    const auto real = railbreak::load_assets(src.string());
+    check(real.map.s.size() > 1000 && real.stops.size() > 10, "the shipped assets load");
+    // Start and RTK-burst snaps on the shipped ring are sub-centimetre, not vertex-rounded.
+    std::mt19937 rng(42);
+    std::uniform_real_distribution<double> us(0.0, real.map.ring_len), lat_off(-0.3, 0.3);
+    std::vector<double> err;
+    for (int i = 0; i < 2000; ++i) {
+      const double s = us(rng);
+      const double x = real.map.at(real.map.x, s), y = real.map.at(real.map.y, s);
+      const double x1 = real.map.at(real.map.x, s + 1.0), y1 = real.map.at(real.map.y, s + 1.0);
+      const double tl = std::hypot(x1 - x, y1 - y);
+      if (!(tl > 0.5)) continue;
+      const double off = lat_off(rng);
+      const double px = x - (y1 - y) / tl * off, py = y + (x1 - x) / tl * off;
+      double la = 0.0, lo = 0.0, hla = 0.0, hlo = 0.0;
+      real.map.latlon(px, py, la, lo);
+      real.map.latlon(px + (x1 - x) / tl * 12.4, py + (y1 - y) / tl * 12.4, hla, hlo);
+      const auto r = railbreak::init_on_ring(real.map, la, lo, true, hla, hlo);
+      if (!r.ok) continue;
+      double e = r.s0 - s;
+      e = std::fmod(e + 1.5 * real.map.ring_len, real.map.ring_len) - 0.5 * real.map.ring_len;
+      err.push_back(std::fabs(e));
+    }
+    std::sort(err.begin(), err.end());
+    const double med = err.empty() ? 1e9 : err[err.size() / 2];
+    const double p95 = err.empty() ? 1e9 : err[err.size() * 95 / 100];
+    std::printf("     shipped ring snap: n=%zu median=%.4f m p95=%.4f m\n", err.size(), med, p95);
+    check(err.size() > 1900 && med < 0.01 && p95 < 0.01,
+          "snaps onto the shipped ring are sub-centimetre at the median and p95");
+
+    // Malformed assets fail with a configuration error, before any cast.
+    const fs::path tmp = fs::temp_directory_path() / "railbreak_assets_test";
+    auto corrupt = [&](const char* file, const std::string& find, const std::string& repl) {
+      fs::remove_all(tmp);
+      fs::create_directories(tmp);
+      for (const auto& e : fs::directory_iterator(src)) fs::copy_file(e.path(), tmp / e.path().filename());
+      std::ifstream in(tmp / file);
+      std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      in.close();
+      const auto at = text.find(find, text.find('\n') + 1);
+      if (at != std::string::npos) text.replace(at, find.size(), repl);
+      std::ofstream(tmp / file, std::ios::trunc) << text;
+      return tmp.string();
+    };
+    const auto first_stop = [&] {
+      std::ifstream in(src / "stops.csv");
+      std::string header, row;
+      std::getline(in, header);
+      std::getline(in, row);
+      return row;
+    }();
+    const std::string stop_nan = first_stop.substr(0, first_stop.rfind(',') + 1) + "nan";
+    check(fails_with([&] { railbreak::load_assets(corrupt("stops.csv", first_stop, stop_nan)); },
+                     "stops.csv count"),
+          "a NaN stop count is rejected before the int cast");
+    check(fails_with([&] { railbreak::load_assets(corrupt("ring.csv", ",", "x,")); }, "not a number"),
+          "a cell with trailing text is rejected, not read as its prefix");
+    check(fails_with([&] { railbreak::load_assets(corrupt("notch.csv", "-15,", "nan,")); }, "notch.csv notch"),
+          "a NaN notch label is rejected");
+    check(fails_with([&] { railbreak::load_assets(corrupt("meta.yaml", "k0: 1.001378", "k0: 1.001378 m")); },
+                     "not a number"),
+          "a meta.yaml value with a unit suffix is rejected");
+    const std::string crlf = [&] {
+      fs::remove_all(tmp);
+      fs::create_directories(tmp);
+      for (const auto& e : fs::directory_iterator(src)) {
+        std::ifstream in(e.path());
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::string out;
+        for (char c : text) {
+          if (c == '\n') out += '\r';
+          out += c;
+        }
+        std::ofstream(tmp / e.path().filename(), std::ios::binary) << out;
+      }
+      return tmp.string();
+    }();
+    check(!fails_with([&] { railbreak::load_assets(crlf); }, ""), "CRLF assets still load");
+    fs::remove_all(tmp);
+  }
+#endif
   std::printf("%s\n", g_fail ? "FAILED" : "all passed");
   return g_fail ? 1 : 0;
 }

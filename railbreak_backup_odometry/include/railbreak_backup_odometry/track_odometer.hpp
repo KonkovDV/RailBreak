@@ -141,6 +141,30 @@ inline void validate_params(const Params& p) {
     throw std::invalid_argument("excite_notch_s must be >= 0");
   if (!std::isfinite(p.excite_grade) || p.excite_grade < 0.0)
     throw std::invalid_argument("excite_grade must be >= 0");
+  // dt_max <= 0 would never shorten the remaining interval in predict().
+  if (!std::isfinite(p.dt_max) || !(p.dt_max > 0.0)) throw std::invalid_argument("dt_max must be > 0");
+  if (!std::isfinite(p.max_gap_s) || !(p.max_gap_s > 0.0))
+    throw std::invalid_argument("max_gap_s must be > 0");
+  if (!std::isfinite(p.v_max) || !(p.v_max > 0.0)) throw std::invalid_argument("v_max must be > 0");
+  if (!std::isfinite(p.wheel_stale_s) || !(p.wheel_stale_s > 0.0))
+    throw std::invalid_argument("wheel_stale_s must be > 0");
+  if (!std::isfinite(p.nis_gate) || !(p.nis_gate > 0.0))
+    throw std::invalid_argument("nis_gate must be > 0");
+  if (!std::isfinite(p.fr_sigma_gate) || !(p.fr_sigma_gate > 0.0))
+    throw std::invalid_argument("fr_sigma_gate must be > 0");
+  if (!std::isfinite(p.fr_floor) || p.fr_floor < 0.0) throw std::invalid_argument("fr_floor must be >= 0");
+  if (!std::isfinite(p.zupt_hold_s) || p.zupt_hold_s < 0.0)
+    throw std::invalid_argument("zupt_hold_s must be >= 0");
+  if (!std::isfinite(p.stop_gate) || !(p.stop_gate > 0.0))
+    throw std::invalid_argument("stop_gate must be > 0");
+  if (!std::isfinite(p.stop_sd_max) || p.stop_sd_max < 0.0)
+    throw std::invalid_argument("stop_sd_max must be >= 0");
+  if (!std::isfinite(p.recover_s) || p.recover_s < 0.0)
+    throw std::invalid_argument("recover_s must be >= 0");
+  if (!std::isfinite(p.load_factor) || p.load_factor < 0.0)
+    throw std::invalid_argument("load_factor must be >= 0");
+  if (!std::isfinite(p.davis_a) || !std::isfinite(p.davis_b) || !std::isfinite(p.davis_c))
+    throw std::invalid_argument("davis coefficients must be finite");
 }
 
 // have_ring is false when the map is absent: relative odometry has no loop to wrap.
@@ -301,6 +325,25 @@ struct NotchTable {
 };
 
 namespace detail {
+// A cell is one number and nothing else. std::stod alone accepts "1.5abc" as
+// 1.5; a truncated or merged asset must fail here, not load a wrong value.
+// A trailing CR (CRLF files) and blanks are allowed.
+inline double parse_cell(const std::string& cell, const std::string& path) {
+  std::size_t used = 0;
+  double v = 0.0;
+  try {
+    v = std::stod(cell, &used);
+  } catch (const std::exception&) {
+    throw std::runtime_error("not a number in " + path + ": '" + cell + "'");
+  }
+  for (std::size_t i = used; i < cell.size(); ++i) {
+    const char c = cell[i];
+    if (c != ' ' && c != '\t' && c != '\r')
+      throw std::runtime_error("not a number in " + path + ": '" + cell + "'");
+  }
+  return v;
+}
+
 inline std::vector<std::vector<double>> read_csv(const std::string& path) {
   std::ifstream f(path);
   if (!f) throw std::runtime_error("cannot open " + path);
@@ -308,11 +351,11 @@ inline std::vector<std::vector<double>> read_csv(const std::string& path) {
   std::getline(f, line);  // header
   std::vector<std::vector<double>> rows;
   while (std::getline(f, line)) {
-    if (line.empty()) continue;
+    if (line.empty() || line == "\r") continue;
     std::vector<double> row;
     std::stringstream ss(line);
     std::string cell;
-    while (std::getline(ss, cell, ',')) row.push_back(std::stod(cell));
+    while (std::getline(ss, cell, ',')) row.push_back(parse_cell(cell, path));
     rows.push_back(std::move(row));
   }
   return rows;
@@ -325,7 +368,7 @@ inline double yaml_number(const std::string& path, const std::string& key) {
   while (std::getline(f, line)) {
     const auto p = line.find(':');
     if (p == std::string::npos) continue;
-    if (line.substr(0, p) == key) return std::stod(line.substr(p + 1));
+    if (line.substr(0, p) == key) return parse_cell(line.substr(p + 1), path);
   }
   throw std::runtime_error("missing " + key + " in " + path);
 }
@@ -368,6 +411,7 @@ inline Assets load_assets(const std::string& dir) {
   }
   for (std::size_t j = 0; j < nv; ++j) a.table.v_centre.push_back(static_cast<double>(j) + 0.5);
   for (const auto& r : notch) {
+    if (!std::isfinite(r[0])) throw std::runtime_error("notch.csv notch");
     const int n = static_cast<int>(std::lround(r[0]));
     if (n < kNotchMin || n > kNotchMax) throw std::runtime_error("notch.csv notch");
     auto& row = a.table.a[static_cast<std::size_t>(n - kNotchMin)];
@@ -376,6 +420,8 @@ inline Assets load_assets(const std::string& dir) {
   }
   for (const auto& r : detail::read_csv(dir + "/stops.csv")) {
     if (r.size() < 3) throw std::runtime_error("stops.csv row");
+    // The count is cast to int: a NaN or out-of-range value is undefined behaviour.
+    if (!std::isfinite(r[2]) || r[2] < 0.0 || r[2] > 1.0e6) throw std::runtime_error("stops.csv count");
     a.stops.push_back({r[0], r[1], static_cast<int>(r[2])});
   }
   if (a.map.empty()) throw std::runtime_error("empty ring");
@@ -869,6 +915,7 @@ class TrackOdometer {
   bool have_time() const { return have_t_; }
   double time_s() const { return t_; }
   double nis_gate() const { return p_.nis_gate; }
+  double fr_floor() const { return p_.fr_floor; }
   double wheel_stale_s() const { return p_.wheel_stale_s; }
   double max_gap_s() const { return p_.max_gap_s; }
   double recover_s() const { return p_.recover_s; }
@@ -1614,7 +1661,7 @@ inline InitResult init_on_ring(const TrackMap& m, double lat, double lon, bool h
     const double dx = bx - ax, dy = by - ay;
     const double len2 = dx * dx + dy * dy;
     if (!(len2 > 0.0)) return;
-    double t = ((e - ax) * dx + (e - ay) * dy) / len2;
+    double t = ((e - ax) * dx + (n - ay) * dy) / len2;
     if (t < 0.0) t = 0.0;
     if (t > 1.0) t = 1.0;
     const double px = ax + t * dx, py = ay + t * dy;
