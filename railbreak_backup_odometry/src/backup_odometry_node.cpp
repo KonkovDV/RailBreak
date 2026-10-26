@@ -996,6 +996,7 @@ class BackupOdometryNode : public rclcpp::Node {
     o.map_in_domain = assets_ok_ &&
                       gnss_note_.find("not on the track map") == std::string::npos;
     o.nis_gate = od_->nis_gate();
+    o.fr_floor = od_->fr_floor();
     o.wheel_stale_s = od_->wheel_stale_s();
     o.max_gap_s = od_->max_gap_s();
     o.recover_s = od_->recover_s();

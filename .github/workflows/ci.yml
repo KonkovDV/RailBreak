@@ -16,12 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
           # test_provenance.py reads blobs from older commits (8add7ae).
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: python dependencies
@@ -46,6 +46,10 @@ jobs:
         run: python tools/eval/no_gnss_scan.py
       - name: current documentation contracts
         run: python tools/eval/test_docs.py
+      - name: claims registry and banned wording
+        run: python tools/eval/lint_claims.py
+      - name: claims linter catches what it should
+        run: python tools/eval/test_lint_claims.py
       - name: result provenance manifest
         run: python tools/eval/test_provenance.py
       - name: submission package manifest
@@ -74,12 +78,22 @@ jobs:
         run: bash scripts/test_jury_position.sh
       - name: jury acceptance is fail-closed
         run: python tools/organizer/test_jury_accept.py
+      - name: judge pairing
+        run: python tools/organizer/test_judge.py
+      - name: ablation variants
+        run: python tools/organizer/test_ablation.py
+      - name: output contract
+        run: python tools/organizer/test_contract.py
+      - name: independent truth generator
+        run: python tools/organizer/test_independent_generator.py
+      - name: C++ and Python reject the same configurations
+        run: python tools/organizer/test_odometer_config.py
 
   cpp:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: cmake standalone core
@@ -94,7 +108,7 @@ jobs:
             -DCMAKE_CXX_FLAGS="-Wall -Wextra"
           cmake --build build/rbo --parallel
           ctest --test-dir build/rbo --output-on-failure
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: synth e2e (generate -> replay_ukf -> envelope -> score)
@@ -108,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       # Discover the same registered tests as Release. An explicit executable
@@ -122,6 +136,16 @@ jobs:
           export ASAN_OPTIONS=detect_leaks=1
           export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
           ctest --test-dir standalone/build-asan --output-on-failure
+      # The submission core is header-only and shared with the ROS node.
+      - name: sanitizers on the submission core
+        run: |
+          cmake -S railbreak_backup_odometry/tools -B build/rbo-asan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build/rbo-asan --parallel
+          export ASAN_OPTIONS=detect_leaks=1
+          export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+          ctest --test-dir build/rbo-asan --output-on-failure
 
   ros:
     # Research package tram_dr_localization only. The submission node is the
@@ -132,7 +156,7 @@ jobs:
     container:
       image: ros:humble-ros-base
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: workspace
@@ -193,7 +217,7 @@ jobs:
     container:
       image: ros:humble-ros-base
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: workspace
@@ -252,7 +276,7 @@ jobs:
     container:
       image: ros:humble-ros-base
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: workspace

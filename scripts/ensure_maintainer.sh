@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Insert the <maintainer> tag catkin_pkg requires on Humble.
 # The organiser package.xml has none. Replacing only <license> does nothing
 # when that tag is absent, and colcon then rejects the package.

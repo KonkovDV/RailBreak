@@ -1,4 +1,4 @@
-"""The jury demo script keeps the three lines and the published fault rows."""
+"""The jury demo script keeps the three lines, both GNSS modes and the published fault rows."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ RESULTS = (ROOT / "docs" / "solution" / "results.md").read_text(encoding="utf-8"
 INTEGRITY = (ROOT / "docs" / "solution" / "integrity.md").read_text(encoding="utf-8")
 
 LINES = (
-    "После стартового окна GNSS физически отписан. Ни один последующий GNSS-пакет не влияет на состояние.",
+    "После стартового окна GNSS не ведёт оценку: скорость и путь дают тележки и модель, а редкая пачка RTK на оси только подправляет дугу. В строгом режиме GNSS отписывается полностью.",
     "Мы не переключаемся жёстко между датчиками. Недостоверное измерение получает пониженный вес, а модель сохраняет непрерывность.",
-    "Два согласованных датчика не позволяют наблюдать общую моду. Мы не скрываем эту физическую ненаблюдаемость: через три секунды система помечает режим как degraded и увеличивает integrity bound. Следующая абсолютная путевая привязка ограничивает накопленный дрейф.",
+    "Два согласованных датчика не позволяют наблюдать общую моду. Система это распознаёт: через три секунды режим помечается как degraded, и integrity bound растёт. Следующая абсолютная путевая привязка ограничивает накопленный дрейф.",
 )
 
 
@@ -25,6 +25,8 @@ def main() -> int:
             errors.append("missing spoken line")
     for token in (
         "gnss=closed",
+        "gnss=correcting",
+        "gnss_correction:=false",
         "map",
         "base_link",
         "mgrs",
@@ -37,11 +39,11 @@ def main() -> int:
         "n_anchor",
         "84.0",
         "1.60",
-        "5.51",
+        "6.46",
     ):
         if token not in text:
             errors.append(f"demo missing {token}")
-    if "84.0" not in RESULTS or "1.60" not in RESULTS or "5.51" not in RESULTS:
+    if "84.0" not in RESULTS or "1.60" not in RESULTS or "6.46" not in RESULTS:
         errors.append("cited fault rows are not in results.md")
     if "32.606" not in INTEGRITY:
         errors.append("bound addend is not in integrity.md")
@@ -49,11 +51,14 @@ def main() -> int:
         errors.append("demo stores a bag hash")
     if "protection level" in text and "не protection level" not in text:
         errors.append("demo names a protection level")
+    params = (ROOT / "railbreak_backup_odometry" / "config" / "params.yaml").read_text(encoding="utf-8")
+    if "gnss_correction: true" in params and "gnss=correcting" not in text:
+        errors.append("default keeps rare GNSS corrections, but the demo does not show gnss=correcting")
     for error in errors:
         print(error)
     if errors:
         return 1
-    print("demo: three acts, published fault rows, no bag hashes")
+    print("demo: three acts, both GNSS modes, published fault rows, no bag hashes")
     return 0
 
 

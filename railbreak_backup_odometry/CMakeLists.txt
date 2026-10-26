@@ -77,6 +77,8 @@ if(BUILD_TESTING)
   endif()
   add_executable(test_core tools/test_core.cpp)
   target_include_directories(test_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_compile_definitions(test_core PRIVATE
+    RAILBREAK_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets")
   add_test(NAME test_core COMMAND $<TARGET_FILE:test_core>)
 endif()
 

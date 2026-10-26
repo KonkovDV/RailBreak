@@ -1,118 +1,117 @@
 <p align="center"><img src="../../Logo.png" alt="RailBreak" width="280"></p>
 
-# Источники сдаваемого фильтра
+# Источники и место RailBreak в литературе 2012–2026
 
-Полные записи к упоминаниям в `model.md`, `assumptions.md`, `README.md`, `tz-audit.md` и `pitch.md`.
-Ссылка не переносит в ноду метод статьи. Ниже отдельно: что взято и что сделано в этом репозитории.
+Для каждой работы указано, что из неё взято в ноду и где она стоит в плане развития. Кольцо, остановки, таблица ручки, состояние `[s, v, k, bₐ]`, якорь по ZUPT, перевод км/ч, выход `base_link`, монитор целостности и скореры написаны в этом репозитории. Числа из статей относятся к их данным и приведены для контекста.
 
-Кольцо, остановки, таблица ручки, состояние [s, v, k, bₐ], якорь по ZUPT, перевод км/ч, выход `base_link` и скорер написаны здесь. Их нет в перечисленных статьях.
+## Сводка
 
-## Hasberg, Hensel, Stiller, 2012
+| Направление | Работы | В RailBreak |
+|---|---|---|
+| Одномерное состояние вдоль пути | Hasberg 2012; von Einem 2023; Zhang 2025; Zhang 2026 | Дуга `s` по кольцу, поза из карты |
+| Робастное слияние при несогласии датчиков | Palmer 2018; Jang 2026; González 2026 | `R = 25 (м/с)²` при `ν²/S > 16`, общая мода как отдельный режим |
+| Сцепление и юз | Pichlík 2021; Bouchama 2021; Namoano 2024; CMES 2025; Zha 2026; ETAE 2026 | Карточка невязок, раздельные отказ измерения и отказ модели, `mu_estimate = null` |
+| Независимые каналы | Potokar 2024; Dieckow 2025 | План: третий канал скорости |
+| Целостность и калиброванная неопределённость | Maharmeh 2025; Kumar 2025; Hore 2026; Lai, Raskutti 2026 | Эмпирическая граница по `train`, проверка на `val`; план: онлайн-конформная калибровка |
+| Нормативные линейки | SUBSET-041; ГКИНП (ОНТА)-01-268-02 | Масштаб ±(5 м + 5 %·s); выбор кадра выхода |
 
-C. Hasberg, S. Hensel, C. Stiller. Simultaneous localization and mapping for path-constrained motion. *IEEE Transactions on Intelligent Transportation Systems*, vol. 13, no. 2, pp. 541–552, 2012. DOI [10.1109/TITS.2011.2177522](https://doi.org/10.1109/TITS.2011.2177522). ISSN 1524-9050. Открытый PDF института: [HasbergHenselStiller2012TrITS.pdf](https://www.mrt.kit.edu/z/publ/download/2012/HasbergHenselStiller2012TrITS.pdf).
+## 1. Одномерное состояние вдоль пути
 
-Взято одно: положение стеснённого рельсом экипажа — координата вдоль оси, курс даёт карта. В ноде это s и касательная `assets/ring.csv`.
+**Hasberg, Hensel, Stiller, 2012.** C. Hasberg, S. Hensel, C. Stiller. Simultaneous localization and mapping for path-constrained motion. *IEEE Transactions on Intelligent Transportation Systems*, 13(2), 541–552, 2012. DOI [10.1109/TITS.2011.2177522](https://doi.org/10.1109/TITS.2011.2177522). [PDF](https://www.mrt.kit.edu/z/publ/download/2012/HasbergHenselStiller2012TrITS.pdf).
+Взято: положение стеснённого рельсом экипажа — координата вдоль оси, курс даёт карта (`s` и касательная `assets/ring.csv`). В плане: онлайн-правка карты по повторным проездам (probabilistic curvemap).
 
-Не взято: probabilistic curvemap, кубические сплайны, одновременное обновление карты и фильтра, их EKF. Пункт плана про онлайн-правку карты по повторным проездам на эту статью только указывает. В текущем фильтре карта заморожена после train.
+**von Einem и др., ITSC 2023.** C. von Einem, A. Cramariuc, R. Siegwart, C. Cadena, F. Tschopp. Path-constrained state estimation for rail vehicles. *IEEE ITSC 2023*, 4600–4607. DOI [10.1109/ITSC57777.2023.10422075](https://doi.org/10.1109/ITSC57777.2023.10422075), [arXiv:2308.12082](https://doi.org/10.48550/arXiv.2308.12082).
+Взята постановка: модель в 3 или 6 степенях свободы даёт положения вне рельса, известная карта восстанавливает позу из одной координаты. Их фильтр с visual-inertial одометрией и несколькими гипотезами на стрелках — ориентир для банка гипотез пути ([hypotheses.md](hypotheses.md)).
 
-## von Einem, Cramariuc, Siegwart, Cadena, Tschopp, ITSC 2023
+**Zhang и др., IEEE T-ITS 2025.** R. Zhang, C. Chen, H. Tang, Y. Qin, Z. Lai, Y. Bai. Onboard metro train localization based on the train motion and track geometry feature fusion. *IEEE Transactions on Intelligent Transportation Systems*, 26(10), 16275–16290, 2025. DOI [10.1109/TITS.2025.3571433](https://doi.org/10.1109/TITS.2025.3571433).
+Один MEMS IMU и сопоставление движения с признаками геометрии пути; средняя ошибка ниже 1 % интервала. Подтверждает ставку на геометрию пути как источник абсолютной привязки. В плане: подписи геометрии как якоря между станциями (корреляция `log(v_front/v_rear)` с кривизной на маршруте 10 проверена и фазы не дала, подпись уклона остаётся).
 
-C. von Einem, A. Cramariuc, R. Siegwart, C. Cadena, F. Tschopp. Path-constrained state estimation for rail vehicles. *2023 IEEE 26th International Conference on Intelligent Transportation Systems (ITSC)*, Bilbao, 24–28 Sep. 2023, pp. 4600–4607. DOI [10.1109/ITSC57777.2023.10422075](https://doi.org/10.1109/ITSC57777.2023.10422075). Препринт: [10.48550/arXiv.2308.12082](https://doi.org/10.48550/arXiv.2308.12082).
+**Zhang и др., ION GNSS+ 2026.** Y. Zhang, W. Jiang, J. Wang, B. Cai, J. Liu, X. Ba, D. Lu. 1D INS/ODO recursive navigation method for railway trains in GNSS-denied environments. *Proc. ION GNSS+ 2026*, Orlando, 14–18 Sep 2026, 631–645. [ION 20777](https://www.ion.org/publications/abstract.cfm?articleID=20777).
+Одномерный рекурсивный фильтр INS/одометр: на 30 км Цинхай-Тибетской дороги RMSE пробега 1.335 м (против 16.073 м у 15-мерной слабосвязанной схемы) и скорости 0.0132 м/с. Это современная точка отсчёта одномерной постановки с IMU; RailBreak решает ту же задачу без IMU, заменяя второй канал моделью тяги и якорями станций, и выходит на сопоставимый метровый уровень на своём маршруте.
 
-Взята постановка. Состояние рельсового экипажа — одномерная координата вдоль известной геометрии пути. Статья прямо пишет, что модель в 3 или 6 степенях свободы даёт положения вне рельса, а известная карта восстанавливает позу из этой координаты. В ноде это s, проекция p(s) и касательная.
+## 2. Робастное слияние при несогласии датчиков
 
-Не взято: их EKF, перевод чужих измерений в одномерное пространство, несколько гипотез на стрелках, visual-inertial одометрия и постоянный GNSS. В ноде одно кольцо, после старта нет ни зрения, ни IMU, ни выбора ветки. Отдельный офлайн-прототип в [hypotheses.md](hypotheses.md) считает вес wⱼ на синтетической стрелке и в ноду не входит. RMSE 4.78 м и track selectivity 94.9 % — числа той статьи, не RailBreak.
+**Palmer, Nourani-Vatani, IROS 2018.** A. W. Palmer, N. Nourani-Vatani. Robust odometry using sensor consensus analysis. *IEEE/RSJ IROS 2018*, 3167–3173. DOI [10.1109/IROS.2018.8594473](https://doi.org/10.1109/IROS.2018.8594473), [arXiv:1803.02237](https://arxiv.org/abs/1803.02237).
+Взята идея: несогласному каналу скорости поднимают дисперсию, а не усредняют его остаток. В ноде это порог NIS и `R = 25 (м/с)²` у расходящейся тележки. Их вывод о том, что ускорение колеса при юзе лежит в пределах возможного разгона, объясняет, почему в ноде работает невязка к модели и согласие тележек, а не порог ускорения.
 
-## Pichlík, Bauer, IEEE TVT 2021
+**Jang и др., 2026.** M. Jang, J. Lee, A. Hakobyan, N. Hovakimyan, I. Yang. Residual-aware distributionally robust EKF: absorbing linearization mismatch via Wasserstein ambiguity. [arXiv:2604.02749](https://arxiv.org/abs/2604.02749), 3 Apr 2026.
+Объединяют несовпадение модели шума и ошибку линеаризации в множестве неопределённости Вассерштейна, получают вычислимый радиус робастности и детерминированные границы MSE; фильтр решает SDP на каждом шаге. Из этой линии в ноде — принцип «величина невязки раздувает неопределённость измерения» в виде O(1)-правила, совместимого с циклом 30 Гц. В плане: оценка радиуса неопределённости для таблицы тяги по невязкам `train`.
 
-P. Pichlík, J. Bauer. Adhesion characteristic slope estimation for wheel slip control purpose based on UKF. *IEEE Transactions on Vehicular Technology*, vol. 70, no. 5, pp. 4303–4311, 2021. DOI [10.1109/TVT.2021.3072484](https://doi.org/10.1109/TVT.2021.3072484).
+**González и др., 2026.** F. González, Ö. D. Akyildiz, D. Crisan, J. Míguez. An operator-theoretic analysis of nonlinear filtering under model misspecification. [arXiv:2607.11378](https://arxiv.org/abs/2607.11378), 2026.
+Разделяют ошибку начального распределения и накопленную ошибку неверной динамики при верной модели наблюдения и дают условия, при которых фильтры с верной и неверной динамикой сходятся. Теоретическая рамка для разбора таблицы тяги как неверно заданной динамики; в ноду не переносится.
 
-Их метод считает наклон характеристики сцепления по возбуждению момента и угловой скорости колеса. В ноде этих входов нет, оценщик не перенесён.
+## 3. Сцепление и юз
 
-Не взято: их UKF, определение сдвига фазы между моментом и скоростью колеса, контур противоюза. Публикуется прокси невязок в [adhesion.md](adhesion.md): согласие тележек, невязка к модели, NIS, длительность общей моды, вырезка и скорость. `mu_estimate` всегда null.
+**Pichlík, Bauer, IEEE TVT 2021.** P. Pichlík, J. Bauer. Adhesion characteristic slope estimation for wheel slip control purpose based on UKF. *IEEE Transactions on Vehicular Technology*, 70(5), 4303–4311, 2021. DOI [10.1109/TVT.2021.3072484](https://doi.org/10.1109/TVT.2021.3072484).
+Наклон характеристики сцепления по возбуждению момента и угловой скорости колеса. Показывает, какие входы нужны для оценки сцепления; в контракте вагона их нет, поэтому публикуется карточка невязок ([adhesion.md](adhesion.md)).
 
-## Palmer, Nourani-Vatani, IROS 2018
+**Bouchama и др., SysTol 2021.** H. F. Bouchama, D. Berdjag, M. Defoort, J. Lauber. Observer-based robust train speed estimation subject to wheel-rail adhesion faults. *5th Int. Conf. on Control and Fault-Tolerant Systems (SysTol)*, 303–310, 2021. IEEE [9594997](https://ieeexplore.ieee.org/document/9594997), [HAL hal-03406951](https://uphf.hal.science/hal-03406951).
+Ближайшая постановка: робастная скорость при отказе сцепления; два наблюдателя — сила сцепления и скорость по бализам. Из неё в оценщике пять свойств: раздельные отказ измерения и отказ модели, конверт рядом с точкой, невязка колесо–модель, раздельное доверие каналов, время обнаружения и доля ложной тревоги на размеченной синтетике (`scenario_campaign.py`). Роль бализ у RailBreak играют якоря станций.
 
-A. W. Palmer, N. Nourani-Vatani. Robust odometry using sensor consensus analysis. *2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*, Madrid, 1–5 Oct. 2018, pp. 3167–3173. DOI [10.1109/IROS.2018.8594473](https://doi.org/10.1109/IROS.2018.8594473). Препринт [arXiv:1803.02237](https://arxiv.org/abs/1803.02237).
+**Namoano и др., 2024.** B. Namoano, C. Emmanouilidis, A. Starr. Detecting wheel slip from railway operational data through a combined wavelet, long short-term memory and neural network classification method. *Engineering Applications of Artificial Intelligence*, 2024. DOI [10.1016/j.engappai.2024.109173](https://doi.org/10.1016/j.engappai.2024.109173).
+Детектор юза по вейвлету и LSTM на эксплуатационных данных. В плане — теневой классификатор рядом с фильтром при наличии размеченных эпизодов юза и проверке на сдвиг домена.
 
-Взята идея: несогласному каналу скорости не усредняют остаток, а поднимают дисперсию. В ноде это порог NIS и R = 25 (м/с)² у расходящейся тележки.
+**CMES 2025.** Online estimation method of train wheel-rail adhesion coefficient based on parameter estimation. *Computer Modeling in Engineering & Sciences*, 144(3), 2025. DOI [10.32604/cmes.2025.068951](https://doi.org/10.32604/cmes.2025.068951).
+μ онлайн по силовой модели колёсной пары и динамике торможения.
 
-Не взято: их процедура sensor consensus analysis и оценка диаметра колеса как состояния EKF по независимому датчику скорости. Здесь k — consider-состояние, на колёсах Kₖ = 0, двигают его только якоря. Ускорение колеса при юзе может оставаться в диапазоне физически возможного разгона. Одного порога ускорения поэтому мало: в ноде остаются несогласие с моделью и общая мода.
+**Zha и др., 2026.** W. Zha, D. Ou, Y. Tong, C. Xu, S. Su, J. Xiong. Train slide prediction and risk assessment using vehicle-signal data: a data-model fusion method. *Urban Rail Transit*, 12(3), 330–343, 2026. DOI [10.1007/s40864-026-00269-9](https://doi.org/10.1007/s40864-026-00269-9).
+Двухканальная CNN–GRU с cross-attention по тормозному усилию, скорости поезда и скоростям колёсных пар прогнозирует вероятность юза на горизонте 2.5 с, модель тормозной динамики — отклонение от точки остановки. В плане — теневой предиктор юза, если тормозное усилие появится во входном контракте.
 
-## Направления рядом, в ноду не взяты
+**ETAE 2026.** An LSTM-Kalman fusion-based hybrid observation method for wheel-rail adhesion coefficient estimation. *ETAE 2026*. DOI [10.1109/etae69474.2026.11495772](https://doi.org/10.1109/etae69474.2026.11495772).
+Наблюдатель μ по окружной скорости колеса и LSTM-приору.
 
-Это не методы сдачи. Их числа в репозиторий не переносятся.
+## 4. Независимые каналы
 
-H. F. Bouchama, D. Berdjag, M. Defoort, J. Lauber. Observer-based Robust Train Speed Estimation Subject to Wheel-Rail Adhesion Faults. *5th International Conference on Control and Fault-Tolerant Systems (SysTol)*, Saint-Raphaël, 29 Sep.–1 Oct. 2021, pp. 303–310. IEEE [9594997](https://ieeexplore.ieee.org/document/9594997), запись [HAL hal-03406951](https://uphf.hal.science/hal-03406951). Близкая постановка: робастная продольная скорость при отказе сцепления, который портит измерение скорости. В статье два наблюдателя: скользящий дифференцирующий фильтр силы сцепления за конечное время и непрерывно-дискретный high-gain наблюдатель скорости по непериодическим бализам. Оба в ноду не входят. Силы сцепления и бализ здесь нет. Полная замена фильтра их схемой не делается. Числа их симуляций не являются числами RailBreak.
+**Potokar, McGann, Kaess, RA-L 2024.** E. Potokar, D. McGann, M. Kaess. Robust preintegrated wheel odometry for off-road autonomous ground vehicles. *IEEE Robotics and Automation Letters*, 9(12), 11649–11656, 2024. [PDF](https://www.cs.cmu.edu/~kaess/pub/Potokar24ral.pdf).
+Факторный граф с предынтегрированием колёс, онлайн-оценкой радиуса и юза; требует IMU. Направление при появлении IMU во входном контракте.
 
-Из этой постановки в текущем оценщике уже есть пять свойств, без их наблюдателей.
+**Dieckow и др., 2025.** N. Dieckow, K. Ostaszewski, P. Heinisch, H. Struckmann, H. Ranocha. Real-time rail vehicle localisation using spatially resolved magnetic field measurements. [arXiv:2507.19327](https://arxiv.org/abs/2507.19327), 2025.
+Локализация по магнитной карте пути: фильтр частиц с модифицированным ядром — 2.07 м средней ошибки (максимум 5.3 м) на 21.6 км; холодный старт сопоставлением последовательностей. Кандидат на третий независимый канал, который делает общую моду двух тележек наблюдаемой (пункт 3 [плана](tz-audit.md#план-развития)).
 
-Отказ измерения и отказ модели разделены. Одна тележка в стороне от другой — канал измерения: растёт R, доверие этой тележки падает. Обе согласны и обе в стороне от модели — не отказ одной тележки. Причина не называется: это может быть модель, задержка, масса, уклон или общий юз. После `recover_s` = 3 с политика `COMMON_MODE_UNOBSERVABLE`, затем слепой бюджет и `LOST`.
+## 5. Целостность и калиброванная неопределённость
 
-Ограничение публикуется рядом с точкой, а не как доказанная практическая устойчивость их наблюдателя. Конверт — `empirical bound, not certified protection level`. В `pose.covariance` он не вкладывается.
+**Maharmeh и др., Sensors 2025.** E. Maharmeh, Z. Alsayed, F. Nashashibi. A comprehensive survey on the integrity of localization systems. *Sensors*, 25(2), 358, 2025. [mdpi.com/1424-8220/25/2/358](https://www.mdpi.com/1424-8220/25/2/358).
+Разделяет точность и заявление о целостности. RailBreak публикует оба: точность в метриках и эмпирическую границу с флагом `certification_claim = false` ([integrity.md](integrity.md)).
 
-Невязка отказа — колесо минус модель и NIS. Это не невязка их дифференцирующего фильтра и не юз. `SLIP_SUSPECTED` не публикуется.
+**Kumar и др., 2025.** D. Kumar, S. Tayebati, F. Migliarba, R. Krishnan, A. R. Trivedi. Learnable conformal prediction with context-aware nonconformity functions for robotic planning and perception. [arXiv:2509.21955](https://arxiv.org/abs/2509.21955), 2025.
 
-Доверие раздельное: скорость, положение, каждая тележка и модель, со значениями `HIGH`, `LOW`, `NONE`.
+**Hore и др., 2026.** R. Hore, A. Chatterjee, S. Choudhury. Multi-source conformal prediction: leveraging heterogeneity via localization. [arXiv:2609.14531](https://arxiv.org/abs/2609.14531), 13 Sep 2026.
+Конечновыборочное покрытие при объединении разнородных источников. Прямо ложится на два вагона с разным масштабом (30618 и 30639).
 
-Задержка обнаружения и ложная тревога считаются на размеченном синтетическом прогоне в `scenario_campaign.py`: `time_to_detection`, `false_alarm_rate`, `missed_detection_rate`. Пустое множество остаётся пустым, а не нулём. Эти доли не заменяют 1.467 м и не являются evidence текущего HEAD.
+**Lai, Raskutti, 2026.** Y. Lai, G. Raskutti. Online localized conformal prediction. [arXiv:2605.05497](https://arxiv.org/abs/2605.05497), 2026.
+Локализованная по признакам калибровка с онлайн-обновлением уровня промаха; долгосрочное покрытие приближается к целевому при дрейфе. Путь от статического квантиля `train` к границе, которая держит покрытие на новых датах.
 
-B. Namoano, C. Emmanouilidis, A. Starr. Detecting wheel slip from railway operational data through a combined wavelet, long short-term memory and neural network classification method. *Engineering Applications of Artificial Intelligence*, 2024. DOI [10.1016/j.engappai.2024.109173](https://doi.org/10.1016/j.engappai.2024.109173). Детектор юза по вейвлету, LSTM и нейросетевой классификации. В сегодняшнюю сдачу не входит и шаг фильтра не заменяет. Их метрики не являются метриками RailBreak.
+Текущая граница `B_s` — квантиль `train`, проверенный на `val`. Для конформной гарантии нужны отдельный калибровочный сплит, непройденные даты и вагоны и учёт зависимости соседних фиксов одного рейса.
 
-После дедлайна это может быть только теневой классификатор. Пять причин, почему не сейчас. Нужны лейблы юза, а в этом дереве подтверждённый юз не публикуется. Нужна репрезентативная выборка, не один знакомый синтетический профиль. Высок риск domain shift между генератором, train и скрытым test. Генератор нельзя подгонять под классификатор: семейства A–F и `truth_sim.py` тогда перестают быть незнакомой истиной. Не видно, как выход классификатора гарантирует поведение целостности: `LOST`, слепой бюджет и конверт остаются политикой модели, а не решением сети.
+## 6. Нормативные линейки
 
-E. Potokar, D. McGann, M. Kaess. Robust Preintegrated Wheel Odometry for Off-road Autonomous Ground Vehicles. *IEEE Robotics and Automation Letters*, vol. 9, no. 12, pp. 11649–11656, Dec. 2024. PDF [CMU](https://www.cs.cmu.edu/~kaess/pub/Potokar24ral.pdf). Сильное направление для колёсной одометрии, но это roadmap, а не правка к дедлайну. Их факторный граф требует IMU, трёхмерное движение, онлайн-оценку радиуса и юза и оптимизацию. В этой ноде IMU нет, движение — дуга кольца, k на колёсном шаге не двигается, факторного графа нет. Их числа не являются числами RailBreak.
+**UNISIG SUBSET-041**, Performance Requirements for Interoperability, v3.2.0, §5.3.1.1. [ERA PDF](https://www.era.europa.eu/system/files/2023-01/sos3_index014_-_subset-041_v320.pdf).
+Используется как внешняя линейка величин: точность одометрии ±(5 м + 5 %·s) от репера и свежесть оценки моложе 1 с. По этой линейке медиана `val` (1.47 м вдоль пути, дрейф 0.024 % пути) и скорость (0.032 м/с при допуске ±0.56 м/с до 30 км/ч) укладываются с запасом; RailBreak — трамвайная система вне ETCS, соответствие SUBSET-041 не заявляется.
 
-Online Estimation Method of Train Wheel-Rail Adhesion Coefficient Based on Parameter Estimation. *CMES*, vol. 144, no. 3, 2025. DOI [10.32604/cmes.2025.068951](https://doi.org/10.32604/cmes.2025.068951). Там μ считается онлайн-оценщиком параметра по силовой модели одной колёсной пары и динамике торможения. В ноду этот оценщик не входит. Их симуляция не является числом RailBreak.
+**ГКИНП (ОНТА)-01-268-02.** Основные положения по созданию и обновлению опорной геодезической сети г. Москвы; приказ Москомархитектуры от 20.01.2003 № 13, «Вестник Мэра и Правительства Москвы» № 18, март 2004. [ГАРАНТ](https://base.garant.ru/4093150/).
+На разборе этим документом называли МКРС (начало 55°40′ с.ш., 37°30′ в.д., эллипсоид Бесселя). Эксперты затем подтвердили MGRS; по умолчанию выход — UTM 37N минус угол квадрата 300 000 / 6 100 000 м, МКРС доступна параметром `output_frame`.
 
-Для RailBreak `mu_estimate = null` — правильное решение. Настоящая оценка сцепления требует момент тяги или торможения, модель силы, динамику поезда, задержку привода, вращательную динамику колеса и независимый репер. Две скорости тележек и команда водителя этого набора не дают: коэффициент сцепления неидентифицируем.
+## 7. Решения трека на записи `30618_88aea4d9`
 
-> coefficient of adhesion is not observable from two wheel speeds and driver command alone.
+Числа — из README и отчётов авторов; в нашем Docker их узлы не перезапускались.
 
-E. Maharmeh, Z. Alsayed, F. Nashashibi. A Comprehensive Survey on the Integrity of Localization Systems. *Sensors*, 2025, 25(2), 358. [mdpi.com/1424-8220/25/2/358](https://www.mdpi.com/1424-8220/25/2/358). Обзор разделяет точность и заявление о целостности или protection level. Граница этой сдачи остаётся `empirical bound, not certified protection level`.
+| Решение | Подход | Скорость, м/с | 3D, м |
+|---|---|---:|---:|
+| **RailBreak** | Шмидт — Калман `[s, v, k, bₐ]`, геодезическое кольцо, среднее тележек, `notch_fault`, монитор целостности | **0.024691** | **1.157702** (макс. 3.67) |
+| [`67-time-to-win-hack`](https://github.com/Kvascs/67-time-to-win-hack) (`tbo_core`) | GPB1 на пяти режимах, CUSUM, подпись `log(v_front/v_rear)`, масштаб по шагу квантования, западный тупик в карте | 0.026 | 0.60 |
+| `ekimlichenko-mt` | Одномерный оцениватель с GNSS по ходу рейса (без него 7.16 м) | 0.0324 | 1.111 (макс. 14.02) |
+| [`VECTRA`](https://github.com/kitay-sudo/vectra-tram-odometry) | UKF `[s, v, d, k_т, k_б]`, сопротивление Дэвиса, сдвиг скорости 0.08 с (без него 0.059 м/с) | 0.042 | 1.43 |
+| [`tram-backup-odometry`](https://github.com/KroLor/tram-backup-odometry) | Эхо-сеть и Калман `[v, b]`, профиль ветки | 0.051 | 1.209 |
+| `dub-otrezkov` | Проекция на путь | 0.055 | 1.053 (макс. 13.17) |
+| [`FunnyRepo`](https://github.com/MikeEgorshev/FunnyRepo) (`2afdb9f`) | Таблица 31×16, задержка тяги 0.4 с | 0.033 | 5.13 |
 
-F. González, Ö. D. Akyildiz, D. Crisan, J. Míguez. An Operator-Theoretic Analysis of Nonlinear Filtering under Model Misspecification. arXiv:[2607.11378](https://arxiv.org/abs/2607.11378). Разбор фильтра при неверной динамике. В ноду не перенесён. Это материал для разбора устойчивости после дедлайна, не для текущего шага.
+Ни один чужой узел, модель или параметр в ноду не переносились. Общий физический признак с `tbo_core` — проверка знака ручки против согласованного ускорения тележек; в RailBreak это собственное правило `notch_fault` без их CUSUM и GPB1. Сетка сохранённой дуги 0.04 с — собственное правило ноды.
 
-M. Jang, J. Lee, A. Hakobyan, N. Hovakimyan, I. Yang. Residual-Aware Distributionally Robust EKF: Absorbing Linearization Mismatch via Wasserstein Ambiguity. arXiv:[2604.02749](https://arxiv.org/abs/2604.02749), 3 Apr 2026. Наиболее интересное теоретическое направление для следующей версии: несовпадение модели шума, несовпадение линеаризации, неоднозначность Вассерштейна и детерминированные границы MSE. Их фильтр на каждом шаге решает SDP и в ноду не входит. Их симуляции не являются числами RailBreak.
+## 8. Соседние репозитории KonkovDV
 
-Для сегодняшней версии взята только идея: величина невязки раздувает неопределённость измерения. В коде это порог ν²/S > 16, после которого R = 25 (м/с)². Это не радиус Вассерштейна и не детерминированная граница MSE. Конверт остаётся `empirical bound, not certified protection level`.
+Из [wellguard-os](https://github.com/KonkovDV/wellguard-os), [open-integrity-twin](https://github.com/KonkovDV/open-integrity-twin) и [drillguard-os](https://github.com/KonkovDV/drillguard-os) взято правило объяснимой карточки: плохой вход, невязка одного канала и общая невязка — разные детерминированные метки, которые не пишут фильтр. В диагностике это `advisory_class`.
 
-D. Kumar, S. Tayebati, F. Migliarba, R. Krishnan, A. R. Trivedi. Learnable Conformal Prediction with Context-Aware Nonconformity Functions for Robotic Planning and Perception. arXiv:[2509.21955](https://arxiv.org/abs/2509.21955). Страница: [divake.github.io/learnable-cp-robotics](https://divake.github.io/learnable-cp-robotics/). R. Hore, A. Chatterjee, S. Choudhury. Multi-source conformal prediction: leveraging heterogeneity via localization. arXiv:[2609.14531](https://arxiv.org/abs/2609.14531), 13 Sep 2026. Хорошее направление для эмпирического интервала. В эту сдачу их процедуры не входят, и их покрытия не являются числами RailBreak.
+## 9. Внешние справки
 
-Текущая граница Bₛ — квантиль train, проверенный на val. Это не conformal prediction. Чтобы интервал стал конформным, нужны честный calibration split, не те же рейсы, на которых выбран квантиль; непройденные маршруты и вагоны, а не только маршрут 10; и учёт зависимости временного ряда: соседние фиксы одного рейса не обменны. Даже тогда это не SIL proof и не `certified protection level`. `certification_claim` остаётся `false`.
-
-Общий вывод. К дедлайну сильнее не нейросеть, а интерпретируемый оцениватель по модели, явные гипотезы отказа, консервативная машина состояний целостности, явное объявление ненаблюдаемости и воспроизводимый прогон.
-
-## Чужие решения хакатона и работы 2026 года
-
-Числа ниже — текст авторов или аннотация статьи. Это не повтор RailBreak и не балл `hackathon_solution_checker` этого репозитория.
-
-На записи `30618_88aea4d9` их тексты дают скорость выше нашего прогона `0.024691 м/с`: `67-time-to-win-hack` — `0.026 м/с` и 3D `0.60 м` (в [`audit_baseline.md`](../improvement/audit_baseline.md) их README назван как заявка `0.59 м`), `ekimlichenko-mt` — `0.0324 м/с` и `1.111 м`, `VECTRA` — `0.042 м/с` и `1.43 м` (сдвиг скорости `0.08 с`, подобранный на этой записи; без него у них в тексте `0.059 м/с`), `FunnyRepo` (`2afdb9f`) — `0.033 м/с` и `5.13 м`, `tram-backup-odometry` — `0.051 м/с` и `1.209 м`, `dub-otrezkov` — `0.055 м/с` и `1.053 м`. Положение `0.60 м` у `67-time-to-win-hack` ниже нашего `1.157702 м`. Их GPB на пяти гипотезах, подпись `log(v_front/v_rear)`, масштаб по шагу квантования и тупик в карте в ноду не перенесены. Эхо-сеть и Калман `[v, b]` из `tram-backup-odometry` тоже: это другой репозиторий, не `FunnyRepo`. Сетка `0.04 с` между штампами тележек публикует сохранённую дугу этой ноды. Проверка знака ручки (`notch_fault`) — правило этой ноды: прогноз на выбег `notch = 0`, если согласные тележки быстрее `1 м/с` не меньше `0.5 с` ускоряются (`a > 0.25 м/с²`) на тормозной ручке `≤ −4` или замедляются сильнее `1.0 м/с²` на ходовой `≥ +4`. Оно не снимает `COMMON_MODE_UNOBSERVABLE`.
-
-1D INS/ODO для железной дороги без GNSS. *Proceedings of the 39th International Technical Meeting of the Satellite Division of The Institute of Navigation (ION GNSS+ 2026)*, 14–18 Sep 2026, pp. 631–645. [ION 20777](https://www.ion.org/publications/abstract.cfm?articleID=20777). Их полевой прогон Цинхай—Тибет, 30 км, даёт mileage RMSE 1.335 м и скорость 0.0132 м/с у одномерного EKF с одометром и IMU. В этой ноде IMU нет, и эти числа не являются числами RailBreak.
-
-An LSTM-Kalman Fusion-Based Hybrid Observation Method for Wheel-Rail Adhesion Coefficient Estimation. *ETAE 2026*. DOI [10.1109/etae69474.2026.11495772](https://doi.org/10.1109/etae69474.2026.11495772). Их наблюдатель оценивает μ по окружной скорости колеса и LSTM-приору. Здесь этих входов нет. `mu_estimate` остаётся null.
-
-> coefficient of adhesion is not observable from two wheel speeds and driver command alone.
-
-## Другие репозитории KonkovDV
-
-В оцениватель не переносились планировщики SynAPS, сверка AeroBIM и Kontur и контракт Mandat.
-
-Из [wellguard-os](https://github.com/KonkovDV/wellguard-os), [open-integrity-twin](https://github.com/KonkovDV/open-integrity-twin) и [drillguard-os](https://github.com/KonkovDV/drillguard-os) взято одно правило карточки. Плохой вход, невязка одной тележки и общая невязка — разные метки. Метка не является вероятностью и не пишет фильтр. В диагностике это `advisory_class`. Их синтетические полнота и ложные тревоги, включая 0,973 и 0 ложных утечек в час у open-integrity-twin, не являются числами RailBreak. `heuristic_score` оттуда не публикуется.
-
-## ГКИНП (ОНТА)-01-268-02
-
-Основные положения по созданию и обновлению опорной геодезической сети г. Москвы. Введены приказом Москомархитектуры от 20 января 2003 г. № 13. Опубликованы в «Вестнике Мэра и Правительства Москвы», № 18, март 2004, приложение 2 к постановлению Правительства Москвы от 2 марта 2004 г. № 115-ПП. DOI нет. Публично читаемая копия этой публикации: [ГАРАНТ](https://base.garant.ru/4093150/).
-
-На разборе этим документом называли МКРС. Раздел 4 и таблица 1 задают частную систему: начало 55°40′ с.ш., 37°30′ в.д. В ноду это не перенесено. Выход по умолчанию — UTM зоны 37N минус угол квадрата 300000 м / 6100000 м. Эллипсоид Бесселя и переход WGS84→Бессель не применяются.
-
-## UNISIG SUBSET-041
-
-UNISIG SUBSET-041, Performance Requirements for Interoperability, v3.2.0. Официальный файл ERA: [subset-041_v320.pdf](https://www.era.europa.eu/system/files/2023-01/sos3_index014_-_subset-041_v320.pdf), §5.3.1.1.
-
-Взято как внешняя линейка величин: вид ±(5 м + 5 %·s) и свежесть оценки моложе 1 с. Реализация требований SUBSET-041, ETCS и сертификат не заявляются. Штамп выхода равен штампу входа; это не заявка на соответствие пункту.
-
-## Сообщение мэрии
-
-[mos.ru, тема 13333050](https://www.mos.ru/mayor/themes/13333050/). Внешняя справка о том, что основная локализация сравнивает сцену с лидарной картой и не зависит от ГЛОНАСС. В подписки ноды лидар не входит.
+- [mos.ru, тема 13333050](https://www.mos.ru/mayor/themes/13333050/) — основная локализация беспилотного трамвая сравнивает сцену с лидарной картой; RailBreak — резервный канал на штатных датчиках вагона.
+- [DEUTA: odometry and speed-distance unit](https://deuta.com/en/odometry-and-speed-distance-unit.aspx) — однотипные датчики ошибаются вместе; отсюда разделение каналов «колёса» и «модель тяги».
