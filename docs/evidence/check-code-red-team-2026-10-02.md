@@ -107,7 +107,7 @@ owner or by a reviewed conversion.
 
 ## Verification boundary
 
-The sandbox did not have ROS 2 Humble, `rclpy`, `rosbag2_py`, Docker, or CMake.
+The audit environment did not have ROS 2 Humble, `rclpy`, `rosbag2_py`, Docker, or CMake.
 Therefore no claim is made here about a full ROS build, DDS QoS compatibility,
 executor behavior, or live replay. The host-only core regression and Python
 contract tests remain separate from this evidence audit.

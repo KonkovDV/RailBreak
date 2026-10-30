@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   python:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -90,7 +90,7 @@ jobs:
         run: python tools/organizer/test_odometer_config.py
 
   cpp:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -119,7 +119,7 @@ jobs:
           python tools/eval/test_eval.py ReplayCatchupTests
 
   asan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -151,7 +151,7 @@ jobs:
     # Research package tram_dr_localization only. The submission node is the
     # submission job. A green research run is not acceptance evidence.
     # source setup.bash runs with nounset off: AMENT_TRACE_SETUP_FILES is unbound.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
       image: ros:humble-ros-base
@@ -212,7 +212,7 @@ jobs:
   submission:
     # The submission node must not wait on the research package tests.
     # Stub messages only: no organiser bag, not acceptance evidence.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
       image: ros:humble-ros-base
@@ -271,7 +271,7 @@ jobs:
   submission_bogies:
     # Same node, message package without DriverControllerCommand. That is the
     # check-code archive. The full-package job above does not compile this branch.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     container:
       image: ros:humble-ros-base

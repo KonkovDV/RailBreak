@@ -57,7 +57,7 @@
 **Zha и др., 2026.** W. Zha, D. Ou, Y. Tong, C. Xu, S. Su, J. Xiong. Train slide prediction and risk assessment using vehicle-signal data: a data-model fusion method. *Urban Rail Transit*, 12(3), 330–343, 2026. DOI [10.1007/s40864-026-00269-9](https://doi.org/10.1007/s40864-026-00269-9).
 Двухканальная CNN–GRU с cross-attention по тормозному усилию, скорости поезда и скоростям колёсных пар прогнозирует вероятность юза на горизонте 2.5 с, модель тормозной динамики — отклонение от точки остановки. В плане — теневой предиктор юза, если тормозное усилие появится во входном контракте.
 
-**ETAE 2026.** An LSTM-Kalman fusion-based hybrid observation method for wheel-rail adhesion coefficient estimation. *ETAE 2026*. DOI [10.1109/etae69474.2026.11495772](https://doi.org/10.1109/etae69474.2026.11495772).
+**Gan и др., ETAE 2026.** H. Gan, S. Wang, J. Lu, B. Xie. An LSTM-Kalman fusion-based hybrid observation method for wheel-rail adhesion coefficient estimation. *3rd Int. Conf. on Electrical Technology and Automation Engineering (ETAE)*, Shenzhen, 826–831, 2026. DOI [10.1109/etae69474.2026.11495772](https://doi.org/10.1109/etae69474.2026.11495772).
 Наблюдатель μ по окружной скорости колеса и LSTM-приору.
 
 ## 4. Независимые каналы

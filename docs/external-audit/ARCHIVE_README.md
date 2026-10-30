@@ -24,13 +24,13 @@ python3 tools/eval/test_metric_contracts.py
 ## ROS 2 validation
 
 The complete ROS 2 Humble build and rosbag replay require a ROS/Docker environment.
-Use the procedure in `AI_WORKPLAN.md`. Do not treat the host-only smoke test as a
+Use the procedure in `REPRODUCTION_PLAN.md`. Do not treat the host-only smoke test as a
 replacement for ROS executor, QoS, message-type or latency validation.
 
 ## Contents
 
 - `AUDIT_REPORT.md`: independent audit, confirmed corrections and limitations.
-- `AI_WORKPLAN.md`: detailed next-step plan for an AI/engineer.
+- `REPRODUCTION_PLAN.md`: step-by-step reproduction plan for the next reviewer.
 - `railbreak_backup_odometry/`: ROS package, assets, configuration and core tests.
 - `tools/`, `scripts/`, `docs/`: existing evaluation and organizer tooling.
 - `RELEASE_CHECKSUMS.txt`: release manifest with source-tree digest and archive name. The exact archive SHA-256 is in the adjacent `RailBreak_corrected_source.zip.sha256` file and is repeated in the delivery message.

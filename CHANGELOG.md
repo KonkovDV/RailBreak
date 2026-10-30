@@ -4,6 +4,15 @@
 
 Пакет — `railbreak_backup_odometry` (`package.xml`, версия `0.1.0`). Подробный журнал изменений фильтра — [`POSTMORTEM.md`](POSTMORTEM.md) и [`docs/solution/results.md`](docs/solution/results.md) §9.
 
+## 2026-10-30 — сверка README с источниками
+
+- Основная локализация трамвая описана по сообщению мэрии: сравнение с лидарной картой, без зависимости от спутников.
+- Сдача к дедлайну — `543a4a5`; её checker снят на `5cd35fa`. В таблицах и реестре это разведено.
+- Вывод ручки из водяного знака очереди относится к `10b2714` (2 октября), а не к шагу среднего тележек; шаг 3 октября снял позу со штампом ручки.
+- Ворота окна RTK везде записаны с обоими условиями: не дальше 1.5 м поперёк оси и продольная невязка не больше `max(5 м, 4σ_s)`. Покрытие pathgraph — около трёх четвертей фиксов `train`.
+- Максимум задержки 100.7 мс назван рядом с медианой; числа checker помечены датой до исправления привязки GNSS.
+- `CONTRIBUTING.md` вместо `AGENTS.md`, план внешнего аудита — `REPRODUCTION_PLAN.md`. CI закреплён на `ubuntu-24.04`.
+
 ## 2026-10-25 — аудит кода, реестр утверждений, документация и CI
 
 Код ([аудит](docs/AUDIT-2026-10-25.md)):
@@ -16,7 +25,7 @@
 
 Практики ([PORTING.md](docs/PORTING.md)):
 
-- [`CLAIMS_REGISTRY.md`](CLAIMS_REGISTRY.md), [`LIMITS.md`](LIMITS.md), [`MODEL_CARD.md`](MODEL_CARD.md), [`AGENTS.md`](AGENTS.md), [`CITATION.cff`](CITATION.cff), [`BANNED_CLAIMS.txt`](BANNED_CLAIMS.txt).
+- [`CLAIMS_REGISTRY.md`](CLAIMS_REGISTRY.md), [`LIMITS.md`](LIMITS.md), [`MODEL_CARD.md`](MODEL_CARD.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CITATION.cff`](CITATION.cff), [`BANNED_CLAIMS.txt`](BANNED_CLAIMS.txt).
 - `tools/eval/lint_claims.py` в CI: запрещённые формулировки, ссылки на номера реестра, числа реестра против источников, заголовочные числа checker в README, питче и результатах.
 - README на русском и [английском](README.en.md).
 
